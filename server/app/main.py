@@ -93,6 +93,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(quality_router)
     from .routes_receipts import router as receipts_router  # phase 1b: verify a receipt
     app.include_router(receipts_router)
+    from .routes_scan_ai import router as scan_ai_router  # phase 2: AI paper grading
+    app.include_router(scan_ai_router)
 
     @app.get("/api/health")
     async def health():

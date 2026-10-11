@@ -22,6 +22,7 @@ from . import ai
 from .db import get_database, get_session
 from .grading import exam_questions, grade_attempt, is_answered, num, paper_answer, paper_given, percent
 from .models import Attempt, CourseMember, Exam, User
+from .scan import ai_grade, answer_key  # phase 2: step-level AI grading + answer key
 from .scan import grading as scan_grading
 from .scan import pipeline
 from .scan import print as print_mod
@@ -487,10 +488,12 @@ async def draft_answers(exam_id: str, pairs: list[tuple[str, str]], batch_id: st
     async with db.sessionmaker() as s:
         e = await s.get(Exam, exam_id)
         qmap = _question_map(e)
+        key = await answer_key.load_key(s, exam_id)  # phase 2: answer key + rubric
         aids = sorted({aid for aid, _ in pairs})
         answers = {aid: ans for aid, ans in (await s.execute(
             select(Attempt.id, Attempt.answers).where(Attempt.id.in_(aids)))).all()}
-    sem = asyncio.Semaphore(AI_CONCURRENCY)
+    ctxs = {qid: answer_key.key_context(key, q) for qid, q in qmap.items()}
+    sem = asyncio.Semaphore(ai_grade._concurrency())
 
     async def one(aid: str, qid: str) -> tuple[str, str, dict] | None:
         ans = (answers.get(aid) or {}).get(qid)
@@ -499,7 +502,7 @@ async def draft_answers(exam_id: str, pairs: list[tuple[str, str]], batch_id: st
             return None
         async with sem:
             img = await asyncio.to_thread(read_url, ans.get("image"))
-            d = await scan_grading.draft_for(q, ans, img, hint)
+            d = await scan_grading.draft_for(q, ans, img, hint, ctx=ctxs.get(qid))
             d["image"] = ans.get("image")  # the draft belongs to this crop
             return aid, qid, d
 
@@ -518,6 +521,8 @@ async def draft_answers(exam_id: str, pairs: list[tuple[str, str]], batch_id: st
                 merged = dict(a.ai_drafts or {})
                 cur = a.answers or {}
                 for qid, d in ds.items():
+                    if (a.grades or {}).get(qid) is not None:
+                        continue  # never touch an answer the teacher already graded
                     if (cur.get(qid) or {}).get("image") == d.get("image"):  # not re-scanned meanwhile
                         merged[qid] = d
                 a.ai_drafts = merged
@@ -848,7 +853,8 @@ async def regrade(exam_id: str, aid: str, qid: str, body: RegradeIn | None = Non
     if not paper_answer(ans):
         raise HTTPException(404, "No paper answer for this question")
     img = await asyncio.to_thread(read_url, ans.get("image"))
-    d = await scan_grading.draft_for(q, ans, img, (body.hint if body else "") or "")
+    ctx = answer_key.key_context(await answer_key.load_key(session, e.id), q)
+    d = await scan_grading.draft_for(q, ans, img, (body.hint if body else "") or "", ctx=ctx)
     d["image"] = ans.get("image")
     a = await _locked_attempt(session, e, aid)
     drafts = dict(a.ai_drafts or {})

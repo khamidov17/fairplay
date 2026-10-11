@@ -47,6 +47,10 @@ class ScanBatch(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # phase 2: "printed" (FairPlay booklets, QR matched) | "unprinted" (own answer sheets,
+    # mapped by hand); origin "upload" | "phone" (photos from the phone capture page)
+    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="printed", server_default="printed")
+    origin: Mapped[str] = mapped_column(String(16), nullable=False, default="upload", server_default="upload")
 
 
 class ScanPage(Base):

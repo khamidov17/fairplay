@@ -6,10 +6,10 @@ draft = {"points", "comment", "confidence" (0..1), "transcript", "mistake_tags":
 """
 from __future__ import annotations
 
-import re
 
-from .. import ai
-from ..grading import grade_question, normalize_short, num
+
+
+from ..grading import normalize_short, num
 from ..timeutil import iso, utcnow
 
 LOW_CONFIDENCE = 0.7
@@ -120,45 +120,19 @@ def rule_draft(q: dict, answer: dict) -> dict | None:
     return None
 
 
-async def draft_for(q: dict, answer: dict, image: bytes | None, hint: str = "") -> dict:
-    """One draft for one paper answer. Never raises."""
+async def draft_for(q: dict, answer: dict, image: bytes | None, hint: str = "",
+                    ctx: dict | None = None) -> dict:
+    """One draft for one paper answer. Never raises. `ctx` = answer key context for this
+    question (app.scan.answer_key.key_context); the AI grades step by step (app.scan.ai_grade)."""
+    from . import ai_grade
     rule = rule_draft(q, answer) if not hint else None
     if rule is not None:
-        return rule
-    if image is None:
-        return fallback("The scanned picture is missing — grade by hand")
-    if not ai.enabled():
-        return fallback()
-    try:
-        out = await ai.complete_json(SYSTEM, build_prompt(q, hint), images=[image], max_tokens=600)
-    except ai.AIUnavailable as e:
-        return fallback(f"AI could not grade this ({str(e)[:80]}) — grade by hand")
-    max_points = float(q.get("points", 1))
-    transcript = str(out.get("transcript") or "").strip()[:2000]
-    d = {
-        "points": _clamp_points(out.get("points"), max_points),
-        "comment": str(out.get("comment") or "").strip()[:1000],
-        "confidence": out.get("confidence") if isinstance(out.get("confidence"), (int, float)) else 0.5,
-        "transcript": transcript,
-        "mistake_tags": _tags(out.get("mistake_tags")),
-        "source": "ai",
-    }
-    # Numeric/short: if the transcript matches the answer key exactly, say so (still a draft).
-    if q.get("type") in ("numeric", "short") and transcript:
-        candidate = _final_answer(transcript) if q.get("type") == "numeric" else transcript
-        if grade_question(q, candidate):
-            d["points"] = max_points
-            d["source"] = "key"
-            d["confidence"] = max(float(d["confidence"]), 0.9)
-            if not d["comment"]:
-                d["comment"] = "Matches the answer key."
-    return _finish(d)
-
-
-def _final_answer(text: str) -> str:
-    """Last number in a transcript like 'x = 3.14' -> '3.14'."""
-    nums = re.findall(r"[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?", text)
-    return nums[-1].replace(",", ".") if nums else text
+        reasons = ["unclear_mark"] if rule.get("source") == "bubbles" else []
+        return ai_grade.finalize(dict(rule, explanation=rule.get("comment", "")), q, reasons)
+    ctx = dict(ctx or {})
+    if answer.get("whole_page"):
+        ctx["whole_page"] = True
+    return await ai_grade.suggest(q, ctx, [image] if image is not None else [], hint)
 
 
 def group_key(draft: dict | None) -> str:
