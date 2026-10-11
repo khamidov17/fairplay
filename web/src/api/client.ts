@@ -402,11 +402,11 @@ export const securityApi = {
   timeline: (examId: string, attemptId: string) =>
     request<SessionTimeline>("teacher", "GET", `/api/exams/${enc(examId)}/attempts/${enc(attemptId)}/timeline`),
   /** Change the password; every other sign-in of this account stops working. Returns a new token. */
-  changePassword: (role: Role, currentPassword: string, newPassword: string) =>
+  changePassword: (role: SessionRole, currentPassword: string, newPassword: string) =>
     request<LoginResponse>(role, "POST", "/api/auth/password", {
       current_password: currentPassword,
       new_password: newPassword,
     }),
   /** Sign this account out on every device (this one too). */
-  logoutAll: (role: Role) => request<void>(role, "POST", "/api/auth/logout-all"),
+  logoutAll: (role: SessionRole) => request<void>(role, "POST", "/api/auth/logout-all"),
 };

@@ -938,6 +938,8 @@ export interface SessionTimeline {
   late: boolean;
   auto_submitted: boolean;
   events: TimelineEvent[];
+}
+
 // ---------- registration + superadmin ----------
 
 export type AccountStatus = "active" | "pending" | "disabled";
