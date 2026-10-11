@@ -89,6 +89,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(exitcode_router)
     from .routes_classes import router as classes_router  # classes + exam assignment
     app.include_router(classes_router)
+    from .quality.routes import router as quality_router  # phase 3: grading quality
+    app.include_router(quality_router)
 
     @app.get("/api/health")
     async def health():

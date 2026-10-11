@@ -572,6 +572,11 @@ async def release_grades(exam_id: str, request: Request, body: ReleaseIn | None 
     pending = (await pending_by_exam(session, [e.id])).get(e.id, 0)
     if pending > 0 and not (body and body.force):
         raise HTTPException(409, f"{pending} answers still need grading")
+    if not (body and body.force):  # phase 3: second marking / moderation not finished
+        from .quality.service import moderation_open
+        open_n = (await moderation_open(session, e.id))["open"]
+        if open_n > 0:
+            raise HTTPException(409, f"{open_n} second-marked answers still need moderation: grades may change")
     if not e.grades_released:
         e.grades_released = True
         e.released_at = utcnow()
