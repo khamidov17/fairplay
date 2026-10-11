@@ -987,3 +987,12 @@ export interface AdminTeacher {
   exams: number;
   students_reached: number;
 }
+
+/** Graph / chart / diagram questions (essays only; see api/diagrams.ts). Optional = older data type-checks. */
+export interface Question {
+  diagram?: import("./diagrams").DiagramSpec | null;
+}
+export interface FeedbackQuestion {
+  /** approved checklist results + marks on the drawing */
+  diagram?: import("./diagrams").GradeDiagram | null;
+}

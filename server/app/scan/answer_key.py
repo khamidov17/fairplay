@@ -39,6 +39,7 @@ from ..security import Principal, require_teacher
 from ..timeutil import iso, utcnow
 from ..uploads import save_image_bytes, sniff_image
 from . import mathverify
+from . import diagram_spec
 from .config_models import ScanExamConfig
 
 router = APIRouter(prefix="/api", tags=["scan-ai"])
@@ -84,7 +85,11 @@ def question_rubric_criteria(q: dict) -> list[dict]:
 
 
 def effective_criteria(q: dict, entry: dict | None) -> tuple[list[dict], str]:
-    """(criteria, source) used for grading: key criteria, else the question's essay rubric."""
+    """(criteria, source) used for grading: key criteria, else the question's essay rubric.
+    Graph / diagram questions use their feature checklist (source "diagram")."""
+    feats = diagram_spec.feature_criteria(diagram_spec.effective(q, entry))  # graph / diagram hook
+    if feats:
+        return feats, "diagram"
     crit = list((entry or {}).get("criteria") or [])
     if crit:
         return crit, "key"
@@ -191,6 +196,7 @@ def key_context(key: dict, q: dict, limit: int = 4000) -> dict:
         "common_mistakes": list(entry.get("common_mistakes") or []),
         "key_text": (key.get("text") or "")[:limit],
         **mathverify.key_latex_context(q, entry),
+        "diagram": diagram_spec.effective(q, entry),  # graph / diagram questions (or None)
     }
 
 

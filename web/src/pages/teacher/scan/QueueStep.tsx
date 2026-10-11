@@ -5,6 +5,9 @@ import { Loading } from "../../../components/Loading";
 import { Pill } from "../../../components/teacher/TeacherLayout";
 import { errorText, num, plural } from "../../../components/teacher/util";
 import "../../../styles/scanAi.css";
+import { DiagramChecklist } from "../../../components/diagrams/DiagramChecklist";
+import { DiagramOverlay } from "../../../components/diagrams/DiagramOverlay";
+import { overlayMarks } from "../../../components/diagrams/diagramLogic";
 import {
   LETTERS,
   bubbleText,
@@ -503,9 +506,21 @@ function ReviewPane({
               Full page{item.page ? ` ${item.page}` : ""}
             </a>
           )}
+          {question.diagram?.reference_image && (
+            <a href={question.diagram.reference_image} target="_blank" rel="noreferrer">
+              Reference drawing
+            </a>
+          )}
         </div>
         <div className="rv-image-box">
-          {item.image ? (
+          {item.image && question.diagram ? (
+            <DiagramOverlay
+              src={item.image}
+              alt={`Answer of ${item.name}`}
+              marks={overlayMarks(d?.diagram?.features ?? [], form.crit)}
+              zoom={zoom}
+            />
+          ) : item.image ? (
             <img src={item.image} alt={`Answer of ${item.name}`} style={{ width: `${zoom * 100}%`, maxWidth: "none" }} />
           ) : (
             <span className="t-muted">No picture</span>
@@ -553,7 +568,10 @@ function ReviewPane({
           )}
         </div>
 
-        {criteria.length > 0 && (
+        {question.diagram && criteria.length > 0 && (
+          <DiagramChecklist idPrefix={id} criteria={criteria} diagram={d?.diagram} form={form} setForm={setForm} />
+        )}
+        {!question.diagram && criteria.length > 0 && (
           <div>
             <p className="rv-section-h">Rubric</p>
             <ul className="rv-crit">

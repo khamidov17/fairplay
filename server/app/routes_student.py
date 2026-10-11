@@ -365,6 +365,9 @@ async def my_grade_detail(exam_id: str, p: Principal = Depends(require_student),
             if g.get("criteria"):
                 out_q[-1]["criteria"] = [{"label": c.get("label", ""), "points": c.get("points"),
                                           "max_points": c.get("max_points")} for c in g["criteria"]]
+            if g.get("diagram"):  # graph / diagram questions: approved checklist + marks
+                from .scan.diagrams import student_view
+                out_q[-1]["diagram"] = student_view(g)
     return {
         "exam_id": e.id, "title": e.title, "course": e.course or "",
         "submitted_at": iso(a.submitted_at), "receipt": a.receipt, "score": num(score),

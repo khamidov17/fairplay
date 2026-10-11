@@ -9,6 +9,8 @@ import {
   type ExternalSettingsErrors,
   type ExternalSettingsValue,
 } from "../../components/teacher/externalValidation";
+import type { DiagramSpec } from "../../api/diagrams";
+import { checklistError } from "../../components/diagrams/diagramLogic";
 
 /** UI-level kinds. "tf" is stored as an mcq with options ["True", "False"]. */
 export type DraftKind = QuestionType | "tf";
@@ -37,6 +39,8 @@ export interface DraftQuestion {
   /** slice 6: pictures above the prompt, and topic tags (≥ 1 required) */
   images: QuestionImage[];
   topics: string[];
+  /** graph / chart / diagram question (essays only): kind + feature checklist; null = written answer */
+  diagram?: DiagramSpec | null;
 }
 
 export interface DraftExam {
@@ -60,7 +64,7 @@ export interface DraftExam {
 
 export type QuestionErrors = Partial<
   Record<
-    "prompt" | "points" | "options" | "correct" | "answer" | "tolerance" | "accepted" | "rubric" | "words" | "topics",
+    "prompt" | "points" | "options" | "correct" | "answer" | "tolerance" | "accepted" | "rubric" | "words" | "topics" | "diagram",
     string
   >
 >;
@@ -189,6 +193,7 @@ export function draftFromExam(exam?: Exam): DraftExam {
       max_words: q.max_words == null ? "" : String(q.max_words),
       images: (q.images ?? []).map((im) => ({ url: im.url, alt: im.alt ?? "" })),
       topics: [...(q.topics ?? [])],
+      diagram: q.type === "essay" ? (q.diagram ?? null) : null,
     })),
   };
 }
@@ -252,7 +257,10 @@ export function validateDraft(d: DraftExam): DraftErrors {
     } else if (q.type === "short") {
       if (splitAccepted(q.accepted).length === 0) e.accepted = "Enter at least one accepted answer.";
     } else if (q.type === "essay") {
-      if (q.rubric.length > 0) {
+      if (q.diagram) {
+        const msg = checklistError(q.diagram, Number(q.points));
+        if (msg && !e.points) e.diagram = msg;
+      } else if (q.rubric.length > 0) {
         if (q.rubric.some((r) => !r.label.trim())) e.rubric = "Describe every rubric row or remove empty ones.";
         else if (q.rubric.some((r) => !isNonNegInt(r.points))) e.rubric = "Rubric points must be whole numbers.";
         else if (!e.points && rubricSum(q.rubric) !== Number(q.points))
@@ -328,6 +336,7 @@ export function toQuestionInput(q: DraftQuestion): QuestionInput {
     rubric: q.rubric.map((r) => ({ label: r.label.trim(), points: Number(r.points) })),
     min_words: q.min_words.trim() ? Number(q.min_words) : null,
     max_words: q.max_words.trim() ? Number(q.max_words) : null,
+    ...(q.diagram ? { rubric: [], diagram: q.diagram } : {}),
   };
 }
 
@@ -359,7 +368,8 @@ export function moveItem<T>(list: T[], index: number, delta: number): T[] {
 export function questionMeta(q: DraftQuestion): string {
   const parts: string[] = [KIND_LABEL[q.tf ? "tf" : q.type]];
   if (q.type === "mcq" && !q.tf) parts.push(`${q.options.length} options`);
-  if (q.type === "essay" && q.rubric.length) parts.push(`${q.rubric.length}-row rubric`);
+  if (q.type === "essay" && q.diagram) parts.push(`Graph / diagram · ${q.diagram.features.length}-feature checklist`);
+  else if (q.type === "essay" && q.rubric.length) parts.push(`${q.rubric.length}-row rubric`);
   parts.push(`${q.points || 0} ${q.points === "1" ? "pt" : "pts"}`);
   return parts.join(" · ");
 }

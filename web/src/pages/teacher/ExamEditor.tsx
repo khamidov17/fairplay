@@ -10,6 +10,7 @@ import { ClassAssignSelect } from "../../components/teacher/classes/ClassAssignS
 import { classesApi } from "../../api/classes";
 import { QuestionImagesEditor } from "../../components/teacher/QuestionImagesEditor";
 import { TopicInput } from "../../components/teacher/TopicInput";
+import { DiagramEditor } from "../../components/diagrams/DiagramEditor";
 import {
   KIND_LABEL,
   draftFromExam,
@@ -780,8 +781,20 @@ function EssayEditor({
     onChange({ rubric: q.rubric.map((r) => (r.key === key ? { ...r, ...patch } : r)) });
   const sum = rubricSum(q.rubric);
   const target = Number(q.points) || 0;
+  // graph / chart / diagram answer: a feature checklist replaces the rubric and word limits
+  const diagram = (
+    <DiagramEditor idPrefix={id("diagram")} value={q.diagram ?? null} points={target} onChange={(d) => onChange({ diagram: d })} />
+  );
+  if (q.diagram)
+    return (
+      <>
+        {diagram}
+        <span className="hint">Students draw on paper; the AI checks each feature and you approve.</span>
+      </>
+    );
   return (
     <>
+      {diagram}
       <fieldset style={{ border: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
         <legend className="t-label" style={{ marginBottom: 8, padding: 0 }}>
           Rubric (optional) — criteria you grade on

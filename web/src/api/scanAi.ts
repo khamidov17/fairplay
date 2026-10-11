@@ -192,6 +192,8 @@ export interface SuggestionFields {
   prompt_version?: string;
   final_answer?: { latex: string; units: string; text: string } | null;
   verification?: Verification;
+  /** graph / diagram questions: checklist results with marks on the picture */
+  diagram?: import("./diagrams").DraftDiagram | null;
 }
 
 /** Phase 2 fields on attempt.grades[qid]. */
@@ -204,6 +206,7 @@ export interface GradeFields {
   steps?: SuggestionStep[] | null;
   misconception?: Misconception | null;
   mistake_tags?: string[];
+  diagram?: import("./diagrams").GradeDiagram | null;
 }
 
 export interface ReviewSave {

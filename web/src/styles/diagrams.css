@@ -1,0 +1,74 @@
+/* Graph / chart / diagram questions: overlay marks, review checklist, editor, student feedback. */
+
+/* drawing + marks */
+.dg-overlay { position: relative; display: block; max-width: none; line-height: 0; }
+.dg-overlay img { display: block; width: 100%; height: auto; }
+.dg-marks { position: absolute; inset: 0; margin: 0; padding: 0; list-style: none; pointer-events: none; line-height: 1.2; }
+.dg-mark { position: absolute; box-sizing: border-box; pointer-events: auto; }
+.dg-mark.dg-box { border: 2px solid var(--danger, #b42318); border-radius: 4px; background: rgba(180, 35, 24, 0.06); }
+.dg-mark.dg-box.is-ok { border-color: var(--success, #1f7a4d); background: rgba(31, 122, 77, 0.06); }
+.dg-mark.dg-box.is-partial { border-color: var(--warn-dark, #9a5b00); background: rgba(154, 91, 0, 0.06); }
+.dg-mark.dg-point { width: 0; height: 0; }
+.dg-mark.dg-point::before {
+  content: ""; position: absolute; left: -9px; top: -9px; width: 18px; height: 18px; border-radius: 50%;
+  border: 3px solid var(--danger, #b42318); background: rgba(255, 255, 255, 0.4);
+}
+.dg-mark.dg-point.is-ok::before { border-color: var(--success, #1f7a4d); }
+.dg-mark.dg-point.is-partial::before { border-color: var(--warn-dark, #9a5b00); }
+.dg-tag {
+  position: absolute; left: 2px; top: 2px; white-space: nowrap; padding: 1px 6px; border-radius: 6px;
+  font: 700 12px/18px var(--sans, system-ui, sans-serif); color: #fff; background: var(--danger, #b42318);
+}
+.dg-point .dg-tag { left: 11px; top: -9px; }
+.is-ok > .dg-tag { background: var(--success, #1f7a4d); }
+.is-partial > .dg-tag { background: var(--warn-dark, #9a5b00); }
+
+/* review checklist (right side) */
+.dg-check { display: flex; flex-direction: column; gap: 6px; }
+.dg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.dg-row {
+  display: grid; grid-template-columns: 22px 22px minmax(0, 1fr) 64px; gap: 4px 8px; align-items: center;
+  padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface);
+}
+.dg-row input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); }
+.dg-row .input { width: 64px; text-align: right; }
+.dg-num {
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; font-size: 12px; font-weight: 700;
+  background: var(--divider); color: var(--text-2);
+}
+.dg-status { grid-column: 3 / 5; font-size: 12px; font-weight: 700; }
+.dg-status.is-present { color: var(--success); }
+.dg-status.is-wrong, .dg-status.is-missing { color: var(--danger, #b42318); }
+.dg-status.is-partial, .dg-status.is-not_assessed { color: var(--warn-dark); }
+.dg-note { grid-column: 3 / 5; font-size: 12px; color: var(--text-2); }
+.dg-issues { padding: 8px 10px; border-radius: 8px; border: 1px solid var(--warn-border, #f0c36d); background: var(--warn-tint); font-size: 13px; }
+.dg-issues ul { margin: 4px 0 0; padding-left: 18px; }
+
+/* student feedback */
+.dg-feedback { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
+.dg-feedback h2 { font-size: 15px; margin: 4px 0 0; }
+.dg-feedback .dg-overlay { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.dg-list.is-readonly .dg-row { grid-template-columns: 22px auto minmax(0, 1fr) auto; }
+.dg-list.is-readonly .dg-status { grid-column: auto; }
+.dg-list.is-readonly .dg-note { grid-column: 2 / 5; }
+.dg-pts { font-variant-numeric: tabular-nums; }
+.dg-refdetails img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; margin-top: 6px; }
+
+/* editor */
+.dg-editor { border: 1px solid var(--border); border-radius: var(--r-tile, 10px); padding: 10px 12px; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.dg-editor legend { padding: 0 4px; }
+.dg-ed-head { display: flex; align-items: center; gap: 6px; }
+.dg-ed-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.dg-ed-row { display: grid; grid-template-columns: minmax(0, 1fr) 84px 36px; gap: 6px; align-items: center; }
+.dg-ed-exp, .dg-ed-xy { grid-column: 1 / 3; }
+.dg-ed-xy { display: grid; grid-template-columns: minmax(0, 1fr) 84px; gap: 6px; }
+.dg-ed-xy .field-error { grid-column: 1 / 3; }
+.dg-ed-pts { text-align: right; }
+.dg-ref { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.dg-ref-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.dg-ref-row img { max-height: 120px; max-width: 220px; border: 1px solid var(--border); border-radius: 6px; }
+.dg-keypanel { display: flex; flex-direction: column; gap: 8px; }
+
+@media (max-width: 640px) {
+  .dg-ed-row { grid-template-columns: minmax(0, 1fr) 72px 36px; }
+}

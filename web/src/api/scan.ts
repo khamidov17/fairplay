@@ -145,6 +145,8 @@ export interface QueueQuestion {
   /** phase 2: rubric criteria used for grading (answer key, else essay rubric) */
   criteria?: Criterion[];
   solution?: string;
+  /** graph / diagram question: its checklist (the criteria are its features), else null */
+  diagram?: import("./diagrams").DiagramSpec | null;
 }
 
 export interface QueueGroup {

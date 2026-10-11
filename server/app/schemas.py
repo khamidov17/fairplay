@@ -142,6 +142,9 @@ class QuestionIn(BaseModel):
     max_words: int | None = Field(default=None, ge=1, le=100_000)
     # slice 6 (Scan & Grade): lines of answer space on the printed paper (null = default)
     answer_lines: int | None = Field(default=None, ge=1, le=40)
+    # graph / chart / diagram question (essays only): kind + feature checklist, see
+    # app.scan.diagram_spec. Omitted = a normal written answer.
+    diagram: dict | None = None
 
     @field_validator("prompt")
     @classmethod
@@ -157,6 +160,12 @@ class QuestionIn(BaseModel):
 
     @model_validator(mode="after")
     def _by_type(self) -> "QuestionIn":
+        if self.type == "essay" and self.diagram is not None:
+            from .scan.diagram_spec import clean_diagram
+            self.diagram = clean_diagram(self.diagram, self.points)  # the checklist replaces the rubric
+            self.rubric = []
+        elif self.type != "essay":
+            self.diagram = None
         if self.type == "essay":
             rubric = self.rubric or []
             if rubric and abs(sum(r.points for r in rubric) - self.points) > 1e-9:
@@ -199,6 +208,8 @@ class QuestionIn(BaseModel):
 
     def to_dict(self) -> dict:
         d = self.model_dump(exclude={"id", "rubric"})
+        if d.get("diagram") is None:
+            d.pop("diagram", None)
         d["rubric"] = [{"label": r.label, "points": _whole(r.points)} for r in self.rubric or []]
         return d
 
