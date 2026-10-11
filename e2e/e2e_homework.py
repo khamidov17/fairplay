@@ -50,7 +50,15 @@ class FakeAI(BaseHTTPRequestHandler):
         content = body["messages"][1]["content"]
         text = "".join(c.get("text", "") for c in content if c.get("type") == "text")
         FakeAI.calls.append((text, sum(1 for c in content if c.get("type") != "text")))
-        if "Factor" in text:
+        if "fp-segment-v1" in text:
+            # answer finder: question 1 is on the first photo, question 2 on the second
+            cands: dict[int, list[int]] = {}
+            for m in re.finditer(r"^Page (\d+): (.*)$", text, re.M):
+                cands[int(m.group(1))] = [int(c.group(1)) for c in re.finditer(r"(\d+): \[", m.group(2))]
+            out = {"answers": [{"question": str(pg), "label": f"{pg})", "candidates": ns, "confidence": 0.9}
+                               for pg, ns in sorted(cands.items()) if pg in (1, 2) and ns],
+                   "crossed_out": [], "not_found": []}
+        elif "Factor" in text:
             out = {"legibility": "clear", "transcript": "x^2 - 5x + 6 = (x + 2)(x + 3)",
                    "steps": [{"text": "x^2 - 5x + 6", "status": "correct"},
                              {"text": "(x + 2)(x + 3)", "status": "error", "note": "signs of the factors"}],
@@ -215,8 +223,11 @@ def run(sync_playwright):
                 break
             time.sleep(0.5)
         check(row.get("status") == "ai_graded" and len(row["pages"]) == 2, f"AI graded alice's 2 pages ({row.get('status')})")
-        check(len(FakeAI.calls) == 2 and all(n == 2 for _, n in FakeAI.calls),
-              "fake AI saw both pages for each question (whole-page fallback)")
+        seg = [c for c in FakeAI.calls if "fp-segment-v1" in c[0]]
+        grade = [c for c in FakeAI.calls if "fp-segment-v1" not in c[0]]
+        check(len(seg) == 1 and seg[0][1] == 2, "answer finder looked at both photos once")
+        check(len(grade) == 2 and all(n == 1 for _, n in grade),
+              "each question graded on its own cropped answer (not the whole page set)")
         S.reload()
         S.get_by_role("heading", name="What you handed in").wait_for()
         S.screenshot(path=str(SHOTS / "92-student-handed-in.png"), full_page=True)
@@ -228,7 +239,7 @@ def run(sync_playwright):
         P.get_by_role("tab", name=re.compile("^Review")).click()
         pane = P.locator(".rv-pane")
         pane.wait_for()
-        check(pane.locator(".rv-image-box img").count() == 2, "review shows both pages of the answer")
+        check(pane.locator(".rv-image-box img").count() == 1, "review shows the cropped answer")
         check(pane.get_by_label("Points", exact=True).input_value() == "2", "AI suggestion pre-fills 2 points")
         P.screenshot(path=str(SHOTS / "94-review.png"), full_page=True)
         P.evaluate("document.activeElement && document.activeElement.blur()")
