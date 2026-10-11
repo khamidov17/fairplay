@@ -1,0 +1,179 @@
+{
+  "benchmark": "fairplay-bench/1",
+  "scenario": {
+    "name": "S2",
+    "title": "Exam hall",
+    "students": 500,
+    "exams": 10,
+    "ramp_s": 30,
+    "write_s": 90,
+    "p95_ms": 250,
+    "submit_p95_ms": 2000,
+    "drop_after_s": 0,
+    "drop_s": 0,
+    "reconnect_p95_ms": 0,
+    "resync_max_s": 0
+  },
+  "standard": true,
+  "started_at": "2026-10-11T17:00:52Z",
+  "wall_s": 123.2,
+  "base": "http://127.0.0.1:8213",
+  "server": "spawned on this machine: 2 uvicorn worker(s), sqlite, Redis",
+  "machine": {
+    "host": "vm",
+    "os": "Linux-6.18.44-fc-v114-x86_64-with-glibc2.39",
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "logical_cpus": 2,
+    "ram_gb": 7.8,
+    "python": "3.13.16",
+    "httpx": "0.28.1"
+  },
+  "client_procs": 1,
+  "requests": 30682,
+  "offered_rps": 236.9,
+  "achieved_rps": 239.0,
+  "steady": {
+    "events": {
+      "count": 559,
+      "errors": 0,
+      "p50_ms": 46.4,
+      "p95_ms": 1013.7,
+      "p99_ms": 1579.6,
+      "max_ms": 3933.7
+    },
+    "heartbeat": {
+      "count": 10614,
+      "errors": 0,
+      "p50_ms": 18.2,
+      "p95_ms": 700.4,
+      "p99_ms": 1127.1,
+      "max_ms": 1574.3
+    },
+    "live": {
+      "count": 244,
+      "errors": 0,
+      "p50_ms": 27.5,
+      "p95_ms": 308.3,
+      "p99_ms": 608.2,
+      "max_ms": 1630.0
+    },
+    "save_answers": {
+      "count": 17265,
+      "errors": 0,
+      "p50_ms": 28.2,
+      "p95_ms": 1082.5,
+      "p99_ms": 1791.1,
+      "max_ms": 6767.7
+    },
+    "ALL": {
+      "count": 28682,
+      "errors": 0,
+      "p50_ms": 23.3,
+      "p95_ms": 946.6,
+      "p99_ms": 1596.1,
+      "max_ms": 6767.7
+    }
+  },
+  "ramp": {
+    "login": {
+      "count": 500,
+      "errors": 0,
+      "p50_ms": 275.8,
+      "p95_ms": 1862.7,
+      "p99_ms": 2317.2,
+      "max_ms": 2490.4
+    },
+    "start": {
+      "count": 500,
+      "errors": 0,
+      "p50_ms": 196.5,
+      "p95_ms": 1468.4,
+      "p99_ms": 1898.6,
+      "max_ms": 4700.5
+    },
+    "student_exams": {
+      "count": 500,
+      "errors": 0,
+      "p50_ms": 127.4,
+      "p95_ms": 1193.5,
+      "p99_ms": 1368.8,
+      "max_ms": 1715.9
+    },
+    "ALL": {
+      "count": 1500,
+      "errors": 0,
+      "p50_ms": 201.6,
+      "p95_ms": 1564.3,
+      "p99_ms": 2086.5,
+      "max_ms": 4700.5
+    }
+  },
+  "submit": {
+    "submit": {
+      "count": 500,
+      "errors": 0,
+      "p50_ms": 1099.4,
+      "p95_ms": 2578.0,
+      "p99_ms": 2889.1,
+      "max_ms": 3067.7
+    },
+    "ALL": {
+      "count": 500,
+      "errors": 0,
+      "p50_ms": 1099.4,
+      "p95_ms": 2578.0,
+      "p99_ms": 2889.1,
+      "max_ms": 3067.7
+    }
+  },
+  "reconnect": null,
+  "resync": null,
+  "verification": {
+    "ok": true,
+    "students": 500,
+    "answers_compared": 5500,
+    "lost_answers": 0,
+    "wrong_answers": 0,
+    "missing_attempts": 0,
+    "not_submitted": 0,
+    "receipt_mismatch": 0,
+    "duplicate_receipts": 0,
+    "extra_attempts": 0,
+    "samples": []
+  },
+  "error_samples": {},
+  "checks": [
+    {
+      "check": "error rate = 0",
+      "pass": true,
+      "value": "0 steady + 0 submit errors"
+    },
+    {
+      "check": "steady p95 <= 250 ms",
+      "pass": false,
+      "value": "946.6 ms"
+    },
+    {
+      "check": "save p95 <= 250 ms",
+      "pass": false,
+      "value": "1082.5 ms"
+    },
+    {
+      "check": "submit storm p95 <= 2000 ms",
+      "pass": false,
+      "value": "2578.0 ms"
+    },
+    {
+      "check": "no lost answers (DB == what each student sent)",
+      "pass": true,
+      "value": "5500 answers compared, 0 lost, 0 wrong, 0 missing attempts, 0 duplicate receipts"
+    },
+    {
+      "check": "offered load sustained (>= 90 %)",
+      "pass": true,
+      "value": "239 of 237 req/s"
+    }
+  ],
+  "pass": false,
+  "note": "Sandbox: load generator, 2 API workers and Redis share the same 2 vCPUs; SQLite (dev database) shared by 2 processes."
+}

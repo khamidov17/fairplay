@@ -1,0 +1,179 @@
+{
+  "benchmark": "fairplay-bench/1",
+  "scenario": {
+    "name": "S1",
+    "title": "One class",
+    "students": 60,
+    "exams": 1,
+    "ramp_s": 20,
+    "write_s": 90,
+    "p95_ms": 100,
+    "submit_p95_ms": 1000,
+    "drop_after_s": 0,
+    "drop_s": 0,
+    "reconnect_p95_ms": 0,
+    "resync_max_s": 0
+  },
+  "standard": true,
+  "started_at": "2026-10-11T16:56:31Z",
+  "wall_s": 111.5,
+  "base": "http://127.0.0.1:8213",
+  "server": "spawned on this machine: 1 uvicorn worker(s), sqlite, no Redis (in-memory store)",
+  "machine": {
+    "host": "vm",
+    "os": "Linux-6.18.44-fc-v114-x86_64-with-glibc2.39",
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "logical_cpus": 2,
+    "ram_gb": 7.8,
+    "python": "3.13.16",
+    "httpx": "0.28.1"
+  },
+  "client_procs": 1,
+  "requests": 3577,
+  "offered_rps": 30.2,
+  "achieved_rps": 30.3,
+  "steady": {
+    "events": {
+      "count": 60,
+      "errors": 0,
+      "p50_ms": 4.2,
+      "p95_ms": 10.2,
+      "p99_ms": 22.2,
+      "max_ms": 22.2
+    },
+    "heartbeat": {
+      "count": 1245,
+      "errors": 0,
+      "p50_ms": 3.3,
+      "p95_ms": 7.0,
+      "p99_ms": 14.6,
+      "max_ms": 57.3
+    },
+    "live": {
+      "count": 23,
+      "errors": 0,
+      "p50_ms": 12.8,
+      "p95_ms": 16.2,
+      "p99_ms": 42.6,
+      "max_ms": 42.6
+    },
+    "save_answers": {
+      "count": 2009,
+      "errors": 0,
+      "p50_ms": 6.2,
+      "p95_ms": 14.3,
+      "p99_ms": 80.6,
+      "max_ms": 563.1
+    },
+    "ALL": {
+      "count": 3337,
+      "errors": 0,
+      "p50_ms": 5.2,
+      "p95_ms": 12.2,
+      "p99_ms": 45.8,
+      "max_ms": 563.1
+    }
+  },
+  "ramp": {
+    "login": {
+      "count": 60,
+      "errors": 0,
+      "p50_ms": 7.0,
+      "p95_ms": 38.2,
+      "p99_ms": 43.1,
+      "max_ms": 43.1
+    },
+    "start": {
+      "count": 60,
+      "errors": 0,
+      "p50_ms": 6.2,
+      "p95_ms": 12.8,
+      "p99_ms": 14.4,
+      "max_ms": 14.4
+    },
+    "student_exams": {
+      "count": 60,
+      "errors": 0,
+      "p50_ms": 4.7,
+      "p95_ms": 12.8,
+      "p99_ms": 33.5,
+      "max_ms": 33.5
+    },
+    "ALL": {
+      "count": 180,
+      "errors": 0,
+      "p50_ms": 5.9,
+      "p95_ms": 18.1,
+      "p99_ms": 38.4,
+      "max_ms": 43.1
+    }
+  },
+  "submit": {
+    "submit": {
+      "count": 60,
+      "errors": 0,
+      "p50_ms": 259.2,
+      "p95_ms": 500.6,
+      "p99_ms": 551.2,
+      "max_ms": 551.2
+    },
+    "ALL": {
+      "count": 60,
+      "errors": 0,
+      "p50_ms": 259.2,
+      "p95_ms": 500.6,
+      "p99_ms": 551.2,
+      "max_ms": 551.2
+    }
+  },
+  "reconnect": null,
+  "resync": null,
+  "verification": {
+    "ok": true,
+    "students": 60,
+    "answers_compared": 660,
+    "lost_answers": 0,
+    "wrong_answers": 0,
+    "missing_attempts": 0,
+    "not_submitted": 0,
+    "receipt_mismatch": 0,
+    "duplicate_receipts": 0,
+    "extra_attempts": 0,
+    "samples": []
+  },
+  "error_samples": {},
+  "checks": [
+    {
+      "check": "error rate = 0",
+      "pass": true,
+      "value": "0 steady + 0 submit errors"
+    },
+    {
+      "check": "steady p95 <= 100 ms",
+      "pass": true,
+      "value": "12.2 ms"
+    },
+    {
+      "check": "save p95 <= 100 ms",
+      "pass": true,
+      "value": "14.3 ms"
+    },
+    {
+      "check": "submit storm p95 <= 1000 ms",
+      "pass": true,
+      "value": "500.6 ms"
+    },
+    {
+      "check": "no lost answers (DB == what each student sent)",
+      "pass": true,
+      "value": "660 answers compared, 0 lost, 0 wrong, 0 missing attempts, 0 duplicate receipts"
+    },
+    {
+      "check": "offered load sustained (>= 90 %)",
+      "pass": true,
+      "value": "30 of 30 req/s"
+    }
+  ],
+  "pass": true,
+  "note": "Sandbox: load generator and server share the same 2 vCPUs; SQLite is the dev database, not the production setup."
+}
