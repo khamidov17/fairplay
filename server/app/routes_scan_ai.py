@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from .scan import answer_key, capture, export, mapping, review
+from .scan import answer_key, capture, export, mapping, review, struggles
 
 router = APIRouter()
 router.include_router(answer_key.router)
@@ -13,3 +13,4 @@ router.include_router(review.router)
 router.include_router(export.router)
 router.include_router(capture.router)
 router.include_router(mapping.router)
+router.include_router(struggles.router)

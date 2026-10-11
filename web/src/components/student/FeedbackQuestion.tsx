@@ -2,6 +2,7 @@ import type { AnswerValue, FeedbackQuestion as FQ } from "../../api/types";
 import { paperImage, paperValue } from "../../lib/paperAnswer";
 import { LETTERS, fmtNum } from "./format";
 import { QuestionImages } from "../QuestionImages";
+import "../../styles/feedbackSteps.css";
 
 export function typeLabel(q: Pick<FQ, "type" | "options">): string {
   if (q.type === "mcq") {
@@ -56,6 +57,56 @@ function correctText(q: FQ): string | null {
   return show(q, q.correct_answer);
 }
 
+/** Phase 2 (paper exams): approved step marks and rubric breakdown sent with the feedback. */
+interface PaperExtras {
+  index: number;
+  steps?: { n: number; text: string; status: "correct" | "error" | "missing"; note: string }[];
+  first_error_step?: number | null;
+  criteria?: { label: string; points: number; max_points: number }[];
+}
+
+const STEP_TEXT = { correct: "Correct", error: "Mistake", missing: "Missing step" } as const;
+
+function PaperSteps({ q }: { q: PaperExtras }) {
+  const steps = q.steps ?? [];
+  const criteria = q.criteria ?? [];
+  if (steps.length === 0 && criteria.length === 0) return null;
+  return (
+    <>
+      {steps.length > 0 && (
+        <section className="stu-steps" aria-label={`Your steps for question ${q.index + 1}`}>
+          <h2>Your work, step by step</h2>
+          <ol>
+            {steps.map((s) => (
+              <li key={s.n} className={`stu-step ${s.status}${s.n === q.first_error_step ? " first" : ""}`}>
+                <span className="stu-step-mark">{STEP_TEXT[s.status] ?? s.status}</span>
+                <span>
+                  {s.text || <em>(not written)</em>}
+                  {s.note && <span className="stu-step-note">{s.note}</span>}
+                  {s.n === q.first_error_step && <span className="stu-step-note">This is where it first goes wrong.</span>}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+      {criteria.length > 0 && (
+        <section className="stu-rubric" aria-label="Rubric">
+          <h2>Rubric</h2>
+          {criteria.map((c, i) => (
+            <div key={i} className="stu-rubric-row">
+              <span>{c.label}</span>
+              <b>
+                {fmtNum(c.points)} / {fmtNum(c.max_points)}
+              </b>
+            </div>
+          ))}
+        </section>
+      )}
+    </>
+  );
+}
+
 /** One question on the feedback page: status, your answer vs correct, rubric, teacher comment. */
 export function FeedbackQuestionCard({ q }: { q: FQ }) {
   const headId = `fbq-${q.question_id}`;
@@ -81,6 +132,7 @@ export function FeedbackQuestionCard({ q }: { q: FQ }) {
           alt={`Your written answer for question ${q.index + 1}`}
         />
       )}
+      <PaperSteps q={q as PaperExtras} />
 
       {q.type === "essay" ? (
         <>

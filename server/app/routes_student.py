@@ -356,6 +356,15 @@ async def my_grade_detail(exam_id: str, p: Principal = Depends(require_student),
         })
         if r.get("image"):  # slice 6 D: the student's scanned answer (paper exams)
             out_q[-1]["image"] = r["image"]
+            # phase 2: approved step marks and rubric breakdown (never unapproved AI drafts)
+            g = (a.grades or {}).get(q["id"]) or {}
+            if g.get("steps"):
+                out_q[-1]["steps"] = [{"n": s.get("n"), "text": s.get("text", ""), "status": s.get("status"),
+                                       "note": s.get("note", "")} for s in g["steps"]]
+                out_q[-1]["first_error_step"] = g.get("first_error_step")
+            if g.get("criteria"):
+                out_q[-1]["criteria"] = [{"label": c.get("label", ""), "points": c.get("points"),
+                                          "max_points": c.get("max_points")} for c in g["criteria"]]
     return {
         "exam_id": e.id, "title": e.title, "course": e.course or "",
         "submitted_at": iso(a.submitted_at), "receipt": a.receipt, "score": num(score),

@@ -33,6 +33,9 @@ import { ExportButtons } from "../pages/teacher/scan/ExportButtons";
 import CapturePage from "../pages/teacher/scan/CapturePage";
 import { PhoneCapture } from "../pages/teacher/scan/PhoneCapture";
 import { MapPages, autoMap } from "../pages/teacher/scan/MapPages";
+import { StrugglePanel } from "../pages/teacher/scan/StrugglePanel";
+import { FeedbackQuestionCard } from "../components/student/FeedbackQuestion";
+import type { FeedbackQuestion } from "../api/types";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ApiError } from "../api/client";
 
@@ -198,6 +201,48 @@ describe("map pages", () => {
       { page_id: 13, student_id: 3, page_no: 2 }, { page_id: 14, student_id: 3, page_no: 1 },
     ]);
     expect(await screen.findByText(/AI is drafting 4 answers/)).toBeInTheDocument();
+  });
+});
+
+describe("struggles and student feedback", () => {
+  it("lists questions by average with misconception counts", async () => {
+    api.struggles.mockResolvedValue({
+      exam_id: "e1",
+      time: { graded: 2, seconds: 30, estimate_manual_seconds: 240 },
+      questions: [
+        { question_id: "q1", index: 0, prompt: "Easy one", points: 2, graded: 2, total: 2, avg_points: 2, avg_percent: 100, misconceptions: [] },
+        { question_id: "q2", index: 1, prompt: "Integrate", points: 4, graded: 2, total: 3, avg_points: 1, avg_percent: 25,
+          misconceptions: [{ tag: "missing step", count: 3, approved: 2, students: [
+            { username: "alice", name: "Alice Chen" }, { username: "bob", name: "Bob Karimov" }, { username: "carol", name: "Carol Wang" }] }] },
+        { question_id: "q3", index: 2, prompt: "Nobody", points: 1, graded: 0, total: 0, avg_points: null, avg_percent: null, misconceptions: [] },
+      ],
+    });
+    render(<StrugglePanel examId="e1" />);
+    expect(await screen.findByRole("heading", { name: "Where students struggled" })).toBeInTheDocument();
+    const items = screen.getAllByRole("listitem").filter((li) => li.classList.contains("st-q"));
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent("Question 2");
+    expect(items[0]).toHaveTextContent("1 / 4 avg · 25%");
+    expect(items[0]).toHaveTextContent("missing step · 3 students (1 not approved yet) — Alice Chen, Bob Karimov, Carol Wang");
+  });
+
+  it("student feedback shows the scan, the explanation and the step marks", () => {
+    const q = {
+      question_id: "q2", index: 1, type: "essay", prompt: "Integrate x e^x.", options: [], points: 4, points_awarded: 3,
+      status: "partial", given: "(written on paper)", correct_answer: null, tolerance: null, comment: "Add the constant.",
+      rubric: [], rubric_scores: null, images: [], image: "/api/uploads/scan",
+      steps: [{ n: 1, text: "u = x", status: "correct", note: "" }, { n: 2, text: "", status: "missing", note: "+C" }],
+      first_error_step: 2,
+      criteria: [{ label: "Setup", points: 1, max_points: 1 }, { label: "Constant", points: 0, max_points: 1 }],
+    } as unknown as FeedbackQuestion;
+    render(<FeedbackQuestionCard q={q} />);
+    expect(screen.getByRole("img", { name: "Your written answer for question 2" })).toHaveAttribute("src", "/api/uploads/scan");
+    expect(screen.getByText("Add the constant.")).toBeInTheDocument();
+    const steps = screen.getByRole("region", { name: "Your steps for question 2" });
+    expect(steps).toHaveTextContent("Correct");
+    expect(steps).toHaveTextContent("Missing step");
+    expect(steps).toHaveTextContent("This is where it first goes wrong.");
+    expect(screen.getByText("Constant").parentElement).toHaveTextContent("0 / 1");
   });
 });
 

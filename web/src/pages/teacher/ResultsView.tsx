@@ -11,6 +11,7 @@ import { errorText, eventLabel, formatWhen, num, pct, plural } from "../../compo
 import { formatClock } from "../../lib/timer";
 import { KIND_LABEL, kindOf } from "./examDraft";
 import { ExportButtons } from "./scan/ExportButtons"; // phase 2: CSV / Excel export
+import { StrugglePanel } from "./scan/StrugglePanel"; // phase 2: where students struggled
 
 const LETTERS = "ABCDEFGH";
 
@@ -198,6 +199,7 @@ export function ResultsView({ exam, onExamChange }: { exam: Exam; onExamChange: 
           {releaseError}
         </div>
       )}
+      {exam.delivery === "paper" && <StrugglePanel examId={exam.id} />}
       {exam.status === "live" && (
         <div className="alert alert-info">The exam is still live. Results update as students submit.</div>
       )}

@@ -4,6 +4,7 @@ import type { Exam } from "../../../api/types";
 import "../../../styles/scan.css";
 import { AnswerKeyStep } from "./AnswerKeyStep";
 import { ExportButtons } from "./ExportButtons";
+import { StrugglePanel } from "./StrugglePanel";
 import { PrintStep } from "./PrintStep";
 import { QueueStep } from "./QueueStep";
 import { UploadStep } from "./UploadStep";
@@ -93,6 +94,9 @@ export function ScanSteps({
               )}
             </div>
           </section>
+        )}
+        {current === "release" && (
+          <StrugglePanel examId={exam.id} />
         )}
       </div>
     </div>
