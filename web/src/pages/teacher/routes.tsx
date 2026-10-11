@@ -18,6 +18,12 @@ import StudentProfilePage from "./StudentProfilePage";
 import PracticePage from "./PracticePage";
 import ScanOverviewPage from "./scan/ScanOverviewPage";
 import ScanExamPage from "./scan/ScanExamPage";
+import QualityPage from "./quality/QualityPage";
+import ExamQualityPage from "./quality/ExamQualityPage";
+import BenchmarksPage from "./quality/BenchmarksPage";
+import BenchmarkSetPage from "./quality/BenchmarkSetPage";
+import BenchmarkRunPage from "./quality/BenchmarkRunPage";
+import SecondMarkingQueuePage from "./quality/SecondMarkingQueuePage";
 
 export default function TeacherRoutes() {
   return (
@@ -46,6 +52,12 @@ export default function TeacherRoutes() {
         <Route path="practice" element={<PracticePage />} />
         <Route path="scan" element={<ScanOverviewPage />} />
         <Route path="exams/:id/scan" element={<ScanExamPage />} />
+        <Route path="quality" element={<QualityPage />} />
+        <Route path="quality/exams/:id" element={<ExamQualityPage />} />
+        <Route path="quality/benchmarks" element={<BenchmarksPage />} />
+        <Route path="quality/benchmarks/:id" element={<BenchmarkSetPage />} />
+        <Route path="quality/runs/:id" element={<BenchmarkRunPage />} />
+        <Route path="quality/second-marking" element={<SecondMarkingQueuePage />} />
       </Route>
       <Route path="*" element={<Navigate to="/teacher" replace />} />
     </Routes>

@@ -12,7 +12,7 @@ from typing import Any, Iterable
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..grading import MANUAL_TYPES, exam_questions, grade_attempt, num, paper_answer
+from ..grading import MANUAL_TYPES, exam_questions, num, paper_answer
 from ..models import Attempt, Exam
 from . import metrics, routing
 from .models import BenchmarkItem, BenchmarkRun, BenchmarkRunItem, BenchmarkSet, RoutingPolicy, SecondMark

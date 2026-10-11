@@ -499,3 +499,155 @@ is derived for old exams: mode external → "website", else "computer". New exam
   deadline may then already be past → answers 409, submit still accepted and marked late); future values → now.
 - Web: local attempt id `offline:<exam_id>`; record `fairplay:offline:<exam_id>` = {exam_id, start_code, started_at, view,
   real_attempt_id}. The exam page keeps running under the offline URL after reconnect and routes every call to the real id.
+
+---
+
+# Phase 3 — Grading quality (benchmark, AI-vs-human metrics, review routing, second marking)
+
+Code: `server/app/quality/` (models, metrics, routing, graders, runner, importer, service, routes);
+web: `web/src/pages/teacher/quality/`, `web/src/api/quality.ts`. All endpoints are role teacher and
+scoped to the requesting teacher (another teacher's set / run / exam → 404), except the second-marker
+endpoints, which only expose the answers assigned to the caller, blind.
+
+## Data read from grading (owned by Phase 2)
+- `attempt.ai_drafts[qid]`: `points` (or `suggested_points`), `confidence` 0..1, `needs_review`,
+  `needs_review_reason` (or `review_reason`), `illegible`, `criteria` / `criterion_points` / `rubric_scores`
+  (numbers or `{"points","max_points"}`), `mistake_tags`, `source` ("fallback" = no AI suggestion), `batch_id`.
+- `attempt.grades[qid]`: `points`, `comment`, `ai_suggested_points`, `source` ("ai_accepted"|"ai_edited"|"manual"),
+  `graded_by`, `graded_at`, `grading_seconds`, `batch_id`. **Missing = unknown**: AI points fall back to the
+  stored draft's points; a missing `source` is derived (no suggestion → manual; final == suggested → ai_accepted;
+  else ai_edited); answers without `grading_seconds` are left out of timing.
+- Moderation writes the final grade: `grades[qid]` keeps its fields and gets `points`, `comment`, `graded_at`,
+  `graded_by` (lead username), `source` (re-derived vs the AI suggestion), `moderated: true`,
+  `moderation: {second_mark_id, first_points, first_by, second_points, second_by, moderated_points, moderated_by, at}`;
+  `rubric_scores` is cleared when the points change. Score / needs_grading are recomputed.
+
+## Metrics (`app.quality.metrics`; rates are fractions 0..1, points are numbers)
+`Agreement = {n, exact, within_1, within_10pct, mae, mae_pct, bias, kappa, severe_rate, severe, mean_ai, mean_human}`.
+exact = |ai−human| < 1e-6; within_1 ≤ 1 point; within_10pct ≤ 10 % of max; mae = mean |ai−human|;
+bias = mean(ai) − mean(human) (> 0: AI more generous); kappa = quadratic weighted Cohen's kappa on integer marks
+(round half up) over categories 0..ceil(largest max) of the group, null when undefined (n < 2 or one category);
+severe = |ai−human| ≥ severe_fraction × max (default 0.25, `?severe_fraction=` 0.01..1). Breakdowns:
+`[{...Agreement, key}]` by `question_type` and by `subject` (lower-case; production subject = exam course).
+`Correction = {ai_suggested, accepted, edited, correction_rate, points_changed, mean_edit, mean_edit_pct}`
+(mean_edit over edited suggestions, points). `Timing = {ai_assisted: T, manual: T, time_saved_fraction,
+batches: [{batch, items, total_seconds, mean_seconds, ai_assisted}]}` with `T = {n, mean, median, total}` (seconds);
+batch = grade/draft `batch_id`, else the exam id.
+
+## Review routing (`app.quality.routing`)
+`route_item(exam, attempt, qid, policy=None, weak=None) -> {"review": bool, "reasons": [{"code","message"}]}` —
+pure (works on ORM rows or any objects/dicts with `questions, course, total_points` / `answers, grades, ai_drafts`);
+`from app.quality import route_item`. Phase 2's review screen shows a "Check by hand" badge when `review` is true,
+with the reason messages (or calls the HTTP endpoint below, which applies the exam's policy and benchmark weak areas).
+Codes: `no_ai_suggestion`, `confidence_unknown`, `low_confidence`, `illegible_handwriting`, `ai_flagged`,
+`points_out_of_range`, `criteria_inconsistent`, `near_boundary` (attempt total with the AI's points — other
+answers: grade, else draft, else auto — within `boundary_margin` points of a boundary), `weak_question_type`,
+`weak_subject` (benchmark kappa below `weak_kappa`, latest run per set pooled, groups with ≥ `weak_min_items`
+items; subject matches the exam course or a question topic).
+Policy defaults: `{"confidence_threshold":0.7,"review_illegible":true,"review_ai_flagged":true,
+"boundary_margin":1,"grade_boundaries":[50,60,70,80,90],"check_criteria":true,"weak_kappa":0.6,
+"weak_min_items":5,"review_without_ai":true}`; layers: built-in → teacher default → exam override
+(table `quality_routing_policies`: teacher_id, exam_id "" = default, settings JSON).
+Candidates = every answer with an AI draft, every paper answer (except bubbles read automatically) and every
+essay / website item of submitted attempts.
+
+- `GET|PUT /api/quality/routing-policy` (teacher default; PUT body = any subset of the policy; boundaries
+  0..100 else 422) → `{policy, teacher_settings, defaults}`.
+- `GET|PUT|DELETE /api/exams/{id}/quality/routing-policy` → `{policy, teacher_settings, defaults, exam_settings|null,
+  inherits}` (DELETE = back to the teacher default).
+- `GET /api/exams/{id}/quality/routing[?review_only=true]` → `{exam_id, policy, weak_areas:{types:{type:kappa},
+  subjects:{subject:kappa}}, summary:{total, routed, routed_ungraded, by_reason:{code:n}}, items:[{attempt_id,
+  anon_id, question_id, review, reasons, graded, ai_points, confidence}]}`.
+- `GET /api/exams/{id}/quality/routing/{attempt_id}/{question_id}` → `{attempt_id, question_id, review, reasons}`.
+
+## Benchmark
+Tables: `benchmark_sets` (id `bs_…`, teacher_id, name, subject, consent_note, consent_basis, created_at);
+`benchmark_items` (id `bi_…`, set_id, question_prompt, question_type, subject, max_points, rubric JSON,
+answer_key, answer_image `/api/uploads/<id>` | null, answer_text, human_marks [num] (first = reference),
+human_points, human_comment, source_exam_id / source_attempt_id / source_question_id (if copied), consent,
+consent_by, consent_at, created_at — **no student name column**); `benchmark_runs` (id `br_…`, set_id, teacher_id,
+grader, provider, model, prompt_version, status running|done|failed, severe_fraction, item_count, done_count,
+metrics JSON, error, created_at, finished_at); `benchmark_run_items` (run_id, item_id, question_type, subject,
+max_points, human_points, ai_points|null (failed), confidence, needs_review, explanation, error).
+
+- `GET /api/quality/benchmarks` → `[Set]`, `Set = {id, name, subject, consent_note, consent_basis, created_at,
+  item_count, last_run: Run|null}`; `POST` (201) body `{name, subject?, consent_note?, consent_basis?}`;
+  `GET /api/quality/benchmarks/{sid}` → `Set + {items:[Item], runs:[Run]}`; `PUT` same body; `DELETE` → 204 (items, runs too).
+- `Item = {id, set_id, question_prompt, question_type, subject, max_points, rubric, answer_key, answer_image,
+  answer_text, human_marks, human_points, human_comment, source:{exam_id,attempt_id,question_id}|null, consent,
+  consent_by, consent_at, created_at}`.
+- `POST /api/quality/benchmarks/{sid}/items` (201) body `{question_prompt, question_type: mcq|numeric|short|essay|work|external,
+  subject?, max_points, rubric?, answer_key?, answer_text?, answer_image?, human_marks:[1..5 marks], human_comment?,
+  consent:true}`. Without `consent: true` → 422 (detail mentions consent); marks outside 0..max → 422.
+- `POST /api/quality/benchmarks/{sid}/items/from-grade` (201) body `{exam_id, attempt_id, question_id, consent:true,
+  human_comment?}` → copies prompt, type, points, rubric, answer key, answer (text; paper: crop URL + approved
+  transcript), the teacher grade (+ the second mark if one exists) — never the student's name. 422 without consent,
+  409 if not graded / blank / already in the set.
+- `POST /api/quality/benchmarks/{sid}/import` multipart `file` (CSV ≤ 5 MB), optional `images` (zip ≤ 200 MB),
+  `consent=true` (else 422) → `{imported, errors:[{row, error}], ignored_columns, dropped_personal_columns}`.
+  Columns (aliases): question_prompt (prompt, question), question_type (type), subject, max_points (points),
+  rubric (JSON list or `label: pts; label: pts`), answer_key, answer_text (answer), image (file name in the zip),
+  human_mark (human_marks, mark, score: `3` or `3;4`), human_comment (comment). Name/email/username columns are dropped.
+- `DELETE /api/quality/benchmarks/{sid}/items/{iid}` → 204.
+- `GET /api/quality/graders` → `{graders:[name], default, ai_enabled}`.
+- `POST /api/quality/benchmarks/{sid}/runs` (202) body `{grader?, severe_fraction?}` → `Run` (status running; runs in
+  the background, 4 at a time). 409 if AI is off for an AI grader, the set is empty or a run is going; 422 unknown grader.
+  `Run = {id, set_id, grader, provider, model, prompt_version, status, severe_fraction, item_count, done_count,
+  metrics:{overall: Agreement, by_type, by_subject, failed, human_vs_human: Agreement|null}, error, created_at, finished_at}`.
+- `GET /api/quality/benchmarks/{sid}/runs` → `[Run]` newest first; `GET /api/quality/runs/{rid}` → `Run + {set:{id,name,subject},
+  items:[{item_id, question_type, subject, prompt, max_points, human_points, ai_points, diff, severe, confidence,
+  needs_review, explanation, error}]}` (largest relative difference first).
+- Graders (`app.quality.graders`): `async def grader(item) -> {"points", "confidence"?, "explanation"?, "needs_review"?}`
+  with `item = {id, question:{type,prompt,points,rubric,options,answer_number,tolerance,accepted_answers,correct_index,answer_key},
+  subject, answer_text, answer_image, image: bytes|None}` (never the human mark). `register_grader(name, fn,
+  prompt_version="", needs_ai=True)`, `set_default_grader(name)` or env `FAIRPLAY_BENCHMARK_GRADER`. Built-in
+  `default` uses `app.ai.complete_json` (prompt version `bench-default-1`). Phase 2 drops its grader in here.
+
+## Quality reports (live production data)
+- `GET /api/quality/overview?course=&exam_ids=&severe_fraction=` → `Block + {exams:[{exam_id, title, course, graded, n,
+  exact, within_1, mae, kappa, severe_rate, bias, correction_rate, mean_seconds_ai, mean_seconds_manual}], courses,
+  all_exams:[{exam_id,title,course}], weak_areas, benchmarks:[{set_id, name, run_id, finished_at, overall}]}`.
+- `GET /api/exams/{id}/quality?severe_fraction=` → `Block + {exam_id, title, course, status, grades_released,
+  questions:[{question_id,index,type,prompt,points,rubric,options,images}], routing: summary, moderation:{total, open, by_status}}`.
+- `Block = {agreement: Agreement, by_type, by_question:[Agreement + {exam_id, question_id, question_index, prompt, type}],
+  correction, timing, worst:[{exam_id, exam_title, attempt_id, anon_id, question_id, question_index, prompt, type,
+  source, graded_by, confidence, ai_points, final_points, max_points, diff, severe}] (top 25 by |diff|/max),
+  graded, severe_fraction}`. Pairs = graded answers with an AI suggestion (ai_suggested_points vs final points).
+- `GET /api/exams/{id}/quality/graded` → `[{attempt_id, anon_id, question_id, question_index, prompt, type, max_points,
+  suggested, final, source}]` (pickers).
+
+## Second marking and moderation
+Table `quality_second_marks` (id `sm_…`, exam_id, attempt_id, question_id unique together, lead_id, marker_id,
+tolerance, reason selected|sample|routed, second_points/comment/at, first_points/comment/by/at (snapshot at
+moderation), ai_points, moderated_points/comment/by/at, created_at). Lead status: `awaiting_second` →
+(`awaiting_first` if no teacher grade yet) → `agreed` (|first − second| ≤ tolerance) | `needs_moderation` →
+`moderated`. The first mark compared is the live `attempt.grades[qid]`.
+- `GET /api/quality/second-marking/teachers` → `[{username, name}]` (other teacher accounts).
+- `POST /api/exams/{id}/quality/second-marking` (201) body `{marker_username, question_ids?, sample_percent? (0..100],
+  routed_only?, tolerance? (points; default 10 % of the question), seed?}` → `{created, skipped, ids, marker}`.
+  Candidates: routed_only → answers routed to review; else routing candidates (+ every answered answer of the
+  listed `question_ids`); filtered by `question_ids`; then a random `sample_percent` (ceil, seeded by `seed` or exam
+  id). Existing assignments are skipped. Marker must be another teacher (self → 422, unknown/student → 404).
+- `GET /api/exams/{id}/quality/second-marking` → `{exam_id, title, counts:{status:n}, open, items:[{id, attempt_id,
+  anon_id, username, name, question_id, question_index, prompt, type, max_points, answer:{text,image}, marker:{username,name},
+  tolerance, reason, status, first:{points,comment,graded_by,graded_at}|null, second:{points,comment,marked_at}|null,
+  ai:{points,confidence,comment}|null, moderated:{points,comment,by,at}|null, created_at}]}`.
+- `DELETE /api/exams/{id}/quality/second-marking/{sm_id}` → 204 (409 once moderated).
+- `POST /api/exams/{id}/quality/second-marking/{sm_id}/moderate` body `{points, comment?}` (lead only) →
+  `{id, status:"moderated", grade, score, percent}`; 409 unless status is needs_moderation; 422 points out of range.
+- Marker (blind): `GET /api/quality/second-marking/queue` → `{items:[{id, exam_id, exam_title, course, anon_id,
+  question:{question_id,index,type,prompt,points,rubric,options,images}, answer:{text,image},
+  status:"to_mark"|"marked"|"closed", my_mark:{points,comment,marked_at}|null}], to_mark}` — never the first mark,
+  the AI draft/transcript, the comparison result or the student's name. `PUT /api/quality/second-marking/{sm_id}/mark`
+  body `{points, comment}` → same item shape (404 if not assigned to the caller, 409 once moderated, 422 out of range).
+- `GET /api/exams/{id}/quality/release-check` → `{exam_id, moderation_open, by_status, ok}`.
+- `POST /api/exams/{id}/release` (changed): after the pending-grading check, if any second-marked answer of the
+  exam is not agreed/moderated and `force` is false → 409 `"<n> second-marked answers still need moderation: grades may change"`
+  (the Results "Release anyway" button sends force).
+
+## Web
+Teacher nav "Grading quality" → `/teacher/quality` (overview across exams, course filter), `/teacher/quality/exams/:id`
+(exam report, routing rules + routed answers, second-marking assignment, moderation cards),
+`/teacher/quality/benchmarks`, `/teacher/quality/benchmarks/:id` (answers, add from graded answers with a consent
+checkbox, add by hand, CSV + zip import, run), `/teacher/quality/runs/:id`, `/teacher/quality/second-marking`
+(the second marker's blind queue). Charts follow the Insights style (one primary hue, values printed, table view).
