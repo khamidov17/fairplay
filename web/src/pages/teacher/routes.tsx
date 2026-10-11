@@ -28,6 +28,11 @@ import BenchmarkSetPage from "./quality/BenchmarkSetPage";
 import BenchmarkRunPage from "./quality/BenchmarkRunPage";
 import SecondMarkingQueuePage from "./quality/SecondMarkingQueuePage";
 import CapturePage from "./scan/CapturePage";
+import HomeworkListPage from "./homework/HomeworkListPage";
+import HomeworkNewPage from "./homework/HomeworkNewPage";
+import HomeworkPage from "./homework/HomeworkPage";
+import ProgressPage from "./progress/ProgressPage";
+import StudentProgressPage from "./progress/StudentProgressPage";
 
 export default function TeacherRoutes() {
   return (
@@ -61,6 +66,11 @@ export default function TeacherRoutes() {
         <Route path="exams/:id/scan" element={<ScanExamPage />} />
         <Route path="classes" element={<ClassesPage />} />
         <Route path="classes/:classId" element={<ClassPage />} />
+        <Route path="homework" element={<HomeworkListPage />} />
+        <Route path="homework/new" element={<HomeworkNewPage />} />
+        <Route path="homework/:id" element={<HomeworkPage />} />
+        <Route path="progress" element={<ProgressPage />} />
+        <Route path="progress/students/:username" element={<StudentProgressPage />} />
         <Route path="quality" element={<QualityPage />} />
         <Route path="quality/exams/:id" element={<ExamQualityPage />} />
         <Route path="quality/benchmarks" element={<BenchmarksPage />} />

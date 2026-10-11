@@ -5,7 +5,7 @@ import { useMe } from "../../lib/useMe";
 import { Icon, LogoMark, type IconName } from "../ui/Icon";
 import "../../styles/teacher.css";
 
-type Section = "home" | "exams" | "classes" | "grading" | "gradebook" | "lms" | "insights" | "students" | "practice" | "scan" | "quality";
+type Section = "home" | "exams" | "classes" | "grading" | "gradebook" | "lms" | "insights" | "students" | "practice" | "scan" | "quality" | "homework" | "progress";
 
 /** Which nav item is active for a path. */
 export function sectionFor(pathname: string): Section | null {
@@ -18,6 +18,8 @@ export function sectionFor(pathname: string): Section | null {
   if (p.startsWith("/teacher/students")) return "students";
   if (p.startsWith("/teacher/practice")) return "practice";
   if (p.startsWith("/teacher/quality")) return "quality";
+  if (p.startsWith("/teacher/homework")) return "homework";
+  if (p.startsWith("/teacher/progress")) return "progress";
   if (p.startsWith("/teacher/scan") || /^\/teacher\/exams\/[^/]+\/scan/.test(p)) return "scan";
   if (p.startsWith("/teacher/grading") || /^\/teacher\/exams\/[^/]+\/grading/.test(p)) return "grading";
   if (p.startsWith("/teacher/exams")) return "exams";
@@ -29,8 +31,10 @@ const NAV: { id: Section; to: string; label: string; icon: IconName }[] = [
   { id: "exams", to: "/teacher/exams", label: "Exams", icon: "exams" },
   { id: "classes", to: "/teacher/classes", label: "Classes", icon: "classes" },
   { id: "grading", to: "/teacher/grading", label: "Grading", icon: "grading" },
+  { id: "homework", to: "/teacher/homework", label: "Homework", icon: "grading" },
   { id: "scan", to: "/teacher/scan", label: "Scan & Grade", icon: "scan" },
   { id: "gradebook", to: "/teacher/gradebook", label: "Gradebook", icon: "gradebook" },
+  { id: "progress", to: "/teacher/progress", label: "Progress", icon: "insights" },
   { id: "insights", to: "/teacher/insights", label: "Insights", icon: "insights" },
   { id: "quality", to: "/teacher/quality", label: "Grading quality", icon: "shield" },
   { id: "students", to: "/teacher/students", label: "Students", icon: "students" },

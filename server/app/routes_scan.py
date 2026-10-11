@@ -753,7 +753,8 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
             key = scan_grading.group_key(d)
             items.append({
                 "attempt_id": a.id, "username": username, "name": name, "question_id": qid,
-                "image": ans.get("image"), "page": ans.get("page"), "mcq": ans.get("mcq"),
+                "image": ans.get("image"), "images": ans.get("images"),  # homework: several pages
+                "page": ans.get("page"), "mcq": ans.get("mcq"),
                 "marks": ans.get("marks"), "blank": bool(ans.get("blank")),
                 "draft": d, "grade": g, "status": status, "auto_points": auto,
                 "low_confidence": low, "group": key,

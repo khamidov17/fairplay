@@ -126,6 +126,8 @@ export interface QueueItem {
   group: string;
   /** phase 2: preview of the whole scanned page this answer is on */
   page_image?: string | null;
+  /** homework: every picture of this answer (the first one is `image`) */
+  images?: string[] | null;
 }
 
 export interface QueueQuestion {
