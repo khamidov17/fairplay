@@ -102,8 +102,14 @@ def test_unprinted_upload_map_and_grade(client, teacher, monkeypatch):
     assert len(calls) == 10
     assert all("whole answer page" in c for c in calls)
 
-    queue = client.get(f"/api/exams/{e['id']}/scan/queue", headers=teacher).json()
-    items = {(i["username"], i["question_id"]): i for i in queue["items"]}
+    # drafts are stored after the call returns (step verification runs first): wait for them
+    end = time.time() + 30
+    while True:
+        queue = client.get(f"/api/exams/{e['id']}/scan/queue", headers=teacher).json()
+        items = {(i["username"], i["question_id"]): i for i in queue["items"]}
+        if (len(items) == 10 and all(i["draft"] for i in items.values())) or time.time() > end:
+            break
+        time.sleep(0.1)
     assert len(items) == 10
     pages = {pg["page_id"]: pg for pg in client.get(f"/api/exams/{e['id']}/scans/map", headers=teacher).json()["pages"]}
     assert pages[pids[2]]["page_no"] == 2 and pages[pids[2]]["student_id"] == users["bob"]

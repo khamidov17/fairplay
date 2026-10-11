@@ -262,6 +262,8 @@ def test_segment_adapter_fallback_and_shapes(monkeypatch):
 # ---------------------------------------------------------------- AI grading, review, release, notifications
 def test_background_ai_grading_release_and_feedback(client, teacher, alice, bob, monkeypatch):
     stats = _ai_on(monkeypatch)
+    # this test covers the whole-page fallback; the real segmenter's shape is covered separately
+    monkeypatch.setattr(segment_adapter, "_segmenter", lambda: None)
     c = _class(client, teacher, "alice\nbob")
     h = _hw(client, teacher, c["id"])
     eid = h["exam_id"]
@@ -446,3 +448,39 @@ def test_progress_math_fixture():
     assert [p["percent"] for p in one["topics"][0]["series"]] == [100.0, 90.0, 40.0, 30.0]
     view = progress.student_view([i for i in items if i.student_id == 2], NOW)
     assert [t["topic"] for t in view["improving"]] == ["algebra"] and view["work_on"] == []
+
+
+def test_segment_adapter_uses_real_segmenter_shape(monkeypatch):
+    """The homework adapter must accept app.scan.segment.segment_pages' real (async, dict) result."""
+    import cv2
+    import numpy as np
+
+    from app.homework import segment_adapter
+    from app.scan import segment
+
+    img = np.full((1000, 800, 3), 255, np.uint8)
+    ok, png = cv2.imencode(".png", img)
+    pages = [png.tobytes(), png.tobytes()]
+
+    async def fake_segment(questions, page_images, hint=""):
+        return {"prompt_version": "fp-segment-v1", "source": "ai", "pages": [],
+                "regions": [
+                    {"id": "r1", "question_id": "q1", "page": 0, "box": [0.1, 0.1, 0.9, 0.4],
+                     "confidence": 0.9, "crossed_out": False},
+                    {"id": "r2", "question_id": "q1", "page": 0, "box": [0.1, 0.5, 0.9, 0.6],
+                     "confidence": 0.9, "crossed_out": True},
+                    {"id": "r3", "question_id": "q2", "page": 1, "box": [0.0, 0.0, 1.0, 0.5],
+                     "confidence": 0.8, "crossed_out": False},
+                    {"id": "r4", "question_id": None, "page": 1, "box": [0.0, 0.6, 1.0, 0.7],
+                     "confidence": 0.5, "crossed_out": False}],
+                "missing": [], "name": None, "confidence": 0.8, "needs_check": False, "reasons": []}
+
+    monkeypatch.setattr(segment, "segment_pages", fake_segment)
+    qs = [{"id": "q1", "type": "essay", "prompt": "1", "points": 2},
+          {"id": "q2", "type": "essay", "prompt": "2", "points": 2}]
+    out, mode = segment_adapter.locate(qs, pages)
+    assert mode == "segment"
+    assert len(out["q1"].images) == 1 and out["q1"].whole_page is False and out["q1"].page == 1
+    assert len(out["q2"].images) == 1 and out["q2"].page == 2
+    crop = cv2.imdecode(np.frombuffer(out["q1"].images[0], np.uint8), cv2.IMREAD_COLOR)
+    assert crop.shape[0] == 300 and crop.shape[1] == 640

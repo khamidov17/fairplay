@@ -126,6 +126,13 @@ def locate(questions: list[dict], pages: list[bytes]) -> tuple[dict[str, Located
         return whole, "whole_page"
     try:
         raw = fn(questions, pages)
+        if hasattr(raw, "__await__"):  # app.scan.segment.segment_pages is async; we run in a worker thread
+            import asyncio
+            raw = asyncio.run(raw)
+        if isinstance(raw, dict) and isinstance(raw.get("regions"), list):
+            # segment_pages result: live (not crossed-out) regions of known questions
+            raw = [r for r in raw["regions"]
+                   if isinstance(r, dict) and r.get("question_id") and not r.get("crossed_out")]
     except Exception:  # noqa: BLE001 - never lose a submission over segmentation
         log.exception("segment_pages failed; grading on whole pages")
         return whole, "whole_page"
