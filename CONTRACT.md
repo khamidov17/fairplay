@@ -874,3 +874,147 @@ Teacher nav "Grading quality" → `/teacher/quality` (overview across exams, cou
 `/teacher/quality/benchmarks`, `/teacher/quality/benchmarks/:id` (answers, add from graded answers with a consent
 checkbox, add by hand, CSV + zip import, run), `/teacher/quality/runs/:id`, `/teacher/quality/second-marking`
 (the second marker's blind queue). Charts follow the Insights style (one primary hue, values printed, table view).
+
+---
+
+# Homework mode and progress — as implemented
+
+Paper assignments in the Frizzle style: students do the work on paper and hand it in with their phone
+camera (or the teacher scans the class stack), the Phase 2 grader drafts every step, the teacher reviews
+in the existing review screen and releases, students get feedback that explains the mistakes, and a
+class dashboard shows where each student struggles across assignments. Server: `server/app/homework/`
+(models, routes, service, processing, segment_adapter, loader, progress); web:
+`web/src/pages/teacher/homework/`, `web/src/pages/teacher/progress/`, `web/src/pages/student/homework/`,
+`web/src/api/homework.ts`, `web/src/styles/homework.css`. E2E: `e2e/e2e_homework.py`.
+
+## Decision: a homework is a paper Exam + one `homework_assignments` row
+- The exam row is an ordinary `Exam` with `delivery: "paper"` (duration 60, never opened/started, never in
+  `GET /api/student/exams`). Answer key, rubric, AI grading (`ai_grade`), Scan & Grade storage, review queue,
+  bulk approve, export, release, student feedback (`GET /api/student/grades/{id}`), gradebook and LMS push
+  work unchanged. Homework also appears in `/teacher/scan` (it is a paper exam). No new `delivery` value:
+  every existing `delivery == "paper"` rule applies as is.
+- Who gets it: the exam's assigned classes (`exam_classes`, ≥ 1 required) via the usual roster precedence
+  (`routes_scan.roster_of`: picked roster > classes > course > all).
+- Answers handed in by a student live on the student's paper `Attempt` (`source: "paper"`), value
+  `{"image": first url, "images": [urls], "page", "whole_page": bool, "blank": false, "mcq": null,
+  "marks": null, "homework": true}`. `scan.grading.draft_for` sends every picture in `images` (≤ 6) to the
+  AI; the review queue item gains `images` and the review screen shows all of them.
+- The first student hand-in (like the first scan upload) sets the exam to `closed` ("collected"), so
+  release works; questions can be changed (PATCH) only while nobody has handed in.
+
+## Tables (all new columns carry a server_default)
+- `homework_assignments`: exam_id (PK), teacher_id, due_at (UTC), instructions, allow_late (true),
+  allow_resubmit (true), auto_release (false), worksheet_path/name/type (private file under
+  `<uploads>/../homework-worksheets/`), auto_released_at, created_at, updated_at.
+- `homework_submissions`: id `hs_…`, exam_id, student_id (unique pair), status
+  `processing` → `grading` → `graded` | `failed`, pages `[{url, flattened}]`, sources (temp files), version
+  (bumped per resubmission; an older background job never overwrites a newer upload), late, segmented
+  (`segment`|`partial`|`whole_page`), error, attempt_id, submitted_at, processed_at.
+- `homework_feedback_seen`: exam_id, student_id (unique), seen_at — in-app notification state.
+- `progress_notes`: id, teacher_id, student_id, text, created_at (teacher-private).
+
+## Student upload pipeline (background, never blocks the event loop)
+Photos (JPEG/PNG/WebP/HEIC when pillow-heif is installed) or PDFs, ≤ 30 files, ≤ 80 MB → each page
+flattened with `scan.photo.rectify` (page outline, perspective, lighting; no outline found → contrast-enhanced
+as is), JPEG ≤ 2000 px stored as uploads → `homework.segment_adapter.locate(questions, pages)` → the attempt's
+answers are REPLACED (grades and drafts of the old pages are dropped) → `routes_scan.draft_answers` drafts
+every answer. Segmentation: calls `app.scan.segment.segment_pages(questions, page_images)` when that module
+exists (another team); any failure, missing module or unusable region → that question gets the whole page set
+(`whole_page: true`; the AI prompt says "grade only THIS question"). Accepted region shapes are documented in
+`segment_adapter.py` (bytes, ndarray, page index, `{"page"|"page_no", "bbox"}` in pixels or 0..1 fractions).
+
+## Hand-in rules (`homework.service.submit_block`, 409 with these texts)
+"Feedback is already released" (after release, for students with work) · "You already handed this in"
+(resubmit off) · "The due date has passed" (late off) · "The due date has passed — your work is handed in"
+(late on, but no resubmitting after the due date) · "Your last upload is still being read — wait a moment".
+Not a member of an assigned class → 403 "You are not in a class for this homework" (student endpoints);
+unknown id → 404; teachers → 403. Late = submitted after `due_at`; flagged on the submission and the attempt.
+
+## Per-student status (teacher)
+`not_submitted` → `submitted` (pages being read, or pending answers without an AI draft) → `ai_graded`
+(every pending answer has a draft) → `reviewed` (no pending answers: every answer has a teacher grade)
+→ `released`. Row also has `processing: "processing"|"grading"|"failed"|null`, `source: "student"|"scan"`.
+
+## Release and auto-release
+- `POST /api/homework/{id}/release {"force"?}` closes the exam if needed and releases; 409 "<n> answers still
+  need grading", 409 "Some uploads are still being read", 409 moderation open (phase 3) unless force.
+  `POST /api/homework/{id}/unrelease` hides it again and turns auto-release off.
+- Auto-release (opt-in, "gentle"): released by itself when every submitted answer has a teacher grade, no upload
+  is in flight, ≥ 1 student handed in, and the due date passed or every rostered student handed in. Checked after
+  every approve / bulk approve in the review screen (one hook in `routes_scan`) and when the teacher opens the
+  homework. Sets `auto_released_at`.
+
+## Teacher API (role teacher; another teacher's homework/class → 404)
+- `POST /api/homework` `{title, course?, due_at, class_ids:[≥1], instructions?, allow_late?, allow_resubmit?,
+  auto_release?, questions:[QuestionIn …]}` (questions validated exactly like exams: topics required) → 201 Detail.
+- `GET /api/homework[?class_id=]` → `[Summary]` newest due first. Summary = `{exam_id, title, course, due_at,
+  instructions, allow_late, allow_resubmit, auto_release, auto_released_at, worksheet:{name,type}|null, status,
+  grades_released, released_at, question_count, total_points, created_at, past_due, classes:[{id,name,section}],
+  counts:{not_submitted, submitted, ai_graded, reviewed, released, total, late, handed_in}}`.
+- `GET /api/homework/{id}` → Summary + `questions:[{question_id,index,type,prompt,points,options,images,topics}]`,
+  `ai_enabled`, `pending`, `students:[{id,username,name,status,late,submitted_at,source,processing,error,pages,
+  attempt_id,needs_grading,score,percent}]`.
+- `PATCH /api/homework/{id}` any of `title, due_at, class_ids, instructions, allow_late, allow_resubmit,
+  auto_release, questions` (questions → 409 once anyone handed in) → Detail. `DELETE /api/homework/{id}` → 204
+  (exam, attempts, submissions).
+- Worksheet: `PUT /api/homework/{id}/worksheet` (multipart `file`, PDF/PNG/JPEG ≤ 20 MB; else 422/413),
+  `DELETE …/worksheet`, `GET …/worksheet` (download). Booklets with QR codes still come from `print.pdf`.
+- Collecting the class stack, answer key, review queue, approve/regrade/bulk: the existing Scan & Grade
+  endpoints with the homework's exam id.
+
+## Student API (role student)
+- `GET /api/student/homework` → `[Item]`; Item = `{exam_id, title, course, due_at, past_due, state:
+  "not_submitted"|"processing"|"failed"|"handed_in"|"feedback", late, overdue, submitted_at, can_submit,
+  block_reason, allow_late, allow_resubmit, released, feedback_new, score|null, total_points, percent|null,
+  question_count, class_names}` (score/percent only once released).
+- `GET /api/student/homework/{id}` → Item + `instructions, worksheet, questions (no keys, no topics), pages
+  (my flattened pages), error, ai_enabled`. Opening a released homework marks its feedback seen.
+- `POST /api/student/homework/{id}/submit` multipart `files` in page order → 202 `{submission_id, pages, late,
+  state:"processing"}`.
+- `GET /api/student/homework/{id}/worksheet` (class members only).
+- `GET /api/student/notifications` → `{feedback_ready, items:[{exam_id,title,released_at}]}` — released homework
+  with the student's work that they have not opened yet. In-app only (badge on the student home), no email.
+- `GET /api/student/progress` → `{mastery, level, trend_label, improving, work_on, strong, topics:[{topic,
+  mastery, trend, trend_label, n}], mistakes:[{label,count,topics}], recent:[{exam_id,title,date,percent,homework}]}`
+  — RELEASED exams/homework and teacher grades only (never unreviewed AI drafts).
+
+## Progress dashboard (`app.homework.progress`, pure functions; tested on a fixed fixture)
+Items = every (student, question) of the teacher's submitted attempts (homework, paper and computer exams;
+external items skipped), dated by `attempt.submitted_at`.
+- Mastery (student × topic) = Σ w·awarded / Σ w·max over graded answers, w = 0.5^(age_days / 21) — recent
+  work counts more; pending answers are skipped. Levels: ≥ 80 strong, ≥ 60 developing, else struggling.
+  Class mastery of a topic = mean of the students' masteries.
+- Trend = per-assignment percents in date order; recent = last min(2, n // 2), before = up to 3 before those;
+  delta = mean(recent) − mean(before), needs n ≥ 2 (else "new"). ≤ −10 slipping, ≥ +10 improving, else steady.
+- Misconception label per answer that lost points: approved grade's misconception tag (`other` → its text),
+  else its first mistake tag; answers not graded yet: the AI draft's tag (teacher view only). This week =
+  [now − 7 d, now), last week = [now − 14 d, now − 7 d). Top 10 by this week.
+- Actions per topic with class mastery < 70 or ≥ 2 struggling students: "reteach" when class mastery < 60 or
+  ≥ 40 % of the students with answers struggle, else "practice" — with the struggling usernames.
+- `GET /api/progress?class_id=` (class must be the teacher's) → `{class, generated_at, assignments,
+  topics:[{topic,mastery,level,students,struggling:[{username,name,mastery}]}], students:[{student_id,username,
+  name,mastery,level,n,assignments,trend,trend_label,cells:{topic:{mastery,n,level,trend}}}],
+  misconceptions:[{label,this_week,last_week,change,approved,students,topics}], actions:[{topic,kind,mastery,
+  text,students,misconception}], slipping:[…], improving:[{username,name,trend,mastery}]}`.
+- `GET /api/progress/students/{username}` (student in one of the teacher's classes or with work on their
+  exams; else 404) → `{student, classes, mastery, level, n, trend, trend_label, assignments:[{exam_id,title,date,
+  percent}], topics:[{topic,mastery,level,n,trend,trend_label,series:[…]}], mistakes:[{label,count,recurring,
+  topics,last_seen,examples:[{exam_id,title,question_id,prompt,image,date,comment,approved}]}], notes}`.
+- `POST /api/progress/students/{username}/notes {"text"}` → 201 note; `DELETE /api/progress/notes/{id}` → 204.
+- One-click practice: the dashboard calls the existing `POST /api/practice/generate {usernames, topics}` for the
+  struggling group (drafts; the teacher still approves and sends on `/teacher/practice`), or links to
+  `/teacher/practice?student=a,b&topic=x` (prefill).
+
+## Web
+- Teacher nav "Homework" → `/teacher/homework` (list, class filter), `/teacher/homework/new[?class=]` (title, due,
+  classes, instructions, questions with topics and key, late / resubmit / auto-release switches),
+  `/teacher/homework/:id?tab=students|key|collect|review|settings` (status table with page thumbnails and late
+  flags; the shared AnswerKeyStep, UploadStep (+ PrintStep), QueueStep; settings + worksheet; "Release feedback").
+- Teacher nav "Progress" → `/teacher/progress[?class=]` (slipping / improved, misconceptions this vs last week,
+  students × topics heatmap with numbers in every cell, sort by name / weakest / slipping, suggested actions with
+  "Assign practice to N students") and `/teacher/progress/students/:username` (topic lines, recurring mistakes with
+  thumbnails of the student's own answers, notes).
+- Student nav "Homework" → `/student/homework`, `/student/homework/:id` (questions, worksheet download,
+  `<input type="file" accept="image/*" capture="environment" multiple>` + "Choose files", reorder/delete pages,
+  "Hand in N pages" / "Hand in again" / "Hand in late", what you handed in, feedback card → `/student/grades/:id`);
+  "Progress" → `/student/progress`. Student home shows a "Feedback ready" badge and homework still to do.
