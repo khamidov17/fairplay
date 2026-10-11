@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ------------------------------------------------------------
         FairPlay \(Config.version)  server: \(Config.serverURL.absoluteString)
         Safety auto-unlock: \(Config.safetyUnlockMinutes > 0 ? "\(Int(Config.safetyUnlockMinutes)) min" : "off")
-        Invigilator exit while locked: Ctrl-Opt-Cmd-E, code \(Config.invigilatorCode)
+        Invigilator exit while locked: Ctrl-Opt-Cmd-E, per-exam code (teacher's live room)
         Log: \(EventLog.shared.logPath)
         ------------------------------------------------------------
         """)

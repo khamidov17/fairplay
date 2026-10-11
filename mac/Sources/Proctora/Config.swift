@@ -20,8 +20,11 @@ enum Config {
         return v ?? 180
     }
 
-    /// Invigilator emergency exit (Ctrl-Opt-Cmd-E while locked). Real builds get it per exam from the server.
-    static var invigilatorCode: String {
-        UserDefaults.standard.string(forKey: "InvigilatorCode") ?? "1234"
+    /// Invigilator emergency exit (Ctrl-Opt-Cmd-E while locked): the code is issued per exam by the
+    /// server and checked by ExitCodeVerifier. This optional override (no default) is for dev / IT
+    /// use only and applies only when no exam session is known:
+    ///   defaults write ai.proctora.student InvigilatorCode <code>
+    static var invigilatorCodeOverride: String? {
+        UserDefaults.standard.string(forKey: "InvigilatorCode")
     }
 }

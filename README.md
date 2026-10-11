@@ -15,7 +15,9 @@ CONTRACT.md  API and native-bridge contract all parts follow
 2. Teacher: open http://127.0.0.1:8000/teacher in a browser, sign in `teacher / teacher123`, create an exam, press Open, note the 4-digit start code.
 3. Student: double-click **mac/Build and Run.command**. Sign in `alice / alice123`, enter the code, Start exam. The Mac locks until you submit.
    - First time only: turn on "FairPlay" in Privacy & Security > Accessibility (the app shows the steps).
-   - Invigilator emergency exit while locked: **Ctrl-Opt-Cmd-E**, code **1234**. Dev builds also unlock by themselves after 180 minutes.
+   - Invigilator emergency exit while locked: **Ctrl-Opt-Cmd-E**, then the exam's **invigilator exit code** shown in the teacher's Live room (a new code every time the exam is opened; every use is logged). Dev builds also unlock by themselves after 180 minutes.
+
+The demo accounts exist only in development. For a real deployment set `FAIRPLAY_ENV=production` and create accounts with `python -m app.manage create-user` (see server/README.md).
 4. Watch the teacher's Live room, then Results.
 
 Other students on the same Wi-Fi: start the server with `HOST=0.0.0.0` and point their app at it:

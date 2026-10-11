@@ -26,7 +26,16 @@ PROCTORA_SEED_LOADTEST_USERS=2000 DATABASE_URL=postgresql+asyncpg://... REDIS_UR
 python3 loadtest/loadtest.py --base http://127.0.0.1:8100 --students 2000 --exams 50 --duration 90 --ramp 30
 ```
 
+## Phase 1a hot-path cost
+- Every authenticated request now does one store GET (`tv:<user>`: token-version check; a DB read only on a cache
+  miss, once per user per 10 min). Tokens stay stateless otherwise.
+- Answer save: + 2 store ops (audit coalescing); a DB row only once per attempt per 5 min.
+- Heartbeat: + 1 store GETSET; DB rows only after a > 30 s gap.
+- Login: + 1 audit INSERT and 2-4 store ops (sign-in limits).
+
 ## Known gaps before a real pilot
 - Docker files are validated (`docker compose config`) but the image was not built here (no Docker daemon in the sandbox).
-- Accounts are seeded demo users; Canvas LTI 1.3 login is the next step.
-- The invigilator exit code is a fixed dev value (1234); production should issue one per exam session.
+- Accounts: demo users in development only; production accounts come from `python -m app.manage create-user`.
+  Canvas LTI 1.3 login is the next step.
+- The Mac app's dev safety unlock (180 min, `SafetyUnlockMinutes`) is still on by default; set it to 0 for real exams.
+- Upload URLs (question images, scan crops) are unguessable capabilities, not per-user checked (see CONTRACT.md).

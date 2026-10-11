@@ -121,3 +121,13 @@ def test_uploads_need_a_teacher_and_are_not_listable(client, alice, world):
     assert r.status_code == 403
     assert client.get("/api/uploads", headers=world["t2"]).status_code in (404, 405)
     assert client.get("/api/uploads/" + "0" * 32).status_code == 404
+
+
+def test_upload_responses_are_private_and_sandboxed(client, teacher):
+    from .test_slice6_foundations import png_bytes, upload
+    url = upload(client, teacher, png_bytes()).json()["url"]
+    r = client.get(url)
+    assert r.status_code == 200
+    assert r.headers["cache-control"].startswith("private")
+    assert "sandbox" in r.headers["content-security-policy"]  # the route's own CSP wins
+    assert r.headers["x-content-type-options"] == "nosniff"

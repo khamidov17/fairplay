@@ -124,6 +124,9 @@ final class MainWindowController: NSWindowController, LockSurface,
         switch action {
         case "hello":
             sendState()
+        case "examSession":
+            // phase 1a: attempt id, token and exit-code verifier for the invigilator exit
+            ExitCodeVerifier.shared.update(from: body)
         case "lock":
             if LockdownController.shared.lock() {
                 hidePermission()
@@ -133,6 +136,7 @@ final class MainWindowController: NSWindowController, LockSurface,
                 send(["type": "lockFailed", "reason": "accessibility"])
             }
         case "openExternal":
+            ExitCodeVerifier.shared.update(from: body)
             if !LockdownController.shared.isLocked {
                 guard LockdownController.shared.lock() else {
                     showPermission()
@@ -399,16 +403,34 @@ final class MainWindowController: NSWindowController, LockSurface,
         alert.addButton(withTitle: "End locked mode")
         alert.addButton(withTitle: "Cancel")
         alert.window.initialFirstResponder = field
-        alert.beginSheetModal(for: win) { response in
+        alert.beginSheetModal(for: win) { [weak self] response in
             guard response == .alertFirstButtonReturn else { return }
-            if field.stringValue == Config.invigilatorCode {
-                EventLog.shared.record(.emergencyExitAccepted)
-                LockdownController.shared.unlock()
-            } else {
-                EventLog.shared.record(.emergencyExitRejected)
-                NSSound.beep()
+            // phase 1a: per-exam code, checked by the server (offline verifier as fallback)
+            ExitCodeVerifier.shared.verify(field.stringValue) { result in
+                switch result {
+                case .accepted(let how):
+                    EventLog.shared.record(.emergencyExitAccepted(how))
+                    LockdownController.shared.unlock()
+                case .rejected:
+                    EventLog.shared.record(.emergencyExitRejected)
+                    NSSound.beep()
+                case .tooManyTries:
+                    EventLog.shared.record(.emergencyExitRejected)
+                    self?.showExitMessage("Too many wrong codes. Wait 5 minutes, then try again.")
+                case .unavailable:
+                    self?.showExitMessage("No exit code is known for this computer yet. Ask the teacher to check the live room.")
+                }
             }
         }
+    }
+
+    private func showExitMessage(_ text: String) {
+        guard let win = window, win.attachedSheet == nil else { NSSound.beep(); return }
+        let alert = NSAlert()
+        alert.messageText = "Invigilator exit"
+        alert.informativeText = text
+        alert.addButton(withTitle: "OK")
+        alert.beginSheetModal(for: win, completionHandler: nil)
     }
 
     // MARK: - Helpers

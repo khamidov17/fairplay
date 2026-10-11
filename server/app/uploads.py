@@ -124,6 +124,9 @@ async def get_upload(uid: str):
         raise HTTPException(404, "Not found")
     path, media = found
     return FileResponse(path, media_type=media, headers={
-        "Cache-Control": "public, max-age=31536000, immutable",
+        # phase 1a: private (scan crops are student work: no shared/proxy caching) and a
+        # sandboxing CSP so an image URL opened directly can never run anything
+        "Cache-Control": "private, max-age=31536000, immutable",
+        "Content-Security-Policy": "default-src 'none'; img-src 'self'; sandbox",
         "X-Content-Type-Options": "nosniff",
     })

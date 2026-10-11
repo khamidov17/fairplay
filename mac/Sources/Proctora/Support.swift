@@ -44,7 +44,7 @@ final class EventLog {
         case spaceChanged
         case extraDisplay(Int)
         case blockedNavigation(String)
-        case emergencyExitAccepted, emergencyExitRejected
+        case emergencyExitAccepted(String), emergencyExitRejected
         case externalFinished(String)
 
         /// (type, detail) as sent to the server.
@@ -61,7 +61,7 @@ final class EventLog {
             case .spaceChanged: return ("space_changed", "")
             case .extraDisplay(let n): return ("extra_display", "count=\(n)")
             case .blockedNavigation(let s): return ("blocked_navigation", s)
-            case .emergencyExitAccepted: return ("emergency_exit", "invigilator code accepted")
+            case .emergencyExitAccepted(let how): return ("emergency_exit", "invigilator code accepted (\(how))")
             case .emergencyExitRejected: return ("emergency_exit_rejected", "wrong code")
             case .externalFinished(let reason): return ("external_finished", reason)
             }

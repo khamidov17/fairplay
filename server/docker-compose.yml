@@ -22,7 +22,13 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://proctora:proctora@postgres/proctora
       REDIS_URL: redis://redis:6379/0
-      PROCTORA_SECRET: ${PROCTORA_SECRET:?set PROCTORA_SECRET to a long random string}
+      FAIRPLAY_ENV: production
+      PROCTORA_SECRET: ${PROCTORA_SECRET:?set PROCTORA_SECRET to a long random string (openssl rand -hex 32)}
+      # Only if another site must call the API from a browser (comma-separated origins):
+      FAIRPLAY_CORS_ORIGINS: ${FAIRPLAY_CORS_ORIGINS:-}
+      # Trust nginx's X-Forwarded-For (the api is not published; only nginx reaches it), so audit
+      # rows and sign-in limits see the real client IP.
+      FORWARDED_ALLOW_IPS: "*"
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
       DB_POOL_SIZE: "10"
       DB_MAX_OVERFLOW: "20"

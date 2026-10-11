@@ -499,3 +499,120 @@ is derived for old exams: mode external → "website", else "computer". New exam
   deadline may then already be past → answers 409, submit still accepted and marked late); future values → now.
 - Web: local attempt id `offline:<exam_id>`; record `fairplay:offline:<exam_id>` = {exam_id, start_code, started_at, view,
   real_attempt_id}. The exam page keeps running under the offline URL after reconnect and routes every call to the real id.
+
+---
+
+# Phase 1a — trustworthy exam sessions (security + audit)
+
+Everything above stays valid unless changed here.
+
+## Environment and deployment
+- `FAIRPLAY_ENV` = `development` (default) | `production`. Production refuses to start when `PROCTORA_SECRET` is
+  unset, the dev value, or shorter than 32 characters, or when `FAIRPLAY_CORS_ORIGINS` contains `*`; it warns loudly
+  without `REDIS_URL`; it never creates the demo users; load-test users need `PROCTORA_SEED_LOADTEST_USERS=N` **and**
+  `FAIRPLAY_ALLOW_LOADTEST_USERS=1`.
+- First accounts in production: `python -m app.manage create-user --username U --name "N" --role teacher`
+  (password prompted twice, or `--password-stdin`); also `set-password`, `revoke-tokens`, `unlock-login`.
+  `--role` is passed through unchanged (any role the token code accepts).
+- CORS: `FAIRPLAY_CORS_ORIGINS` (comma list). Default: `*` in development, none (same-origin only) in production.
+  (Replaces "CORS: allow all origins (dev)" in Serving.)
+- Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, `X-Frame-Options: DENY`,
+  `Cross-Origin-Opener-Policy: same-origin` and `Content-Security-Policy: default-src 'self'; script-src 'self';
+  style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self';
+  object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`; production adds HSTS. Nothing in
+  FairPlay is framed (the Mac app and website exams navigate top-level). A route's own header wins.
+
+## Auth (changed / added)
+- Sign-in limits (store-backed, shared by all workers): 10 failures per username in 15 min, or 100 per IP, lock that
+  username / IP for 15 min → `429 {"detail": "Too many failed sign-ins. Try again in N minutes."}` (even with the right
+  password). Success resets the username counter.
+- Token payload is now `user_id:role:exp:token_version` (HMAC-SHA256 as before; 3-field tokens count as version 0).
+  `users.token_version` (int, default 0) is checked on every request through the store (`tv:<user_id>`, 10 min
+  cache, DB read on a miss): a token older than the user's current version → 401.
+- `POST /api/auth/password` `{"current_password","new_password" (≥ 8)}` → `{"token","role","name"}` (new token);
+  wrong current password → 403. Bumps token_version, so every other sign-in stops working.
+- `POST /api/auth/logout-all` → 204: bumps token_version (sign out everywhere, including this device).
+- Admins (later: superadmin endpoint) call `app.account.revoke_user_tokens(session, user_id)`.
+
+## Invigilator exit code (replaces the fixed 1234)
+- `POST /open` issues a new per-exam code `XXXX-XXXX` (8 chars from the receipt alphabet, ~40 bits). Teacher only:
+  `exit_code` in the teacher Exam (null while draft) and in `GET /live`. Never in a student response.
+- Student attempt view (start / GET attempt) and the offline key release add
+  `"exit_check": {"alg":"PBKDF2-SHA256","iterations":100000,"salt":b64,"hash":b64}` = PBKDF2(normalised code, salt).
+  Normalised = upper-case, letters and digits only (`k7q2 m9xd` = `K7Q2-M9XD`).
+- `POST /api/student/attempts/{aid}/exit-code` `{"code"}` (own attempt) → `{"ok": true}` | 403 `Wrong exit code` |
+  429 after 5 wrong in 10 min (5 min lock) | 404 not this student's attempt. Every try is audited.
+- Native bridge (added): JS → native `{"action":"examSession","attempt_id": str|null,"token": str|null,
+  "exit_check": {...}|null}`, sent before `lock` and again when an offline attempt gets its server id; `openExternal`
+  also carries `exit_check`. On Ctrl-Opt-Cmd-E the app asks the server first; only when the server cannot be reached
+  does it compare with `exit_check` locally. The integrity event `emergency_exit` detail says how it was verified
+  (`server` / `offline` / `override`). `defaults write ai.proctora.student InvigilatorCode X` is a dev/IT override used
+  only when no exam session is known; there is no built-in default code any more.
+
+## Attempt-session write rules (unchanged, now tested)
+- Answer saves: 409 after the deadline (`Time is up`), after submit / close (`Attempt already submitted`).
+- Submit: idempotent (same receipt); after the deadline + 60 s still accepted but marked late (offline work is never
+  lost) and audited with `late: true` and whether the submit body carried newer answers.
+- Heartbeat after submit / close returns `status: "submitted"`. Start after submit → 409; after close → 409.
+
+## Offline package security (replaces the key of slice 6 A)
+Threat model. A student may copy the package off the laptop, work on it at leisure with fast hardware, share it
+with others, and use their own valid token against the API. The start code (4 digits = 10 000 values) is a
+"you are in the room now" check, not a cryptographic secret: anything that lets a student test start codes offline
+reveals the code in seconds. Goals: (1) a package obtained before the exam opens reveals nothing; (2) a package is
+only useful together with something the server hands out only while the exam is open, to an authenticated student
+allowed to take it; (3) every hand-out is recorded; (4) a student whose network drops at the start can still begin.
+
+Design (package format version 2):
+- `GET /api/student/exams/{id}/package` (student; exam live, or scheduled to start within 2 h; website / paper → 409 /
+  404; LMS course gate as for start) → `{"exam_id","version":2,"alg":"AES-GCM","iv","ciphertext"}` =
+  AES-256-GCM(K, iv, plaintext, aad = exam_id), K = random 256-bit per-exam key (`exams.package_key`, created on first
+  use, dropped at close so the next opening gets a new K). No part of it depends on the start code, so it cannot be
+  brute-forced.
+- `GET /api/student/exams/{id}/package-key` (student; exam **live** only, else 409) → `{"exam_id","version":2,
+  "alg":"PBKDF2-SHA256/AES-GCM","iterations":100000,"salt","iv","wrapped_key","exit_check"}`: K wrapped with
+  KEK = PBKDF2-SHA256(start_code + exam_id, salt, iterations, 32 bytes) → AES-GCM(aad = exam_id). The check-in page
+  fetches it once the exam is open (`fairplay:pkgkey:<exam_id>`); an offline start needs both halves; a wrong typed
+  code fails the GCM check ("Wrong start code"). Both responses are cached per exam (one PBKDF2 per room).
+- Audit: `package_downloaded` and `package_key_released` once per student per exam opening.
+- The server re-checks the start code when the offline attempt reaches it (`POST start` with `offline_started_at`).
+Residual risk (accepted, documented): once the exam is open, a student who fetched the key release can brute-force
+the start code from it, i.e. learn the code without being in the room. Mitigations: release only while live, only to
+authenticated students allowed to start (course gate), each release audited and shown in the session timeline,
+offline starts are marked in the audit log with the claimed start time (clamped to 30 min), and closing/reopening
+the exam rotates K and the code. If this is not acceptable for a deployment, the next step is to deliver the key
+release only to registered devices or to bind it to the student (per-student wrap), at the cost of one PBKDF2 per
+student.
+
+## Audit log
+Table `audit_events` (append-only; no foreign keys so an exam delete keeps its trail):
+`id, at, actor_id, actor_role ("student"|"teacher"|"system"|""), ip, user_agent, action, exam_id, attempt_id,
+detail (JSON)`. Indexes (exam_id, attempt_id, at), (attempt_id, at), (actor_id, at).
+Actions: `login_ok, login_failed, login_locked, password_changed, sessions_revoked, exam_opened, exam_closed,
+deadline_extended, start_code_wrong, attempt_started (detail.offline …), attempt_resumed, answer_saved (coalesced:
+one row per attempt per 5 min with first_seq, last_seq, count, until), connection_lost / connection_restored
+(heartbeat gap > 30 s, detail.gap_s), submitted (receipt, late, answers_from_submit), auto_submitted (receipt),
+grade_changed (question_id, question_index, old_points, points), comment_changed, grades_released,
+grades_unreleased, package_downloaded, package_key_released, exit_code_used, exit_code_rejected`.
+Integrity events stay in `integrity_events` and are merged into the timeline. Hot-path cost: a save adds two store
+operations (DB row only when a 5-min window closes), a heartbeat one store GETSET (DB rows only after a gap).
+Helpers for other modules: `app.audit.add(session, action, ...)` (in the caller's transaction) and
+`await app.audit.record(action, ...)` (own transaction, never raises).
+
+`GET /api/exams/{exam_id}/attempts/{attempt_id}/timeline` (teacher, own exam only; 404 otherwise) →
+```json
+{"exam_id","attempt_id","exam_title","student":{"username","name"},"status","started_at","deadline_at",
+ "submitted_at","receipt","late","auto_submitted",
+ "events":[{"at":"ISO","source":"audit"|"integrity"|"heartbeat","action":"connection_lost",
+            "summary":"Connection lost (no heartbeat from the exam page)","actor":"student"|"teacher"|"system",
+            "ip":"10.0.0.7"|null,"detail":{},"tone":"info"|"warn"|"good"}]}
+```
+Ordered by time: this attempt's audit rows, the student's sign-ins and exam-level actions around the session,
+exam open/close/extend/release, integrity events (client time when believable), and a trailing "No heartbeat since"
+line when an in-progress attempt has gone quiet. Web: `/teacher/exams/:id/submissions/:attemptId/timeline`
+("Session timeline", linked from the submission review page).
+
+## Uploads (clarified)
+`GET /api/uploads/{id}` stays unauthenticated: an upload id is a 128-bit capability (unguessable, never listed),
+because `<img>` tags cannot send a bearer token. Uploading needs a teacher. Anyone who is given an upload URL can
+read that image; do not put upload URLs anywhere other than the exam/grading views of the people allowed to see them.
