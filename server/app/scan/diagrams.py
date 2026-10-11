@@ -274,6 +274,16 @@ def parse_extra(out: Any, d: dict, q: dict, ctx: dict, reasons: list[str]) -> di
     return d
 
 
+def group_key(draft: dict) -> str:
+    """Bulk-approve groups for drawings: identical feature verdicts and points, and only when the
+    picture check did not disagree (a disagreement keeps the answer on its own)."""
+    dg = draft.get("diagram") or {}
+    if (dg.get("check") or {}).get("agrees") is False or draft.get("needs_review"):
+        return "none"
+    sig = ",".join(f"{f['id']}={f['status']}:{f['points']}" for f in dg.get("features") or [])
+    return f"d:{draft.get('points')}|{sig}"[:300]
+
+
 # ---------------------------------------------------------------- before the AI call
 async def prepare(ctx: dict, images: list[bytes]) -> tuple[dict, list[bytes]]:
     """Reference drawing (as the last image) + OpenCV analysis of the student's drawing."""
@@ -316,8 +326,11 @@ def grade_diagram(grade: dict, draft: dict | None, spec: dict | None) -> dict | 
         else:  # teacher typed a total only: keep the AI's marks (if any)
             pts = float(a.get("points") or 0)
             status = a.get("status") or "not_assessed"
+        note = a.get("note") or ""
+        if c is not None and abs(pts - float(a.get("points") or 0)) > 1e-9:
+            note = ""  # the teacher changed the AI's verdict: its note would contradict the result
         feats.append({"id": f["id"], "label": f["label"], "points": num(round(pts, 2)), "max_points": num(mx),
-                      "status": status, "note": a.get("note") or "", "box": a.get("box"), "point": a.get("point")})
+                      "status": status, "note": note, "box": a.get("box"), "point": a.get("point")})
     return {"kind": spec["kind"], "kind_label": kind_label(spec["kind"]), "features": feats,
             "reference_image": spec.get("reference_image")}
 

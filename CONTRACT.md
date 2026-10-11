@@ -874,3 +874,82 @@ Teacher nav "Grading quality" → `/teacher/quality` (overview across exams, cou
 `/teacher/quality/benchmarks`, `/teacher/quality/benchmarks/:id` (answers, add from graded answers with a consent
 checkbox, add by hand, CSV + zip import, run), `/teacher/quality/runs/:id`, `/teacher/quality/second-marking`
 (the second marker's blind queue). Charts follow the Insights style (one primary hue, values printed, table view).
+
+# Graph and diagram questions (paper exams, AI grading)
+
+A written-answer question (`type: "essay"`) may be marked as a hand-drawn **graph / chart / diagram**. It is
+then graded against a **feature checklist** instead of steps/rubric. No `diagram` = today's behaviour.
+Code: `server/app/scan/diagram_spec.py` (kinds, defaults, validation), `diagrams.py` (prompt, parsing, endpoints,
+grade/student views), `diagram_cv.py` (OpenCV checks); web `src/api/diagrams.ts`, `src/components/diagrams/`.
+
+## Spec (`question.diagram`, and the per-exam override `answer_key.questions[qid].diagram`)
+```
+{"kind": "function_graph" | "data_chart" | "geometry" | "physics_fbd" | "physics_circuit" | "physics_ray"
+         | "chemistry_structure" | "labelled_diagram" | "flowchart",
+ "features": [{"id": "f1", "key": "axes", "label": "Axes drawn and labelled", "points": 1,
+               "expected": "free text", "points_xy": [[x, y], ...], "tolerance": 0.5}],   # points_xy/tolerance optional
+ "reference_image": "/api/uploads/<id>" | null,   # teacher's correct drawing
+ "notes": "free text for the AI"}
+```
+- Feature points add up to the question's points (422 otherwise); empty `features` = the kind's default checklist
+  shared to the question's points (multiples of 0.5, largest remainder). Max 20 features, 50 points_xy each.
+- On an essay with `diagram` the essay rubric is cleared (the checklist replaces it); on other types `diagram` is dropped.
+- Teacher views of the exam include `diagram`; **student views never do** (`student_question` removes it).
+- Effective spec = answer-key override, else the question's (rescaled if the question's points changed).
+- `effective_criteria(q, entry)` returns the features as criteria (`{id, label, points, description: expected}`,
+  source `"diagram"`), so the review screen's criterion toggles and `approve` with `criteria` work unchanged.
+  `rubric_scores` stays null for these.
+
+## API (role teacher)
+- `GET /api/diagram-kinds` → `{"kinds": [{"kind", "label", "group", "hint", "features": defaults for 10 points}]}`
+- `GET /api/exams/{id}/diagrams` → `{"exam_id", "kinds", "questions": [{"question_id", "index", "type", "prompt",
+  "points", "diagram": effective spec | null, "source": "key" | "question" | null, "question_diagram"}]}`
+- `PUT /api/exams/{id}/diagrams/{qid}` body `{"diagram": spec | null}` → one question row. Stores the override in
+  the answer key (works after the exam was given); `null` removes the override. Essays only (422 otherwise).
+- Scan queue questions carry `"diagram": effective spec | null`.
+
+## Grading
+- Prompt: the step prompt plus a checklist section (`fp-diagram-v1`, appended by the one hook in
+  `ai_grade.build_prompt`): every feature with points, expected text and points to plot; asks per feature for
+  `status` present/wrong/missing, `points`, `note`, `box` [x0,y0,x1,y1] or `point` [x,y] (fractions 0..1 of the
+  student's image from its top-left), and `readings` (values read off the axes with their image spot).
+- Images: the student's answer first; the reference drawing (if any) last (`scan.grading.draft_for`).
+- Parsing (one hook in `parse_suggestion`) is strict: unknown feature ids dropped; matched by id, else label, else
+  position; points clamped to [0, max]; `missing` with points and `wrong` with full points → 0 + reason
+  `features_inconsistent`; a feature the model skipped → `not_assessed`, 0 points, reason `missing_features`;
+  percentages accepted for coordinates, bad boxes dropped. Total = sum of features. The step grader's
+  `missing_criteria` / `total_mismatch` / `no_steps` reasons do not apply.
+- OpenCV checks (`diagram_cv.analyze`): axes (longest near-horizontal/vertical lines, ignoring a printed box
+  border), tick marks + even spacing, filled dots (blobs thicker than the pen stroke), `plot_dots` = those in the
+  first quadrant. `cross_check` compares: the model's readings vs. the expected points; axes present/missing vs.
+  detected; "even scale" vs. tick spacing (data charts); expected points mapped to pixels through a linear fit of
+  the model's readings vs. detected dots; readings that are not at a dot; points credited with no dot found.
+  Any disagreement → reason `diagram_check_disagrees`, confidence ≤ 0.6. The checks never award points.
+- Bulk-approve groups for drawings: identical feature verdicts + points (`"d:..."`), never when flagged.
+
+## Records
+Draft (`attempt.ai_drafts[qid]`) adds, besides `criteria` mirroring the features:
+```
+"diagram": {"kind", "kind_label",
+            "features": [{"id","key","label","points","max_points","met",
+                          "status": "present"|"wrong"|"missing"|"not_assessed","note","box","point"}],
+            "readings": [{"label","x","y","at": [x,y]|null}],
+            "check": {"ran","axes_found","dots_found","ticks_even","expected_points","points_matched",
+                      "readings_on_dots","calibrated","agrees": bool|null,"issues": [text]},
+            "reference_image", "prompt_version": "fp-diagram-v1"}
+```
+Grade (`attempt.grades[qid]`) adds `"diagram": {"kind","kind_label","features": [{"id","label","points",
+"max_points","status","note","box","point"}],"reference_image"}` — status recomputed from the approved criteria
+points (full → present, 0 → the AI's wrong/missing else wrong, otherwise `partial`); the AI note is dropped when
+the teacher changed that feature's points. Student feedback (`GET /api/student/grades/{id}`) questions carry
+the same `diagram` (approved grade only). No new DB columns (all JSON).
+
+## Web
+- Exam editor (essay) and answer-key step: "Answer is" select (written answer, or a kind grouped by subject),
+  checklist editor with defaults sized to the points, expected text, points to plot + tolerance, "Fit to N pts",
+  notes for the AI, reference drawing upload.
+- Review screen: the drawing with ✓/✗ marks (numbered like the checklist) and the checklist with toggles and
+  per-feature points (ticking recomputes the total and the mark), the AI's notes, the picture-check warnings,
+  values the AI read, and a link to the reference drawing.
+- Student feedback: the marked drawing, the checklist results and "See the correct drawing".
+- E2E: `e2e/e2e_diagrams.py` (ports 8270/8271, fake vision model).

@@ -143,6 +143,9 @@ def group_key(draft: dict | None) -> str:
     """Bulk-approve groups: identical normalised transcript, else same points + first tag."""
     if not draft or draft.get("source") == "fallback":
         return "none"  # "grade by hand" placeholders are never bulk-approved
+    if draft.get("diagram"):  # graph / diagram: same checklist verdicts (app.scan.diagrams)
+        from .diagrams import group_key as diagram_group_key
+        return diagram_group_key(draft)
     t = normalize_short(str(draft.get("transcript") or ""))
     if t:
         return "t:" + t[:200]
@@ -155,6 +158,8 @@ def group_label(key: str, draft: dict | None) -> str:
         return f"Wrote “{(draft or {}).get('transcript', '')[:60]}”"
     if key == "none":
         return "No draft yet"
+    if key.startswith("d:"):
+        return f"Same checklist marks · {(draft or {}).get('points')} pts"
     pts, _, tag = key[2:].partition("|")
     return f"Draft {pts} pts" + (f" · {tag}" if tag else "")
 

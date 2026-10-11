@@ -242,6 +242,17 @@ def test_readings_disagreeing_with_points_lower_confidence():
     assert d["diagram"]["check"]["agrees"] is False and "2 of 5" in d["diagram"]["check"]["issues"][0]
 
 
+def test_group_key_for_bulk_approve():
+    from app.scan import grading as scan_grading
+    a = ai_grade.parse_suggestion(good_out(), Q, CTX)
+    b = ai_grade.parse_suggestion(good_out(), Q, CTX)
+    k = scan_grading.group_key(a)
+    assert k.startswith("d:") and k == scan_grading.group_key(b)
+    assert scan_grading.group_label(k, a) == "Same checklist marks · 4 pts"
+    c = ai_grade.parse_suggestion(good_out(features=[{"id": "f1", "status": "missing"}]), Q, CTX)
+    assert scan_grading.group_key(c) == "none"  # needs review: never bulk-approved
+
+
 # ---------------------------------------------------------------- OpenCV
 def test_cv_detects_axes_ticks_and_dots_on_synthetic_graph():
     img, to_px = draw_graph()
@@ -336,7 +347,7 @@ def _fake_ai(stats):
         if "GRAPH / DIAGRAM QUESTION" in text:
             # a 'vision model' that reads the dots it sees: value grid from the drawn axes
             cv = diagram_cv.analyze(imgs[0])
-            dots = sorted(cv.get("dots") or [])
+            dots = sorted(cv.get("plot_dots") or [])
             readings = [{"x": x, "y": y, "at": d} for (x, y), d in zip(EXPECTED, dots)]
             full = len(dots) == 5
             out = {"legibility": "clear", "transcript": "scatter graph",
@@ -449,6 +460,7 @@ def test_diagram_question_end_to_end(client, teacher, alice, monkeypatch):
     assert [(f["id"], f["status"]) for f in g["diagram"]["features"]] == [
         ("f1", "present"), ("f2", "present"), ("f3", "present"), ("f4", "partial")]
     assert g["diagram"]["features"][3]["box"] == [0.15, 0.2, 0.6, 0.75]
+    assert g["diagram"]["features"][1]["note"] == ""  # teacher overrode "No units": the AI note is dropped
     r = client.post(f"/api/exams/{e['id']}/scan/answers/{al['attempt_id']}/{qs}/approve", headers=teacher, json={})
     assert r.status_code == 200
     bo = next(a for a in client.get(f"/api/exams/{e['id']}/results", headers=teacher).json()["attempts"]

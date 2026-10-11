@@ -171,7 +171,7 @@ def _analyze(gray: np.ndarray) -> dict:
         ticks["y"] = [round(y / h, 4) for y in _regular(ys)]
 
     # filled dots: opening with a disc wider than the pen stroke removes lines and curves
-    d = int(max(3, round(sw * 1.8))) | 1
+    d = int(max(3, round(sw * 2.4))) | 1  # a pen dot is ~2.5x the stroke; text and lines vanish
     disc = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (d, d))
     blobs = cv2.morphologyEx(cv2.morphologyEx(ink, cv2.MORPH_CLOSE, close), cv2.MORPH_OPEN, disc)
     n, _, stats, cents = cv2.connectedComponentsWithStats(blobs, connectivity=8)
@@ -181,7 +181,13 @@ def _analyze(gray: np.ndarray) -> dict:
         x, y, bw, bh, area = stats[i]
         if bw > max_dim or bh > max_dim or area < d * d * 0.4:
             continue
-        if min(bw, bh) / max(bw, bh) < 0.4:
+        if min(bw, bh) / max(bw, bh) < 0.4 or area < 0.55 * bw * bh:
+            continue
+        # a pen dot is most of the ink around it (a line through it adds a little); a thick
+        # spot inside handwriting (a digit's corner) is a small part of the ink around it
+        pad = d
+        win = ink[max(0, y - pad):y + bh + pad, max(0, x - pad):x + bw + pad]
+        if area < 0.5 * float((win > 0).sum()):
             continue
         cx, cy = cents[i]
         nx, ny = float(cx / w), float(cy / h)
@@ -194,10 +200,15 @@ def _analyze(gray: np.ndarray) -> dict:
             continue
         dots.append([round(nx, 4), round(ny, 4)])
     dots.sort()
+    # inside the first quadrant (right of the y-axis, above the x-axis): tick labels and axis
+    # titles sit outside it, data points of a school data chart inside
+    plot = dots
+    if "origin" in axes:
+        plot = [p for p in dots if p[0] > axes["y_axis"]["x"] and p[1] < axes["x_axis"]["y"]]
     return {"ok": True, "size": [w, h], "stroke": round(sw, 2), "axes": axes or None,
             "ticks": ticks, "ticks_even": {"x": _even([t * w for t in ticks["x"]]),
                                            "y": _even([t * h for t in ticks["y"]])},
-            "dots": dots[:200]}
+            "dots": dots[:200], "plot_dots": plot[:200]}
 
 
 # ---------------------------------------------------------------- cross-check with the AI
@@ -262,7 +273,7 @@ def cross_check(spec: dict, features: list[dict], readings: list[dict], cv: dict
     axes = cv.get("axes") or {}
     graphish = spec.get("kind") in ("function_graph", "data_chart")
     out["axes_found"] = bool(axes.get("x_axis") and axes.get("y_axis"))
-    dots = cv.get("dots") or []
+    dots = (cv.get("plot_dots") if cv.get("plot_dots") is not None else cv.get("dots")) or []
     out["dots_found"] = len(dots)
     te = cv.get("ticks_even") or {}
     out["ticks_even"] = None if te.get("x") is None and te.get("y") is None else \

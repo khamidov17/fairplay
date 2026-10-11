@@ -16,10 +16,10 @@
 .dg-mark.dg-point.is-ok::before { border-color: var(--success, #1f7a4d); }
 .dg-mark.dg-point.is-partial::before { border-color: var(--warn-dark, #9a5b00); }
 .dg-tag {
-  position: absolute; left: -2px; top: -22px; white-space: nowrap; padding: 1px 6px; border-radius: 6px;
+  position: absolute; left: 2px; top: 2px; white-space: nowrap; padding: 1px 6px; border-radius: 6px;
   font: 700 12px/18px var(--sans, system-ui, sans-serif); color: #fff; background: var(--danger, #b42318);
 }
-.dg-point .dg-tag { left: 10px; top: -26px; }
+.dg-point .dg-tag { left: 11px; top: -9px; }
 .is-ok > .dg-tag { background: var(--success, #1f7a4d); }
 .is-partial > .dg-tag { background: var(--warn-dark, #9a5b00); }
 
@@ -47,7 +47,7 @@
 /* student feedback */
 .dg-feedback { display: flex; flex-direction: column; gap: 10px; margin: 8px 0; }
 .dg-feedback h2 { font-size: 15px; margin: 4px 0 0; }
-.dg-feedback .dg-overlay { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: visible; margin-top: 22px; }
+.dg-feedback .dg-overlay { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
 .dg-list.is-readonly .dg-row { grid-template-columns: 22px auto minmax(0, 1fr) auto; }
 .dg-list.is-readonly .dg-status { grid-column: auto; }
 .dg-list.is-readonly .dg-note { grid-column: 2 / 5; }
