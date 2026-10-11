@@ -11,3 +11,5 @@ venv/
 .DS_Store
 server/data/
 .claude/
+e2e/shots/
+*.rdb
