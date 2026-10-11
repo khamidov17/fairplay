@@ -21,6 +21,12 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    # registration + superadmin (routes_register.py, routes_admin.py). Email is stored
+    # lowercased; unique index (NULLs allowed). status: active | pending | disabled.
+    email: Mapped[str | None] = mapped_column(String(254), unique=True, index=True, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active",
+                                        server_default="active")
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Exam(Base):

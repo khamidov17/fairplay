@@ -17,6 +17,14 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _teacher_signup_default() -> str:
+    v = (os.environ.get("FAIRPLAY_TEACHER_SIGNUP") or "").strip().lower()
+    if v in ("open", "approval", "closed"):
+        return v
+    # Unset or invalid: open in development, approval in production.
+    return "approval" if os.environ.get("FAIRPLAY_ENV", "").lower() == "production" else "open"
+
+
 @dataclass
 class Settings:
     database_url: str = field(default_factory=lambda: os.environ.get(
@@ -36,6 +44,9 @@ class Settings:
     uploads_dir: str = field(default_factory=lambda: os.environ.get(
         "FAIRPLAY_UPLOADS_DIR",
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "uploads")))
+
+    # Teacher self-registration: open | approval | closed (students can always sign up).
+    teacher_signup: str = field(default_factory=lambda: _teacher_signup_default())
 
     def warn_insecure(self) -> None:
         if self.secret == DEV_SECRET:
