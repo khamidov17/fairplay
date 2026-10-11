@@ -32,6 +32,7 @@ from typing import Any
 from .. import ai
 from ..grading import grade_question, num
 from ..timeutil import iso, utcnow
+from . import diagrams
 from .answer_key import misconceptions_for, norm_tag
 
 PROMPT_VERSION = "fp-step-grade-v1"
@@ -116,6 +117,10 @@ def build_prompt(q: dict, ctx: dict, hint: str = "") -> str:
     if hint:
         parts.append(f"Teacher's note for this regrade: {hint}")
     parts.append(f"Return JSON exactly like: {SCHEMA}")
+    # ---- hook: graph / chart / diagram questions (feature checklist, app.scan.diagrams)
+    extra = diagrams.prompt_extra(q, ctx)
+    if extra:
+        parts.append(extra)
     return "\n".join(parts)
 
 
@@ -342,6 +347,8 @@ def parse_suggestion(out: Any, q: dict, ctx: dict) -> dict:
             reasons = [r for r in reasons if r not in ("missing_criteria", "total_mismatch", "no_steps")]
             if not d["explanation"]:
                 d["explanation"] = "Matches the answer key."
+    # ---- hook: graph / chart / diagram questions (checklist results, app.scan.diagrams)
+    d = diagrams.parse_extra(out, d, q, ctx, reasons)
     return finalize(d, q, reasons)
 
 

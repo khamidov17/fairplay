@@ -51,6 +51,8 @@ def teacher_question(q: dict) -> dict:
         "images": [dict(i) for i in q.get("images") or []],
         "topics": list(q.get("topics") or []),
         "answer_lines": q.get("answer_lines"),  # slice 6: paper answer space
+        # graph / diagram questions (checklist = answer key: never sent to students)
+        **({"diagram": q["diagram"]} if q.get("diagram") else {}),
     }
 
 
@@ -61,6 +63,7 @@ def student_question(q: dict) -> dict:
     # slice 6: topic tags can hint at the method ("integration by parts"): not shown while
     # writing. Images are shown above the prompt.
     tq.pop("topics", None)
+    tq.pop("diagram", None)
     return tq
 
 

@@ -132,7 +132,11 @@ async def draft_for(q: dict, answer: dict, image: bytes | None, hint: str = "",
     ctx = dict(ctx or {})
     if answer.get("whole_page"):
         ctx["whole_page"] = True
-    return await ai_grade.suggest(q, ctx, [image] if image is not None else [], hint)
+    images = [image] if image is not None else []
+    if ctx.get("diagram"):  # graph / diagram questions: reference drawing + OpenCV checks
+        from . import diagrams
+        ctx, images = await diagrams.prepare(ctx, images)
+    return await ai_grade.suggest(q, ctx, images, hint)
 
 
 def group_key(draft: dict | None) -> str:

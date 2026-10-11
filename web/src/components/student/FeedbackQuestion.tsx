@@ -3,6 +3,7 @@ import { paperImage, paperValue } from "../../lib/paperAnswer";
 import { LETTERS, fmtNum } from "./format";
 import { QuestionImages } from "../QuestionImages";
 import "../../styles/feedbackSteps.css";
+import { DiagramFeedback } from "../diagrams/DiagramFeedback";
 
 export function typeLabel(q: Pick<FQ, "type" | "options">): string {
   if (q.type === "mcq") {
@@ -125,14 +126,21 @@ export function FeedbackQuestionCard({ q }: { q: FQ }) {
       </div>
       <QuestionImages images={q.images} compact />
       <div className="stu-fbq-prompt">{q.prompt}</div>
-      {((q as { image?: string | null }).image || paperImage(q.given)) && (
+      {q.diagram && (
+        <DiagramFeedback
+          index={q.index}
+          image={(q as { image?: string | null }).image || paperImage(q.given) || null}
+          diagram={q.diagram}
+        />
+      )}
+      {!q.diagram && ((q as { image?: string | null }).image || paperImage(q.given)) && (
         <img
           className="stu-fbq-scan"
           src={(q as { image?: string | null }).image || paperImage(q.given) || undefined}
           alt={`Your written answer for question ${q.index + 1}`}
         />
       )}
-      <PaperSteps q={q as PaperExtras} />
+      <PaperSteps q={(q.diagram ? { ...q, criteria: undefined } : q) as PaperExtras} />
 
       {q.type === "essay" ? (
         <>

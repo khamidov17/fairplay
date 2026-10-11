@@ -10,6 +10,8 @@ import { Loading } from "../../../components/Loading";
 import { Pill } from "../../../components/teacher/TeacherLayout";
 import { errorText, num, plural } from "../../../components/teacher/util";
 import "../../../styles/scanAi.css";
+import { diagramsApi, type ExamDiagramQuestion } from "../../../api/diagrams";
+import { DiagramKeyPanel } from "../../../components/diagrams/DiagramKeyPanel";
 
 interface CritRow {
   id?: string;
@@ -62,6 +64,19 @@ export function AnswerKeyStep({ examId }: { examId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  // graph / diagram checklists per question (own endpoint; a failure just hides the panels)
+  const [diagrams, setDiagrams] = useState<Record<string, ExamDiagramQuestion>>({});
+
+  useEffect(() => {
+    let alive = true;
+    diagramsApi.list(examId).then(
+      (r) => alive && setDiagrams(Object.fromEntries(r.questions.map((q) => [q.question_id, q]))),
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, [examId]);
 
   const apply = useCallback((k: AnswerKey) => {
     setKey(k);
@@ -205,13 +220,32 @@ export function AnswerKeyStep({ examId }: { examId: string }) {
       </section>
 
       {key.questions.map((q) => (
-        <QuestionKeyCard key={q.question_id} examId={examId} q={q} misconceptions={key.misconceptions} />
+        <QuestionKeyCard
+          key={q.question_id}
+          examId={examId}
+          q={q}
+          misconceptions={key.misconceptions}
+          diagram={diagrams[q.question_id]}
+          onDiagram={(d) => setDiagrams((m) => ({ ...m, [d.question_id]: d }))}
+        />
       ))}
     </div>
   );
 }
 
-function QuestionKeyCard({ examId, q, misconceptions }: { examId: string; q: KeyQuestion; misconceptions: string[] }) {
+function QuestionKeyCard({
+  examId,
+  q,
+  misconceptions,
+  diagram,
+  onDiagram,
+}: {
+  examId: string;
+  q: KeyQuestion;
+  misconceptions: string[];
+  diagram?: ExamDiagramQuestion;
+  onDiagram?: (d: ExamDiagramQuestion) => void;
+}) {
   const [form, setForm] = useState<Form>(() => formFrom(q.key));
   const [suggestion, setSuggestion] = useState<KeySuggestion | null>(q.ai_suggestion);
   const [saved, setSaved] = useState(q.key);
@@ -269,7 +303,9 @@ function QuestionKeyCard({ examId, q, misconceptions }: { examId: string; q: Key
             </p>
           )}
         </div>
-        {saved.criteria_source === "key" ? (
+        {diagram?.diagram ? (
+          <Pill tone="green">Graph / diagram checklist</Pill>
+        ) : saved.criteria_source === "key" ? (
           <Pill tone="green">Rubric set</Pill>
         ) : saved.criteria_source === "question" ? (
           <Pill tone="blue">Uses the essay rubric</Pill>
@@ -295,6 +331,10 @@ function QuestionKeyCard({ examId, q, misconceptions }: { examId: string; q: Key
             Use AI draft
           </button>
         </div>
+      )}
+
+      {q.type === "essay" && diagram && onDiagram && (
+        <DiagramKeyPanel examId={examId} questionId={q.question_id} points={q.points} info={diagram} onSaved={onDiagram} />
       )}
 
       <div className="t-field">

@@ -23,6 +23,7 @@ from .db import get_database, get_session
 from .grading import exam_questions, grade_attempt, is_answered, num, paper_answer, paper_given, percent
 from .models import Attempt, CourseMember, Exam, User
 from .scan import ai_grade, answer_key, photo, review  # phase 2: step-level AI grading + answer key
+from .scan import diagram_spec, diagrams  # graph / diagram questions
 from .scan import grading as scan_grading
 from .scan import pipeline
 from .scan import print as print_mod
@@ -775,6 +776,7 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
                        # phase 2: rubric criteria used for grading + the worked solution
                        "criteria": answer_key.effective_criteria(q, key_entries.get(q["id"]))[0],
                        "solution": (key_entries.get(q["id"]) or {}).get("solution", ""),
+                       "diagram": diagram_spec.effective(q, key_entries.get(q["id"])),  # graph / diagram
                        **stats[q["id"]]} for i, q in enumerate(qs)],
         "items": items,
         "groups": [dict(g, count=len(g["items"])) for g in groups.values() if len(g["items"]) >= 2],
@@ -819,6 +821,9 @@ def _apply_grade(e: Exam, a: Attempt, q: dict, points: float | None, comment: st
     grade = review.build_grade(q, ans, d, points, comment, eff_criteria=eff, criteria_source=src,
                                criteria=body.criteria, steps=body.steps, misconception=body.misconception,
                                grading_seconds=body.grading_seconds, teacher=teacher)
+    dg = diagrams.grade_diagram(grade, d, diagram_spec.effective(q, entry))  # graph / diagram questions
+    if dg:
+        grade["diagram"] = dg
     grades = dict(a.grades or {})
     grades[q["id"]] = grade
     score, pending, _ = grade_attempt(exam_questions(e), a.answers, grades)
