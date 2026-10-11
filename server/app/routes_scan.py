@@ -23,6 +23,7 @@ from .db import get_database, get_session
 from .grading import exam_questions, grade_attempt, is_answered, num, paper_answer, paper_given, percent
 from .models import Attempt, CourseMember, Exam, User
 from .scan import ai_grade, answer_key, photo, review  # phase 2: step-level AI grading + answer key
+from .scan import any_paper  # any-paper answer finding (no QR)
 from .scan import grading as scan_grading
 from .scan import pipeline
 from .scan import print as print_mod
@@ -369,11 +370,13 @@ async def run_batch(batch_id: str) -> None:
                 seq += 1
         for pth in sources:
             pipeline.safe_remove(pth)
+        # any paper (no QR): group pages into students and find the answer regions (AI on)
+        found = await any_paper.process_batch(e.id, batch_id) if unprinted else []
         async with db.sessionmaker() as s:
             pages = list((await s.execute(
                 select(ScanPage).where(ScanPage.batch_id == batch_id).order_by(ScanPage.seq))).scalars())
             e = await s.get(Exam, b.exam_id)
-            pairs = await merge_pages(s, e, [pg for pg in pages if pg.status == "matched"])
+            pairs = await merge_pages(s, e, [pg for pg in pages if pg.status == "matched"]) + found
             await _suggest_names(s, e, [pg for pg in pages if pg.status == "unmatched" and pg.name_crop])
             b = await s.get(ScanBatch, batch_id)
             b.status = "grading"
@@ -758,6 +761,10 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
                 "draft": d, "grade": g, "status": status, "auto_points": auto,
                 "low_confidence": low, "group": key,
                 "page_image": page_images.get((a.student_id, int(ans.get("page") or 0))),
+                # any paper (no QR): where the answer was found (None for QR booklets / hand mapping)
+                "found": {"by": ans.get("found") or "ai", "confidence": ans.get("region_confidence"),
+                          "not_found": bool(ans.get("not_found")), "regions": ans.get("regions") or []}
+                if ans.get("set_id") else None,
             })
             if status == "needs_review" and d and key != "none":
                 grp = groups.setdefault((qid, key), {"question_id": qid, "key": key,
