@@ -707,6 +707,13 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
     e = await _own_exam(session, exam_id, p)
     qs = exam_questions(e)
     key_entries = (await answer_key.load_key(session, e.id)).get("questions") or {}
+    page_images: dict[tuple[int, int], str] = {}
+    for sid, pno, prev in (await session.execute(
+            select(ScanPage.student_id, ScanPage.page_no, ScanPage.preview).where(
+                ScanPage.exam_id == e.id, ScanPage.status.in_(("matched", "assigned")))
+            .order_by(ScanPage.created_at, ScanPage.id))).all():
+        if sid is not None and pno is not None and prev:
+            page_images[(int(sid), int(pno))] = prev  # latest scan of that page wins
     rows = (await session.execute(
         select(Attempt, User.username, User.name).join(User, User.id == Attempt.student_id)
         .where(Attempt.exam_id == e.id, Attempt.status == "submitted")
@@ -740,6 +747,7 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
                 "marks": ans.get("marks"), "blank": bool(ans.get("blank")),
                 "draft": d, "grade": g, "status": status, "auto_points": auto,
                 "low_confidence": low, "group": key,
+                "page_image": page_images.get((a.student_id, int(ans.get("page") or 0))),
             })
             if status == "needs_review" and d and key != "none":
                 grp = groups.setdefault((qid, key), {"question_id": qid, "key": key,

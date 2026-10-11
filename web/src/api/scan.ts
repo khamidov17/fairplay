@@ -1,6 +1,7 @@
 // Slice 6 D — Scan & Grade (paper exams): types + API calls. Kept in its own module so
 // the shared types.ts / client.ts stay untouched by this feature.
 import { ApiError, NetworkError, getToken, request } from "./client";
+import type { Criterion, GradeFields, ReviewSave, SuggestionFields } from "./scanAi";
 
 const enc = encodeURIComponent;
 
@@ -83,7 +84,7 @@ export interface UnmatchedPage {
   can_crop: boolean;
 }
 
-export interface AiDraft {
+export interface AiDraft extends SuggestionFields {
   points: number;
   comment: string;
   confidence: number;
@@ -94,13 +95,12 @@ export interface AiDraft {
   created_at: string;
 }
 
-export interface PaperGrade {
+export interface PaperGrade extends GradeFields {
   points: number;
   comment: string;
   rubric_scores: number[] | null;
   graded_at: string;
   transcript?: string;
-  source?: string;
 }
 
 export type QueueItemStatus = "needs_review" | "approved" | "auto";
@@ -121,6 +121,8 @@ export interface QueueItem {
   auto_points: number | null;
   low_confidence: boolean;
   group: string;
+  /** phase 2: preview of the whole scanned page this answer is on */
+  page_image?: string | null;
 }
 
 export interface QueueQuestion {
@@ -137,6 +139,9 @@ export interface QueueQuestion {
   approved: number;
   auto: number;
   low_confidence: number;
+  /** phase 2: rubric criteria used for grading (answer key, else essay rubric) */
+  criteria?: Criterion[];
+  solution?: string;
 }
 
 export interface QueueGroup {
@@ -261,7 +266,7 @@ export const scanApi = {
   rerunAi: (id: string, batchId: string) =>
     request<{ batch_id: string; queued: number }>("teacher", "POST", `/api/exams/${enc(id)}/scans/${enc(batchId)}/rerun-ai`),
   queue: (id: string) => request<ScanQueue>("teacher", "GET", `/api/exams/${enc(id)}/scan/queue`),
-  approve: (id: string, aid: string, qid: string, edit?: { points: number; comment: string }) =>
+  approve: (id: string, aid: string, qid: string, edit?: ReviewSave) =>
     request<ApproveResponse>("teacher", "POST", `/api/exams/${enc(id)}/scan/answers/${enc(aid)}/${enc(qid)}/approve`, edit ?? {}),
   regrade: (id: string, aid: string, qid: string, hint = "") =>
     request<{ attempt_id: string; question_id: string; draft: AiDraft }>(

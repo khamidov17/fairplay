@@ -201,38 +201,49 @@ describe("queue logic", () => {
   });
 });
 
-describe("QueueStep", () => {
-  it("shows drafts, approves with A, moves with J and bulk-approves a group", async () => {
+const pane = () => document.querySelector(".rv-pane") as HTMLElement;
+
+describe("QueueStep (side-by-side review)", () => {
+  it("shows the suggestion next to the scan, accepts with Enter, moves with arrows and bulk-approves", async () => {
     const q = makeQueue();
     scan.queue.mockResolvedValue(q);
     scan.approve.mockResolvedValue({
-      attempt_id: "a3", question_id: "q_num", grade: { points: 1, comment: "", rubric_scores: null, graded_at: "x" },
+      attempt_id: "a3", question_id: "q_num", grade: { points: 1, comment: "", rubric_scores: null, graded_at: "x", grading_seconds: 3 },
       score: 3, total_points: 5, percent: 60, needs_grading: 0,
     });
     render(<QueueStep examId="e1" />);
     expect(await screen.findByText("Write pi to two decimals.")).toBeInTheDocument();
     expect(screen.getByText(/Answer key:/).parentElement).toHaveTextContent("3.14");
-    const cards = screen.getAllByRole("listitem").filter((li) => li.classList.contains("sc-item"));
-    expect(cards).toHaveLength(3);
-    // low confidence first, flagged
-    expect(within(cards[0]).getByText("Carol Wang")).toBeInTheDocument();
-    expect(within(cards[0]).getByText("Check: AI unsure")).toBeInTheDocument();
-    expect(within(cards[0]).getByText("40% sure")).toBeInTheDocument();
-    expect(within(cards[0]).getByRole("img", { name: "Answer of Carol Wang" })).toHaveAttribute("src", "/api/uploads/abc");
+    // low confidence first, flagged, with its picture
+    await screen.findAllByText("Carol Wang");
+    expect(within(pane()).getByText("Carol Wang")).toBeInTheDocument();
+    expect(within(pane()).getByText("Needs review")).toBeInTheDocument();
+    expect(within(pane()).getByText("40% sure")).toBeInTheDocument();
+    expect(within(pane()).getByRole("img", { name: "Answer of Carol Wang" })).toHaveAttribute("src", "/api/uploads/abc");
+    expect(within(pane()).getByLabelText("Points")).toHaveValue("1");
+    expect(screen.getByRole("button", { name: "Not graded (3)" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Low confidence (1)" })).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Question 2 graded" })).toHaveAttribute("aria-valuenow", "0");
 
-    fireEvent.keyDown(document, { key: "a" });
-    await waitFor(() => expect(scan.approve).toHaveBeenCalledWith("e1", "a3", "q_num", undefined));
-    // carol left the review list; J moves to bob
-    await waitFor(() => expect(screen.queryByText("Carol Wang")).not.toBeInTheDocument());
-    fireEvent.keyDown(document, { key: "j" });
-    await waitFor(() =>
-      expect(document.querySelector(".sc-item.is-active")).toHaveTextContent("Bob Karimov"),
-    );
+    fireEvent.keyDown(document, { key: "Enter" });
+    await waitFor(() => expect(scan.approve).toHaveBeenCalledTimes(1));
+    const [eid, aid, qid, body] = scan.approve.mock.calls[0];
+    expect([eid, aid, qid]).toEqual(["e1", "a3", "q_num"]);
+    expect(Object.keys(body)).toEqual(["grading_seconds"]); // accepted as is
+    expect(typeof body.grading_seconds).toBe("number");
+    // carol left the "not graded" list: alice is next, the arrow moves to bob
+    await waitFor(() => expect(within(pane()).getByText("Alice Chen")).toBeInTheDocument());
+    expect(screen.getByRole("progressbar", { name: "Question 2 graded" })).toHaveAttribute("aria-valuenow", "1");
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(within(pane()).getByText("Bob Karimov")).toBeInTheDocument());
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+    await waitFor(() => expect(within(pane()).getByText("Alice Chen")).toBeInTheDocument());
 
     // group bar
     scan.approveBulk.mockResolvedValue({ approved: 2, skipped: 0 });
     const done = makeQueue();
     done.items = done.items.map((i) => (i.question_id === "q_num" ? { ...i, status: "approved", grade: { points: 3, comment: "", rubric_scores: null, graded_at: "x" } } : i));
+    done.questions[1] = { ...done.questions[1], to_review: 0, approved: 3, low_confidence: 0 };
     scan.queue.mockResolvedValue(done);
     await userEvent.click(screen.getByRole("button", { name: "Approve all 2" }));
     await waitFor(() =>
@@ -242,9 +253,10 @@ describe("QueueStep", () => {
       ]),
     );
     expect(await screen.findByText("Approved 2 answers.")).toBeInTheDocument();
+    expect(screen.getByText(/All 5 answers are graded/)).toBeInTheDocument();
   });
 
-  it("edits a grade with validation and regrades", async () => {
+  it("number keys set the points, E edits feedback, R asks the AI again", async () => {
     scan.queue.mockResolvedValue(makeQueue());
     scan.regrade.mockResolvedValue({ attempt_id: "a3", question_id: "q_num", draft: draft({ transcript: "3.1", points: 2, confidence: 0.8, source: "ai" }) });
     scan.approve.mockResolvedValue({
@@ -252,26 +264,97 @@ describe("QueueStep", () => {
       score: 2.5, total_points: 5, percent: 50, needs_grading: 0,
     });
     render(<QueueStep examId="e1" />);
-    await screen.findByText("Carol Wang");
+    await screen.findAllByText("Carol Wang");
     fireEvent.keyDown(document, { key: "r" });
     await waitFor(() => expect(scan.regrade).toHaveBeenCalledWith("e1", "a3", "q_num"));
     expect(await screen.findByText("80% sure")).toBeInTheDocument();
+    expect(within(pane()).getByLabelText("Points")).toHaveValue("2");
 
+    fireEvent.keyDown(document, { key: "7" }); // above the maximum (3): ignored
+    expect(within(pane()).getByLabelText("Points")).toHaveValue("2");
+    fireEvent.keyDown(document, { key: "1" });
+    expect(within(pane()).getByLabelText("Points")).toHaveValue("1");
     fireEvent.keyDown(document, { key: "e" });
-    const pts = await screen.findByLabelText("Points (out of 3)");
+    const fb = within(pane()).getByLabelText("Feedback for the student");
+    expect(fb).toHaveFocus();
+    // typing in the feedback never triggers shortcuts
+    await userEvent.clear(fb);
+    await userEvent.type(fb, "Close, two places.");
+    expect(scan.approve).not.toHaveBeenCalled();
+    const pts = within(pane()).getByLabelText("Points");
     await userEvent.clear(pts);
     await userEvent.type(pts, "7");
-    await userEvent.click(screen.getByRole("button", { name: "Save grade" }));
+    await userEvent.click(within(pane()).getByRole("button", { name: "Accept and next" }));
     expect(screen.getByRole("alert")).toHaveTextContent("Points must be between 0 and 3.");
-    // typing "a" in the field must not approve
     expect(scan.approve).not.toHaveBeenCalled();
     await userEvent.clear(pts);
-    await userEvent.type(pts, "2.5");
-    const comment = screen.getByLabelText("Comment for the student");
-    await userEvent.clear(comment);
-    await userEvent.type(comment, "Close.");
-    await userEvent.click(screen.getByRole("button", { name: "Save grade" }));
-    await waitFor(() => expect(scan.approve).toHaveBeenCalledWith("e1", "a3", "q_num", { points: 2.5, comment: "Close." }));
+    await userEvent.type(pts, "2.5{Enter}");
+    await waitFor(() => expect(scan.approve).toHaveBeenCalled());
+    expect(scan.approve.mock.calls[0][3]).toMatchObject({ points: 2.5, comment: "Close, two places." });
+  });
+
+  it("criteria recompute the points and steps can be flipped", async () => {
+    const q = makeQueue();
+    q.questions[1] = {
+      ...q.questions[1], type: "essay", points: 4,
+      criteria: [
+        { id: "c1", label: "Setup", points: 1, description: "" },
+        { id: "c2", label: "Integration", points: 2, description: "" },
+        { id: "c3", label: "Constant", points: 1, description: "" },
+      ],
+    };
+    q.groups = [];
+    q.items = [
+      item({
+        attempt_id: "a1", low_confidence: false, group: "none",
+        draft: draft({
+          source: "ai", points: 3, confidence: 0.9, explanation: "Remember +C.", needs_review: false,
+          criteria: [
+            { id: "c1", label: "Setup", points: 1, max_points: 1, met: true, note: "" },
+            { id: "c2", label: "Integration", points: 2, max_points: 2, met: true, note: "" },
+            { id: "c3", label: "Constant", points: 0, max_points: 1, met: false, note: "no +C" },
+          ],
+          steps: [
+            { n: 1, text: "u = x", status: "correct", note: "" },
+            { n: 2, text: "x e^x - e^x", status: "correct", note: "" },
+            { n: 3, text: "", status: "missing", note: "+C" },
+          ],
+          first_error_step: 3,
+          misconception: { tag: "missing step", text: "" },
+        }),
+      }),
+    ];
+    scan.queue.mockResolvedValue(q);
+    scan.approve.mockResolvedValue({
+      attempt_id: "a1", question_id: "q_num", grade: { points: 4, comment: "Remember +C.", rubric_scores: null, graded_at: "x" },
+      score: 4, total_points: 6, percent: 66.7, needs_grading: 0,
+    });
+    render(<QueueStep examId="e1" />);
+    await screen.findAllByText("Alice Chen");
+    expect(within(pane()).getByLabelText("Points")).toHaveValue("3");
+    expect(within(pane()).getByLabelText("Constant")).not.toBeChecked();
+    expect(within(pane()).getByText("no +C")).toBeInTheDocument();
+    expect(within(pane()).getByText(/first problem at step 3/)).toBeInTheDocument();
+    await userEvent.click(within(pane()).getByLabelText("Constant"));
+    expect(within(pane()).getByLabelText("Points")).toHaveValue("4");
+    await userEvent.click(within(pane()).getByLabelText("Setup"));
+    expect(within(pane()).getByLabelText("Points")).toHaveValue("3");
+    const setup = within(pane()).getByLabelText("Points for Setup (out of 1)");
+    await userEvent.clear(setup);
+    await userEvent.type(setup, "0.5");
+    expect(within(pane()).getByLabelText("Points")).toHaveValue("3.5");
+    await userEvent.click(within(pane()).getByRole("button", { name: "Step 3: missing. Change" }));
+    expect(within(pane()).getByRole("button", { name: "Step 3: correct. Change" })).toBeInTheDocument();
+    expect(within(pane()).queryByText(/first problem at step/)).not.toBeInTheDocument();
+    await userEvent.click(within(pane()).getByRole("button", { name: "Remove tag" }));
+    fireEvent.keyDown(document, { key: "Enter" });
+    await waitFor(() => expect(scan.approve).toHaveBeenCalled());
+    const body = scan.approve.mock.calls[0][3];
+    expect(body.points).toBe(3.5);
+    expect(body.criteria).toEqual([{ id: "c1", points: 0.5 }, { id: "c2", points: 2 }, { id: "c3", points: 1 }]);
+    expect(body.steps).toEqual([{ n: 1, status: "correct" }, { n: 2, status: "correct" }, { n: 3, status: "correct" }]);
+    expect(body.misconception).toEqual({ tag: "", text: "" });
+    expect(body.comment).toBe("Remember +C.");
   });
 });
 
@@ -287,11 +370,13 @@ describe("QueueStep with AI off", () => {
     );
     scan.queue.mockResolvedValue(q);
     render(<QueueStep examId="e1" />);
-    await screen.findByText(/AI is off: drafts show 0 points/);
-    expect(screen.getAllByText("Grade by hand")).toHaveLength(3);
-    expect(screen.queryByText("Check: AI unsure")).not.toBeInTheDocument();
-    for (const b of screen.getAllByRole("button", { name: "Approve" })) expect(b).toBeDisabled();
-    fireEvent.keyDown(document, { key: "a" });
+    await screen.findByText(/AI is off: type the points/);
+    expect(within(pane()).getByText("Grade by hand")).toBeInTheDocument();
+    expect(screen.queryByText("Needs review")).not.toBeInTheDocument();
+    expect(within(pane()).getByLabelText("Points")).toHaveValue("");
+    expect(within(pane()).getByLabelText("Feedback for the student")).toHaveValue("");
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Enter the points.");
     expect(scan.approve).not.toHaveBeenCalled();
   });
 });
