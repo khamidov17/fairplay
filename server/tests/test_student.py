@@ -20,7 +20,7 @@ def test_student_exam_list(client, teacher, alice, live_exam):
     assert item == {"id": live_exam["id"], "title": "Midterm", "duration_min": 30,
                     "question_count": 3, "status": "live", "attempt": None,
                     "course": "", "room": "", "scheduled_at": None,
-                    "mode": "questions", "delivery": "computer"}
+                    "mode": "questions", "delivery": "computer", "class_names": []}
     a = start(client, alice, live_exam).json()
     item = next(x for x in client.get("/api/student/exams", headers=alice).json()
                 if x["id"] == live_exam["id"])

@@ -9,6 +9,7 @@ from sqlalchemy import and_, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .classes.service import require_exam_access, student_exam_visibility
 from .db import get_session
 from .grading import exam_questions, grade_attempt, is_answered, num, percent
 from .models import Attempt, Exam, IntegrityEvent
@@ -49,9 +50,15 @@ async def my_exams(p: Principal = Depends(require_student),
         # slice 6: paper exams are printed; students never see them in the app
         .where(or_(Exam.delivery.is_(None), Exam.delivery != "paper"))
         .order_by(Exam.created_at.desc(), Exam.id))).all()
+    # classes: hide exams restricted to a roster / classes the student is not in (unless
+    # they already have an attempt) and name the student's classes for each exam.
+    hidden, class_names = await student_exam_visibility(
+        session, p.user_id, [r[0] for r in rows if r[5] is None])
     out = []
     for (eid, title, dur, qc, status, aid, astatus, sub, receipt, course, room, sched, released,
          total, score, mode, delivery) in rows:
+        if eid in hidden:
+            continue
         mode = mode or "questions"
         delivery = delivery or ("website" if mode == "external" else "computer")
         attempt = None
@@ -64,7 +71,7 @@ async def my_exams(p: Principal = Depends(require_student),
         out.append({"id": eid, "title": title, "duration_min": dur, "question_count": qc,
                     "status": status, "course": course or "", "room": room or "",
                     "scheduled_at": iso(sched), "mode": mode, "delivery": delivery,
-                    "attempt": attempt})
+                    "attempt": attempt, "class_names": class_names.get(eid, [])})
     return out
 
 
@@ -77,9 +84,8 @@ async def start(exam_id: str, body: StartIn, p: Principal = Depends(require_stud
         raise HTTPException(404, "Exam not found")
     if exam["status"] != "live":
         raise HTTPException(409, "Exam is not open")
-    if exam.get("course_link_id"):  # slice 5: only students of the linked LMS course
-        from .routes_lms import course_gate
-        await course_gate(session, exam["course_link_id"], p.user_id)
+    # classes: explicit roster > assigned classes > linked LMS course > open (app.classes.service)
+    await require_exam_access(session, exam, p.user_id)
     lock_key, count_key = f"codelock:{p.user_id}", f"wrongcode:{p.user_id}"
     if await store.get(lock_key):
         raise HTTPException(429, "Too many wrong codes, wait 60 seconds")

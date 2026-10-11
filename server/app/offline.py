@@ -133,9 +133,9 @@ async def package(exam_id: str, p: Principal = Depends(require_student),
             scheduled_soon = False
     if not code or not (exam["status"] == "live" or scheduled_soon):
         raise HTTPException(409, "Exam is not open")
-    if exam.get("course_link_id"):
-        from .routes_lms import course_gate
-        await course_gate(session, exam["course_link_id"], p.user_id)
+    # classes: same audience rule as start (roster > classes > LMS course > open)
+    from .classes.service import require_exam_access
+    await require_exam_access(session, exam, p.user_id)
     key = f"pkg:{exam_id}:{code}:{exam['duration_min']}"
     raw = await store.get(key)
     if raw:
