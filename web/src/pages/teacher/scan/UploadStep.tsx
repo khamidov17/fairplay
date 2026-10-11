@@ -4,6 +4,7 @@ import { scanAiApi } from "../../../api/scanAi";
 import { Loading } from "../../../components/Loading";
 import { Pill } from "../../../components/teacher/TeacherLayout";
 import { errorText, formatWhen } from "../../../components/teacher/util";
+import { MapPages } from "./MapPages";
 import { PhoneCapture } from "./PhoneCapture";
 
 const ACTIVE: BatchStatus[] = ["queued", "reading", "grading"];
@@ -80,6 +81,11 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
   }
 
   if (!status) return error ? <div className="alert alert-error" role="alert">{error}</div> : <Loading label="Loading scans…" />;
+
+  // phase 2: pages of sheets not printed by FairPlay are mapped in "Map pages", not fixed one by one
+  const unprintedBatches = new Set(status.batches.filter((b) => b.mode === "unprinted").map((b) => b.batch_id));
+  const toFix = pages.filter((p) => !unprintedBatches.has(p.batch_id));
+  const mapKey = status.batches.filter((b) => b.mode === "unprinted" && b.status === "done").length;
 
   return (
     <div className="sc-step-body">
@@ -212,12 +218,14 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
         )}
       </section>
 
-      {pages.length > 0 && (
+      {unprintedBatches.size > 0 && <MapPages examId={examId} refreshKey={mapKey} onChanged={onChanged} />}
+
+      {toFix.length > 0 && (
         <section className="t-card" aria-labelledby="sc-unmatched-h">
-          <h3 id="sc-unmatched-h">Pages to fix ({pages.length})</h3>
+          <h3 id="sc-unmatched-h">Pages to fix ({toFix.length})</h3>
           <p className="t-muted">FairPlay could not tell whose page this is. Pick the student and page number.</p>
           <ul className="sc-unmatched">
-            {pages.map((p) => (
+            {toFix.map((p) => (
               <UnmatchedCard
                 key={p.page_id}
                 page={p}

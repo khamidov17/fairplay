@@ -552,7 +552,8 @@ def _batch_out(b: ScanBatch, counts: dict[str, int]) -> dict:
             "processed": b.processed, "matched": counts.get("matched", 0) + counts.get("assigned", 0),
             "unmatched": counts.get("unmatched", 0), "ignored": counts.get("ignored", 0),
             "ai_total": b.ai_total, "ai_done": b.ai_done, "error": b.error,
-            "created_at": iso(b.created_at), "finished_at": iso(b.finished_at)}
+            "created_at": iso(b.created_at), "finished_at": iso(b.finished_at),
+            "mode": b.mode or "printed", "origin": b.origin or "upload"}  # phase 2
 
 
 @router.get("/exams/{exam_id}/scans")

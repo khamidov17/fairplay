@@ -56,6 +56,9 @@ export interface ScanBatch {
   error: string | null;
   created_at: string;
   finished_at: string | null;
+  /** phase 2: "printed" (QR booklets) | "unprinted" (own sheets, mapped by hand) */
+  mode?: "printed" | "unprinted";
+  origin?: "upload" | "phone";
 }
 
 export interface ScanStatus {

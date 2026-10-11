@@ -32,6 +32,7 @@ import { AnswerKeyStep, criteriaTotal, keyFormError } from "../pages/teacher/sca
 import { ExportButtons } from "../pages/teacher/scan/ExportButtons";
 import CapturePage from "../pages/teacher/scan/CapturePage";
 import { PhoneCapture } from "../pages/teacher/scan/PhoneCapture";
+import { MapPages, autoMap } from "../pages/teacher/scan/MapPages";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { ApiError } from "../api/client";
 
@@ -153,6 +154,50 @@ describe("phone capture", () => {
       </MemoryRouter>,
     );
     expect(await screen.findByRole("alert")).toHaveTextContent("This link has expired");
+  });
+});
+
+describe("map pages", () => {
+  const pg = (id: number, seq: number) => ({ page_id: id, batch_id: "b", seq, status: "unmatched", preview: `/api/uploads/p${id}`, student_id: null, page_no: null });
+  const MAP = {
+    exam_id: "e1", pages_per_student: 1, question_pages: { q1: 1, q2: 1 },
+    questions: [{ question_id: "q1", index: 0, prompt: "A", type: "essay" }, { question_id: "q2", index: 1, prompt: "B", type: "essay" }],
+    students: [{ id: 2, username: "alice", name: "Alice Chen" }, { id: 3, username: "bob", name: "Bob Karimov" }],
+    pages: [pg(11, 0), pg(12, 1), pg(13, 2), pg(14, 3), pg(15, 4)],
+  };
+
+  it("groups pages per student in roster order", () => {
+    expect(autoMap(MAP.pages, MAP.students, 2)).toEqual({
+      11: { student_id: 2, page_no: 1 }, 12: { student_id: 2, page_no: 2 },
+      13: { student_id: 3, page_no: 1 }, 14: { student_id: 3, page_no: 2 },
+      15: { student_id: null, page_no: 1 },
+    });
+  });
+
+  it("sets pages per student, question pages, fixes one page and saves", async () => {
+    api.pageMap.mockResolvedValue(MAP);
+    api.saveMapSettings.mockResolvedValue(MAP);
+    api.applyMap.mockResolvedValue({ assigned: 4, students: 2, queued: 4 });
+    render(<MapPages examId="e1" />);
+    expect(await screen.findByRole("heading", { name: "Map pages (5 pages)" })).toBeInTheDocument();
+    const pps = screen.getByLabelText("Pages per student");
+    await userEvent.clear(pps);
+    await userEvent.type(pps, "2");
+    await userEvent.selectOptions(screen.getByLabelText("Question 2"), "2");
+    await userEvent.click(screen.getByRole("button", { name: "Fill in students in order" }));
+    expect(screen.getByLabelText("Student for page 3")).toHaveValue("3");
+    // bob's two pages came in swapped
+    await userEvent.selectOptions(screen.getByLabelText("Page number of page 3"), "2");
+    await userEvent.selectOptions(screen.getByLabelText("Page number of page 4"), "1");
+    expect(screen.getByText("1 page without a student")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Save mapping" }));
+    await waitFor(() => expect(api.applyMap).toHaveBeenCalled());
+    expect(api.saveMapSettings).toHaveBeenCalledWith("e1", { pages_per_student: 2, question_pages: { q1: 1, q2: 2 } });
+    expect(api.applyMap.mock.calls[0][1]).toEqual([
+      { page_id: 11, student_id: 2, page_no: 1 }, { page_id: 12, student_id: 2, page_no: 2 },
+      { page_id: 13, student_id: 3, page_no: 2 }, { page_id: 14, student_id: 3, page_no: 1 },
+    ]);
+    expect(await screen.findByText(/AI is drafting 4 answers/)).toBeInTheDocument();
   });
 });
 
