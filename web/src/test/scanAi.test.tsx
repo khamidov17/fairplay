@@ -29,6 +29,7 @@ vi.mock("../api/scanAi", async (importOriginal) => {
 });
 
 import { AnswerKeyStep, criteriaTotal, keyFormError } from "../pages/teacher/scan/AnswerKeyStep";
+import { ExportButtons } from "../pages/teacher/scan/ExportButtons";
 
 const KEY: AnswerKey = {
   exam_id: "e1",
@@ -95,5 +96,18 @@ describe("answer key", () => {
     expect(body.criteria.map((c: { points: number }) => c.points)).toEqual([2, 2]);
     expect(body.common_mistakes).toEqual([{ label: "forgets +C", tag: "missing step", deduction: 1 }]);
     expect(await screen.findByText("Rubric set")).toBeInTheDocument();
+  });
+});
+
+describe("export", () => {
+  it("downloads the file and warns about ungraded answers", async () => {
+    const create = vi.fn(() => "blob:x");
+    Object.assign(URL, { createObjectURL: create, revokeObjectURL: vi.fn() });
+    api.exportGrades.mockResolvedValue({ blob: new Blob(["x"]), filename: "Quiz-grades.xlsx", ungraded: 3 });
+    render(<ExportButtons examId="e1" />);
+    await userEvent.click(screen.getByRole("button", { name: "Export Excel" }));
+    await waitFor(() => expect(api.exportGrades).toHaveBeenCalledWith("e1", "xlsx"));
+    expect(await screen.findByRole("status")).toHaveTextContent("3 answers are not graded yet");
+    expect(create).toHaveBeenCalled();
   });
 });

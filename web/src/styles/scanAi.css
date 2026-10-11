@@ -2,6 +2,10 @@
 
 .sc-stepper { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 
+/* export */
+.ex-buttons { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.ex-row { display: inline-flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; align-items: center; }
+
 /* answer key */
 .ak-top { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; margin-bottom: 12px; }
 .ak-label { font-weight: 600; font-size: 14px; }

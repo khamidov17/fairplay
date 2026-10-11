@@ -5,6 +5,8 @@ import { Loading } from "../../../components/Loading";
 import { Pill } from "../../../components/teacher/TeacherLayout";
 import { errorText } from "../../../components/teacher/util";
 import "../../../styles/scan.css";
+import "../../../styles/scanAi.css";
+import { ExportButtons } from "./ExportButtons";
 
 export function nextStepFor(e: ScanExamSummary): { label: string; step: string } {
   if (!e.printed) return { label: "Print booklets", step: "print" };
@@ -112,9 +114,12 @@ export default function ScanOverviewPage() {
                         )}
                       </td>
                       <td style={{ textAlign: "right" }}>
-                        <Link to={`/teacher/exams/${e.exam_id}/scan?step=${next.step}`} className="t-btn-outline">
-                          {next.label}
-                        </Link>
+                        <span className="ex-row">
+                          {e.paper_attempts > 0 && <ExportButtons examId={e.exam_id} />}
+                          <Link to={`/teacher/exams/${e.exam_id}/scan?step=${next.step}`} className="t-btn-outline">
+                            {next.label}
+                          </Link>
+                        </span>
                       </td>
                     </tr>
                   );

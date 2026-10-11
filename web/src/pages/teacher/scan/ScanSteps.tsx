@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import type { Exam } from "../../../api/types";
 import "../../../styles/scan.css";
 import { AnswerKeyStep } from "./AnswerKeyStep";
+import { ExportButtons } from "./ExportButtons";
 import { PrintStep } from "./PrintStep";
 import { QueueStep } from "./QueueStep";
 import { UploadStep } from "./UploadStep";
@@ -84,6 +85,7 @@ export function ScanSteps({
               <Link to={`/teacher/exams/${exam.id}?tab=results`} className="btn btn-primary">
                 Open Results &amp; Release
               </Link>
+              <ExportButtons examId={exam.id} />
               {(exam.pending_grading ?? 0) > 0 && (
                 <button type="button" className="t-btn-outline" onClick={() => go("grade")}>
                   Back to AI grading

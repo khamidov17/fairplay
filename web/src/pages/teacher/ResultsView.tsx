@@ -10,6 +10,7 @@ import { SendGradesButton } from "../../components/teacher/lms/SendGradesButton"
 import { errorText, eventLabel, formatWhen, num, pct, plural } from "../../components/teacher/util";
 import { formatClock } from "../../lib/timer";
 import { KIND_LABEL, kindOf } from "./examDraft";
+import { ExportButtons } from "./scan/ExportButtons"; // phase 2: CSV / Excel export
 
 const LETTERS = "ABCDEFGH";
 
@@ -153,6 +154,7 @@ export function ResultsView({ exam, onExamChange }: { exam: Exam; onExamChange: 
           </button>
         )}
         <SendGradesButton exam={exam} released={released} />
+        <ExportButtons examId={exam.id} />
         {!closed && !released && (
           <span id="release-hint" className="t-small t-muted" style={{ flexBasis: "100%", textAlign: "right" }}>
             Close the exam to release grades.
