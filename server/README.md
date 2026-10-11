@@ -9,6 +9,8 @@ pip install -r requirements.txt
 uvicorn app.main:app --port 8000
 ```
 Open http://127.0.0.1:8000/teacher. Demo users (development only): `teacher / teacher123`, students `alice / alice123`, `bob / bob123`, `carol / carol123`.
+Superadmin (development only): `admin / admin123` at http://127.0.0.1:8000/admin (approve teachers, usage counts).
+New accounts: http://127.0.0.1:8000/register (sign in later with username or email).
 
 ## Production-shaped (Postgres + Redis + nginx, scalable)
 ```
@@ -43,6 +45,7 @@ Add `--password-stdin` to read the password from stdin (scripts). Run with the s
 | PROCTORA_SEED_LOADTEST_USERS | 0 | creates lt0001.. users for the load test |
 | FAIRPLAY_ALLOW_LOADTEST_USERS | 0 | production only creates load-test users when this is also `1` |
 | FORWARDED_ALLOW_IPS | 127.0.0.1 | (uvicorn) proxies whose X-Forwarded-For is trusted; set to the nginx address so audit rows and sign-in limits see real client IPs |
+| FAIRPLAY_TEACHER_SIGNUP | open (approval when FAIRPLAY_ENV=production) | teacher self-registration: `open`, `approval` (a superadmin approves in /admin) or `closed`; students can always sign up |
 
 ## Security and audit (phase 1a)
 - Sign-in limits: 10 failed sign-ins per username or 100 per IP in 15 min lock that username / IP for 15 min.

@@ -41,7 +41,7 @@ def external_host(url: str | None) -> str | None:
 
 
 class LoginIn(BaseModel):
-    username: str = Field(max_length=64)
+    username: str = Field(max_length=254)  # username or email
     password: str = Field(max_length=256)
 
 

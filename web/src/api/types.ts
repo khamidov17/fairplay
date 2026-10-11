@@ -1,6 +1,8 @@
 // Types mirror CONTRACT.md exactly. Do not add fields that are not in the contract.
 
 export type Role = "teacher" | "student";
+/** Any signed-in role, including the platform superadmin (see CONTRACT "Registration + superadmin"). */
+export type SessionRole = Role | "superadmin";
 export type QuestionType = "mcq" | "numeric" | "short" | "essay" | "external";
 export type ExamStatus = "draft" | "live" | "closed";
 export type AttemptStatus = "in_progress" | "submitted";
@@ -21,14 +23,14 @@ export type AnswerMap = Record<string, AnswerValue>;
 
 export interface LoginResponse {
   token: string;
-  role: Role;
+  role: SessionRole;
   name: string;
 }
 
 export interface Me {
   username: string;
   name: string;
-  role: Role;
+  role: SessionRole;
 }
 
 export interface Question {
@@ -936,4 +938,46 @@ export interface SessionTimeline {
   late: boolean;
   auto_submitted: boolean;
   events: TimelineEvent[];
+// ---------- registration + superadmin ----------
+
+export type AccountStatus = "active" | "pending" | "disabled";
+
+export interface RegisterInput {
+  name: string;
+  email: string;
+  username: string;
+  password: string;
+  role: Role;
+}
+
+export interface RegisterResponse {
+  status: "active" | "pending";
+  role: Role;
+  name: string;
+  /** null when the account is pending approval */
+  token: string | null;
+  detail?: string;
+}
+
+export interface AdminStats {
+  teachers: { active: number; pending: number; disabled: number; total: number };
+  students: number;
+  exams_created: number;
+  exams_held: number;
+  attempts_submitted: number;
+  active_teachers_7d: number;
+  active_teachers_30d: number;
+  generated_at: string;
+}
+
+export interface AdminTeacher {
+  id: number;
+  username: string;
+  name: string;
+  email: string | null;
+  status: AccountStatus;
+  created_at: string;
+  last_login_at: string | null;
+  exams: number;
+  students_reached: number;
 }

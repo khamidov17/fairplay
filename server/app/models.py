@@ -24,6 +24,12 @@ class User(Base):
     # phase 1a: bumped on password change / "sign out everywhere"; tokens carry the version
     # they were issued with and older ones are refused (app.security.current_principal).
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    # registration + superadmin (routes_register.py, routes_admin.py). Email is stored
+    # lowercased; unique index (NULLs allowed). status: active | pending | disabled.
+    email: Mapped[str | None] = mapped_column(String(254), unique=True, index=True, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active",
+                                        server_default="active")
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Exam(Base):

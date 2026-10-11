@@ -1,11 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ApiError, auth, setToken } from "../api/client";
-import type { Role } from "../api/types";
+import { ApiError, auth, homePath, setToken } from "../api/client";
+import type { Role, SessionRole } from "../api/types";
 import { Icon, LogoMark } from "../components/ui/Icon";
 import "../styles/teacher.css";
+import "../styles/admin.css";
 
-const COPY: Record<Role, { title: string; sub: string; hint: string; pitch: string; points: string[] }> = {
+const COPY: Record<SessionRole, { title: string; sub: string; hint: string; pitch: string; points: string[] }> = {
   teacher: {
     title: "Teacher sign in",
     sub: "Create exams, run them live and grade in one place.",
@@ -20,39 +21,41 @@ const COPY: Record<Role, { title: string; sub: string; hint: string; pitch: stri
     pitch: "Your answers are saved as you type.",
     points: ["Answers sync even if the Wi-Fi drops", "Your teacher reads the start code aloud", "See feedback once grades are released"],
   },
+  superadmin: {
+    title: "Administrator sign in",
+    sub: "Approve teachers and see how FairPlay is used.",
+    hint: "admin / admin123",
+    pitch: "One place to look after every teacher account.",
+    points: ["Approve new teacher sign-ups", "See exams created and held", "Disable accounts that should not sign in"],
+  },
 };
 
-export default function LoginPage({ role }: { role: Role }) {
+export default function LoginPage({ role }: { role: SessionRole }) {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forgot, setForgot] = useState(false);
   const copy = COPY[role];
   const other: Role = role === "teacher" ? "student" : "teacher";
+  const canRegister = role !== "superadmin";
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setError(null);
     if (!username.trim() || !password) {
-      setError("Enter your username and password.");
+      setError("Enter your username or email and your password.");
       return;
     }
     setBusy(true);
     try {
       const res = await auth.login(username.trim(), password);
-      if (res.role !== role) {
-        setError(
-          role === "teacher"
-            ? "This is a student account. Use the student sign-in page."
-            : "This is a teacher account. Use the teacher sign-in page.",
-        );
-        return;
-      }
-      setToken(role, res.token);
-      navigate(`/${role}`, { replace: true });
+      // Any sign-in page works for any account: go to that role's home.
+      setToken(res.role, res.token);
+      navigate(homePath(res.role), { replace: true });
     } catch (err) {
-      if (err instanceof ApiError && err.status === 401) setError("Invalid username or password.");
+      if (err instanceof ApiError && err.status === 401) setError("Invalid username, email or password.");
       else if (err instanceof ApiError) setError(err.detail);
       else setError("Cannot reach the server. Check your connection and try again.");
     } finally {
@@ -87,7 +90,7 @@ export default function LoginPage({ role }: { role: Role }) {
           </div>
           <form onSubmit={onSubmit} noValidate>
             <div className="t-field">
-              <label htmlFor="username">Username</label>
+              <label htmlFor="username">Username or email</label>
               <input
                 id="username"
                 className="input"
@@ -109,6 +112,19 @@ export default function LoginPage({ role }: { role: Role }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
+              <button
+                type="button"
+                className="a-link-btn"
+                aria-expanded={forgot}
+                onClick={() => setForgot((f) => !f)}
+              >
+                Forgot password?
+              </button>
+              {forgot && (
+                <p className="a-help" role="note">
+                  Contact your administrator to reset your password.
+                </p>
+              )}
             </div>
             {error && (
               <div className="alert alert-error" role="alert">
@@ -122,10 +138,17 @@ export default function LoginPage({ role }: { role: Role }) {
           <p className="t-demo" style={{ margin: 0 }}>
             Demo account: <span className="mono">{copy.hint}</span>
           </p>
-          <p className="t-login-switch" style={{ margin: 0 }}>
-            {role === "teacher" ? "Writing an exam? " : "Teaching? "}
-            <Link to={`/${other}/login`}>{other === "teacher" ? "Teacher sign in" : "Student sign in"}</Link>
-          </p>
+          {canRegister && (
+            <>
+              <p className="t-login-switch" style={{ margin: 0 }}>
+                New to FairPlay? <Link to={`/register?role=${role}`}>Create account</Link>
+              </p>
+              <p className="t-login-switch" style={{ margin: 0 }}>
+                {role === "teacher" ? "Writing an exam? " : "Teaching? "}
+                <Link to={`/${other}/login`}>{other === "teacher" ? "Teacher sign in" : "Student sign in"}</Link>
+              </p>
+            </>
+          )}
         </div>
       </main>
     </div>

@@ -18,7 +18,6 @@ import type {
   LoginResponse,
   Me,
   Results,
-  Role,
   SaveAnswersResponse,
   StudentExamSummary,
   SubmitResponse,
@@ -32,12 +31,13 @@ import type {
   LmsProvider,
   LmsPushResult,
 } from "./types"; // slice 5
+import type { AdminStats, AdminTeacher, RegisterInput, RegisterResponse, SessionRole } from "./types";
 
 // ---------- token storage (one token per role) ----------
 
-export const tokenKey = (role: Role) => `proctora:token:${role}`;
+export const tokenKey = (role: SessionRole) => `proctora:token:${role}`;
 
-export function getToken(role: Role): string | null {
+export function getToken(role: SessionRole): string | null {
   try {
     return localStorage.getItem(tokenKey(role));
   } catch {
@@ -45,7 +45,7 @@ export function getToken(role: Role): string | null {
   }
 }
 
-export function setToken(role: Role, token: string): void {
+export function setToken(role: SessionRole, token: string): void {
   try {
     localStorage.setItem(tokenKey(role), token);
   } catch {
@@ -53,12 +53,21 @@ export function setToken(role: Role, token: string): void {
   }
 }
 
-export function clearToken(role: Role): void {
+export function clearToken(role: SessionRole): void {
   try {
     localStorage.removeItem(tokenKey(role));
   } catch {
     /* storage unavailable */
   }
+}
+
+/** Where each role signs in and lands after sign-in (the superadmin lives under /admin). */
+export function loginPath(role: SessionRole): string {
+  return role === "superadmin" ? "/admin/login" : `/${role}/login`;
+}
+
+export function homePath(role: SessionRole): string {
+  return role === "superadmin" ? "/admin" : `/${role}`;
 }
 
 // ---------- errors ----------
@@ -84,10 +93,10 @@ export class NetworkError extends Error {
 
 // ---------- 401 handling ----------
 
-type UnauthorizedHandler = (role: Role) => void;
+type UnauthorizedHandler = (role: SessionRole) => void;
 
 let onUnauthorized: UnauthorizedHandler = (role) => {
-  window.location.assign(`/${role}/login`);
+  window.location.assign(loginPath(role));
 };
 
 /** Override the 401 behaviour (the app uses router navigation; tests use a spy). */
@@ -112,7 +121,7 @@ function detailOf(body: unknown, fallback: string): string {
 }
 
 export async function request<T>(
-  role: Role | null,
+  role: SessionRole | null,
   method: string,
   path: string,
   body?: unknown,
@@ -164,9 +173,22 @@ export const auth = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>(null, "POST", "/api/auth/login", { username, password });
   },
-  me(role: Role): Promise<Me> {
+  me(role: SessionRole): Promise<Me> {
     return request<Me>(role, "GET", "/api/me");
   },
+  /** Self-registration; like login it sends no token. */
+  register(input: RegisterInput): Promise<RegisterResponse> {
+    return request<RegisterResponse>(null, "POST", "/api/auth/register", input);
+  },
+};
+
+// ---------- superadmin ----------
+
+export const adminApi = {
+  stats: () => request<AdminStats>("superadmin", "GET", "/api/admin/stats"),
+  teachers: () => request<AdminTeacher[]>("superadmin", "GET", "/api/admin/teachers"),
+  setTeacherStatus: (id: number, action: "approve" | "disable" | "enable") =>
+    request<AdminTeacher>("superadmin", "POST", `/api/admin/teachers/${id}/${action}`),
 };
 
 // ---------- teacher ----------

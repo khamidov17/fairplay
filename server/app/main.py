@@ -58,6 +58,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware, production=settings.production)
 
     app.include_router(auth_router)
+    from .routes_admin import router as admin_router  # superadmin dashboard
+    from .routes_register import router as register_router  # self-registration
+    app.include_router(register_router)
+    app.include_router(admin_router)
     app.include_router(teacher_router)
     app.include_router(student_router)
     app.include_router(grading_router)

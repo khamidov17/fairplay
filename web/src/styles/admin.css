@@ -1,0 +1,179 @@
+/* Registration, login extras and the superadmin dashboard. Prefix "a-".
+   Builds on tokens.css, styles.css (.btn, .input, .alert) and teacher.css (.t-*). */
+
+/* ---------- login extras ---------- */
+
+.a-link-btn {
+  align-self: flex-start;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.a-link-btn:hover {
+  text-decoration: underline;
+}
+.a-help {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.a-field-error {
+  font-size: 13px;
+  color: var(--danger);
+}
+
+/* ---------- register ---------- */
+
+.a-register-card {
+  max-width: 440px;
+}
+.a-roles {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.a-roles legend {
+  padding: 0;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.a-roles .a-field-error {
+  grid-column: 1 / -1;
+}
+.a-role {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-height: var(--touch);
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-tile);
+  background: var(--surface);
+  cursor: pointer;
+}
+.a-role input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.a-role:hover {
+  border-color: var(--primary-soft);
+}
+.a-role.selected {
+  border-color: var(--primary);
+  background: var(--primary-tint);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+.a-role:focus-within {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+.a-role-label {
+  font-weight: 700;
+  font-size: 15px;
+}
+.a-role-sub {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.a-done {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---------- admin shell ---------- */
+
+.a-shell {
+  min-height: 100vh;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font);
+}
+.a-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 32px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 5;
+}
+.a-brand {
+  padding: 4px 0;
+}
+.a-badge {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--primary-tint);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.a-spacer {
+  flex: 1;
+}
+.a-user {
+  font-weight: 600;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40vw;
+}
+.a-main {
+  max-width: 1200px;
+  margin: 0 auto;
+  box-sizing: border-box;
+  padding: 32px 32px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.a-main .t-stats {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.a-ident {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.a-ident .t-muted {
+  font-size: 13px;
+}
+.a-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+.a-actions .btn {
+  min-height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
+}
+@media (max-width: 720px) {
+  .a-top {
+    padding: 10px 16px;
+  }
+  .a-main {
+    padding: 20px 16px 40px;
+  }
+}

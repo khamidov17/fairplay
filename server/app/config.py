@@ -32,6 +32,12 @@ def _csv(name: str) -> list[str] | None:
     if raw is None:
         return None
     return [x.strip() for x in raw.split(",") if x.strip()]
+def _teacher_signup_default() -> str:
+    v = (os.environ.get("FAIRPLAY_TEACHER_SIGNUP") or "").strip().lower()
+    if v in ("open", "approval", "closed"):
+        return v
+    # Unset or invalid: open in development, approval in production.
+    return "approval" if os.environ.get("FAIRPLAY_ENV", "").lower() == "production" else "open"
 
 
 @dataclass
@@ -97,6 +103,8 @@ class Settings:
             problems.append("FAIRPLAY_CORS_ORIGINS must list origins, not '*', in production")
         if problems:
             raise ConfigError("Refusing to start in production: " + "; ".join(problems))
+    # Teacher self-registration: open | approval | closed (students can always sign up).
+    teacher_signup: str = field(default_factory=lambda: _teacher_signup_default())
 
     def warn_insecure(self) -> None:
         self.validate()

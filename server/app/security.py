@@ -12,6 +12,8 @@ from fastapi import Depends, HTTPException, Request
 
 from .config import Settings
 
+ROLES = ("teacher", "student", "superadmin")
+
 
 def hash_password(password: str, iterations: int, salt: bytes | None = None) -> str:
     salt = salt or secrets.token_bytes(16)
@@ -68,7 +70,7 @@ def parse_token_full(secret: str, token: str) -> tuple[int, str, int] | None:
             uid, role, exp, ver = parts
         else:
             return None
-        if int(exp) < time.time() or role not in ("teacher", "student"):
+        if int(exp) < time.time() or role not in ROLES:
             return None
         return int(uid), role, int(ver)
     except (ValueError, UnicodeDecodeError):
@@ -142,4 +144,10 @@ def require_teacher(p: Principal = Depends(current_principal)) -> Principal:
 def require_student(p: Principal = Depends(current_principal)) -> Principal:
     if p.role != "student":
         raise HTTPException(403, "Student role required")
+    return p
+
+
+def require_superadmin(p: Principal = Depends(current_principal)) -> Principal:
+    if p.role != "superadmin":
+        raise HTTPException(403, "Administrator role required")
     return p

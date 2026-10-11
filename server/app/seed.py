@@ -17,6 +17,7 @@ SEED_USERS = [
     ("alice", "alice123", "Alice Chen", "student"),
     ("bob", "bob123", "Bob Karimov", "student"),
     ("carol", "carol123", "Carol Wang", "student"),
+    ("admin", "admin123", "Platform Admin", "superadmin"),  # dev only: /admin dashboard
 ]
 
 
