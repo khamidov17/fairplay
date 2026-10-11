@@ -549,6 +549,15 @@ function ReviewPane({
           {d && <span className={`sc-conf${d.low_confidence ? " is-low" : ""}`}>{confidenceText(d)}</span>}
         </div>
         {item.status === "needs_review" && sug && d?.review_reason && <p className="sc-low">{d.review_reason}</p>}
+        {item.found && (
+          <p className={item.found.not_found ? "sc-low" : "t-muted sc-small"}>
+            {item.found.not_found
+              ? "No answer was found for this question on the pages — check it in Upload › Check answer regions."
+              : `Answer region found ${item.found.by === "teacher" ? "by you" : "by AI"}` +
+                (item.found.by !== "teacher" && item.found.confidence != null ? ` (${Math.round(item.found.confidence * 100)}% sure)` : "") +
+                (item.found.regions.length > 1 ? ` · ${item.found.regions.length} parts` : "")}
+          </p>
+        )}
         {bubbles && <p className="sc-bubbles">{bubbles}</p>}
 
         <div className="rv-points">

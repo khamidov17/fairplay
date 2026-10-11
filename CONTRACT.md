@@ -1022,3 +1022,82 @@ the same `diagram` (approved grade only). No new DB columns (all JSON).
   values the AI read, and a link to the reference drawing.
 - Student feedback: the marked drawing, the checklist results and "See the correct drawing".
 - E2E: `e2e/e2e_diagrams.py` (ports 8270/8271, fake vision model).
+# Any-paper answer finding — as implemented
+
+Goal: grade ANY handwritten paper (own answer sheets, notebook pages, phone photos), not only FairPlay
+booklets. Code: `server/app/scan/segment.py` (OpenCV candidates + vision prompt + validation + crops),
+`server/app/scan/grouping.py` (page headers, student grouping, roster fuzzy match),
+`server/app/scan/any_paper.py` (table `scan_answer_sets`, pipeline step, teacher API). Web:
+`web/src/pages/teacher/scan/RegionCheck.tsx` + `regionLogic.ts`, `web/src/api/anyPaper.ts`.
+QR booklets and the manual "Map pages" step are unchanged and remain the fallbacks.
+
+## Pipeline (upload `?unprinted=1` or phone capture "not printed"; AI on)
+1. Pages are read and flattened as before (`pipeline.analyze_unprinted`, photos via `photo.rectify`).
+2. `grouping.read_header` per page (prompt `fp-page-header-v1`, page ≤ 1000 px) →
+   `{"name","student_id","first_page","page_number","confidence"}`.
+3. `grouping.group_pages(headers, roster, pages_per_student|None)`: a page with a different name/ID or a
+   first-page mark starts a new student, other pages continue the current one; strong duplicate matches are
+   merged (pages sorted by the written page number); no names at all + mapping `pages_per_student` → chunks.
+   Roster match (`match_roster`): exact username/ID → 1.0, else name similarity (accents folded, Cyrillic
+   transliterated, token/initials aware, difflib). Picked when ≥ 0.72; sure when ≥ 0.88 with a 0.08 margin.
+4. Per student, `segment.segment_pages(questions, page_images)` (below); one `AnswerSet` row is stored and
+   applied: every question becomes a paper answer of that student (crop of exactly its region(s); an answer
+   continued on the next page is stitched top-to-bottom into one image); the pages get `status "assigned"`,
+   `page_no` = position in the set, reason "Answers found by AI". A set without a matched student leaves its
+   pages `unmatched` ("Answers found — choose the student").
+5. The existing AI grading drafts every answer (`draft_answers`). Questions without a region get
+   `{"blank": true, "not_found": true, "whole_page": true, "image": <first page>}` → rule draft "No answer written".
+With AI off nothing changes: pages wait for "Map pages" (or the teacher builds sets by hand, see API).
+
+## `segment_pages(exam_questions, page_images, hint="") -> dict` (async, never raises)
+`page_images`: one student's pages (bytes PNG/JPEG or arrays), any order, already flattened.
+Pre-pass (`candidate_regions(img)`): adaptive + global ink threshold, ruled/margin lines removed
+(morphology), text lines from the row ink profile, lines merged into blocks split at gaps > max(1.1 × median
+line height, 1.8 % page height), ≤ 40 per page. Blocks are numbered across pages and drawn on the images sent
+to the model (`fp-segment-v1`, ≤ 8 pages per call, long side 1400 px); the prompt lists every candidate's box.
+The model answers with candidate numbers (or a raw box with its page, snapped to the candidates it covers).
+`parse_segmentation` validates: question references resolved by id or by the number the student wrote
+("2", "Q2", "2)", "#2", "2b" → a question whose prompt starts with "2b", else 2); unknown questions dropped;
+boxes clamped to 0..1 (percent accepted), min side 0.01; two questions claiming the same box → the more
+confident keeps it, flagged; confidence 0..1 (percent accepted, default 0.5).
+```
+{"prompt_version": "fp-segment-v1", "source": "ai"|"fallback",
+ "pages": [{"index", "candidates": [{"n", "box"}]}],
+ "regions": [{"id","question_id"|null,"page" (0-based),"box":[x0,y0,x1,y1],"confidence","crossed_out",
+              "label" (as written),"order","source":"ai","needs_check" (confidence < 0.7)}],
+ "missing": [qid], "name": {"text","student_id","page","box"|null,"confidence"}|null,
+ "confidence" (lowest live region), "needs_check": bool,
+ "reasons": ["low_confidence","missing","ai_off","ai_failed","no_questions","no_pages"]}
+```
+Crossed-out regions are kept (shown to the teacher) but never cropped into the answer.
+Helpers: `region_answers(questions, regions, page_urls, page_keys=None, extra=None) -> {qid: answer}` (sync,
+writes crops as uploads) and `await find_answers(exam_questions, page_urls, extra=None) -> (seg, answers)`.
+Answer value: `{"image","page" (1-based, first part),"blank":false,"mcq":null,"marks":null,
+"regions":[{"page","page_id"|"page_key","box"}],"region_confidence","found":"ai"|"teacher","set_id"}`.
+
+## AnswerSet (`scan_answer_sets`) and teacher API (role teacher; other teacher's exam → 404)
+- `GET /api/exams/{id}/scans/sets` → `{exam_id, ai_enabled, low_confidence_below, questions:[{question_id,index,
+  prompt,type,points}], students (roster), sets:[Set], needs_check (count), loose_pages:[{page_id,seq,preview,batch_id}]}`.
+  `Set = {set_id, batch_id, student_id, student:{id,username,name}|null, name_read, id_read,
+  match:{confidence, candidates:[{student_id,name,username,score}], reasons, teacher}, status:"needs_check"|"ok"|"confirmed",
+  needs_check, reasons:["no_student"|"check_student"|"low_confidence"|"missing"|"not_found_by_ai"],
+  pages:[{page_id,seq,preview,image,candidates:[box]}], regions:[{id,question_id,page_id,box,confidence,crossed_out,
+  label,source:"ai"|"teacher",needs_check}], missing:[qid], segment:{prompt_version,source,reasons,confidence,name}, updated_at}`.
+- `PUT /api/exams/{id}/scans/sets/{set_id}` any of `{"student_id": id|null, "page_ids": [...], "regions": [{id?,question_id|null,
+  page_id,box,crossed_out?,label?}], "confirm": bool}` → the list above + `queued` + `set`. Student taken by another set → 409;
+  unknown question / box on a page outside the set / box too small → 422. Changed regions become `source "teacher"`,
+  confidence 1. Only questions whose regions changed are re-cropped and re-drafted; a new student gets every question and
+  the old student's not-yet-graded answers from this set are removed (an emptied paper attempt is deleted). Pages listed in
+  `page_ids` are taken from other sets (those are rebuilt; an emptied set is deleted). Teacher grades are never touched.
+- `POST /api/exams/{id}/scans/sets {"page_ids", "student_id"?}` → 201: new set from pages (split / loose pages), AI segments it.
+- `POST /api/exams/{id}/scans/sets/{set_id}/resegment` → the AI finds the answers again (409 when AI is off).
+- Scan queue items gain `"found": {"by","confidence","not_found","regions"}` (null for QR booklets / hand mapping).
+
+## Web
+Upload step: "Check answer regions" card (shown when unprinted uploads exist; "Map pages by hand instead" is folded below
+when AI is on). Student chips (filter "Needs check (n)" / "All"; drop a dragged page on a chip to move it), page images with
+coloured boxes labelled `Q<n> · <confidence>` (dashed = unsure, hatched = crossed out); drag to move, corner handles to
+resize, "Draw" + drag to add, per-question "Not answered", selected-box panel (question, crossed out, delete), student
+select with AI-read name and roster suggestions, "Move to…" per page, "Find again with AI". Keyboard: Tab/] [ boxes, 1–9
+question, arrows move (Shift: resize), Delete, x crossed out, n not answered, Enter save + confirm + next, s save, j/k students.
+Review screen shows "Answer region found by AI (n% sure)" or "No answer was found…".

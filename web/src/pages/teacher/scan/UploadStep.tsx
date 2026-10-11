@@ -5,6 +5,7 @@ import { Loading } from "../../../components/Loading";
 import { Pill } from "../../../components/teacher/TeacherLayout";
 import { errorText, formatWhen } from "../../../components/teacher/util";
 import { MapPages } from "./MapPages";
+import { RegionCheck } from "./RegionCheck";
 import { PhoneCapture } from "./PhoneCapture";
 
 const ACTIVE: BatchStatus[] = ["queued", "reading", "grading"];
@@ -110,7 +111,9 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
         <p className="sc-drop-title">Drop the scanned PDF here</p>
         <p className="t-muted">
           {unprinted
-            ? "Pages in order, one student after another. You assign students and questions to pages after the upload."
+            ? status.ai_enabled
+              ? "Any paper, any order: the AI sorts the pages by student (from the names written on them) and finds each answer. You check the result after the upload."
+              : "Pages in order, one student after another. You assign students and questions to pages after the upload."
             : "One big PDF from the copier is fine — pages can be in any order or upside down. Photos (JPEG/PNG) work too."}
         </p>
         <label className="sc-check">
@@ -218,7 +221,17 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
         )}
       </section>
 
-      {unprintedBatches.size > 0 && <MapPages examId={examId} refreshKey={mapKey} onChanged={onChanged} />}
+      {/* any paper: the AI groups pages into students and finds the answers; the teacher checks */}
+      {unprintedBatches.size > 0 && <RegionCheck examId={examId} refreshKey={mapKey} onChanged={onChanged} />}
+      {unprintedBatches.size > 0 &&
+        (status.ai_enabled ? (
+          <details className="sc-small">
+            <summary>Map pages by hand instead (pages per student, question per page)</summary>
+            <MapPages examId={examId} refreshKey={mapKey} onChanged={onChanged} />
+          </details>
+        ) : (
+          <MapPages examId={examId} refreshKey={mapKey} onChanged={onChanged} />
+        ))}
 
       {toFix.length > 0 && (
         <section className="t-card" aria-labelledby="sc-unmatched-h">

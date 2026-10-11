@@ -126,6 +126,13 @@ export interface QueueItem {
   group: string;
   /** phase 2: preview of the whole scanned page this answer is on */
   page_image?: string | null;
+  /** any paper (no QR): where the answer was found; null for QR booklets / hand mapping */
+  found?: {
+    by: "ai" | "teacher";
+    confidence: number | null;
+    not_found: boolean;
+    regions: { page: number; page_id: number; box: [number, number, number, number] }[];
+  } | null;
 }
 
 export interface QueueQuestion {
