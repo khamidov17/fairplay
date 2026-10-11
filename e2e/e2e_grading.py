@@ -1,10 +1,11 @@
 """E2E slice 2: essay exam -> students write -> teacher closes, grades essays with
 the rubric, releases -> students see feedback -> gradebook. Server on :8000."""
+import os
 import re
 import sys
 from playwright.sync_api import sync_playwright, expect
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("FAIRPLAY_BASE", "http://127.0.0.1:8000").rstrip("/")
 TITLE = "E2E History Essay"
 ESSAY = ("Overland trade declined because the Ottoman expansion raised tolls and risks on the "
          "caravan routes. At the same time Portuguese sailors opened sea routes to India, which "

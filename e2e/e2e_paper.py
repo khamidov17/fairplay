@@ -2,6 +2,7 @@
 Teacher downloads booklets from the UI -> we "fill them in" (bubble + handwriting stand-in) ->
 upload the scan PDF through the UI -> pages matched -> teacher grades in the queue (UI edit) ->
 release -> student sees score and their scanned answer. Server on :8000 (AI off)."""
+import os
 import json
 import re
 import sys
@@ -17,7 +18,7 @@ from playwright.sync_api import sync_playwright
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 from app.scan.print import build_layout  # noqa: E402
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("FAIRPLAY_BASE", "http://127.0.0.1:8000").rstrip("/")
 DPI = 200
 S = DPI / 72
 

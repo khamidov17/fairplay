@@ -1,8 +1,8 @@
 """End-to-end: teacher builds + opens an exam, two students take it, teacher sees live room and results."""
-import re, sys
+import os, re, sys
 from playwright.sync_api import sync_playwright, expect
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("FAIRPLAY_BASE", "http://127.0.0.1:8000").rstrip("/")
 
 def login(pg, role, user, pw):
     pg.goto(f"{BASE}/{role}/login")
