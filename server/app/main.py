@@ -69,6 +69,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(topics_router)
     from .routes_scan import router as scan_router  # slice 6 D: Scan & Grade (paper exams)
     app.include_router(scan_router)
+    from .routes_receipts import router as receipts_router  # phase 1b: verify a receipt
+    app.include_router(receipts_router)
 
     @app.get("/api/health")
     async def health():
