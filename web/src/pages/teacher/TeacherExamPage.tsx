@@ -10,6 +10,7 @@ import { LiveRoom } from "./LiveRoom";
 import { QuestionsView } from "./QuestionsView";
 import { ResultsView } from "./ResultsView";
 import { ScanSteps } from "./scan/ScanSteps";
+import { ExamClassesBar } from "../../components/teacher/classes/ExamClassesBar";
 
 type Tab = "live" | "questions" | "results" | "scan";
 
@@ -173,6 +174,7 @@ export default function TeacherExamPage() {
           {actionError}
         </div>
       )}
+      <ExamClassesBar examId={exam.id} />
       {exam.status === "draft" && exam.delivery !== "paper" && (
         <div className="alert alert-info">
           This exam is a draft. When the class is seated, press <strong>Open exam</strong> to get a start code.

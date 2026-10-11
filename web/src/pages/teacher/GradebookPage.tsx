@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { teacherApi } from "../../api/client";
+import { classesApi, type ClassSummary } from "../../api/classes";
 import type { Gradebook, GradebookState } from "../../api/types";
 import { Loading } from "../../components/Loading";
 import { errorText, num, pct, plural } from "../../components/teacher/util";
@@ -31,12 +32,25 @@ export default function GradebookPage() {
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // classes: optional class filter (only shown when the teacher has classes)
+  const [classId, setClassId] = useState("");
+  const [classes, setClasses] = useState<ClassSummary[]>([]);
+  useEffect(() => {
+    let alive = true;
+    classesApi.list().then(
+      (c) => alive && Array.isArray(c) && setClasses(c),
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
     setError(null);
-    teacherApi.gradebook(course).then(
+    (classId ? classesApi.gradebook(course, Number(classId)) : teacherApi.gradebook(course)).then(
       (g) => {
         if (!alive) return;
         setData(g);
@@ -52,13 +66,15 @@ export default function GradebookPage() {
     return () => {
       alive = false;
     };
-  }, [course]);
+  }, [course, classId]);
 
   async function exportCsv() {
     setExporting(true);
     setExportError(null);
     try {
-      const blob = await teacherApi.gradebookCsv(course);
+      const blob = classId
+        ? await classesApi.gradebookCsv(course, Number(classId))
+        : await teacherApi.gradebookCsv(course);
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -98,6 +114,20 @@ export default function GradebookPage() {
               ))}
             </select>
           </label>
+          {classes.length > 0 && (
+            <label className="t-gb-filter" htmlFor="gb-class">
+              Class
+              <select id="gb-class" className="t-select" value={classId} onChange={(e) => setClassId(e.target.value)}>
+                <option value="">All students</option>
+                {classes.map((c) => (
+                  <option key={c.id} value={String(c.id)}>
+                    {c.name}
+                    {c.section ? ` · ${c.section}` : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button type="button" className="t-btn-outline" onClick={exportCsv} disabled={exporting || !data}>
             <Icon name="download" size={18} />
             {exporting ? "Exporting…" : "Export CSV"}

@@ -105,7 +105,12 @@ function UpcomingItem({ exam }: { exam: StudentExamSummary }) {
     : exam.scheduled_at
       ? `Open now · ${isToday(exam.scheduled_at) ? "today" : shortDate(exam.scheduled_at)} ${shortTime(exam.scheduled_at)}`
       : "Open now";
-  const meta = [exam.room && `Room ${exam.room}`, `${exam.duration_min} min`, plural(exam.question_count, "question")]
+  const meta = [
+    exam.class_names?.length ? exam.class_names.join(", ") : "", // classes
+    exam.room && `Room ${exam.room}`,
+    `${exam.duration_min} min`,
+    plural(exam.question_count, "question"),
+  ]
     .filter(Boolean)
     .join(" · ");
   return (

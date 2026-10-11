@@ -18,6 +18,8 @@ import StudentProfilePage from "./StudentProfilePage";
 import PracticePage from "./PracticePage";
 import ScanOverviewPage from "./scan/ScanOverviewPage";
 import ScanExamPage from "./scan/ScanExamPage";
+import ClassesPage from "./classes/ClassesPage";
+import ClassPage from "./classes/ClassPage";
 
 export default function TeacherRoutes() {
   return (
@@ -46,6 +48,8 @@ export default function TeacherRoutes() {
         <Route path="practice" element={<PracticePage />} />
         <Route path="scan" element={<ScanOverviewPage />} />
         <Route path="exams/:id/scan" element={<ScanExamPage />} />
+        <Route path="classes" element={<ClassesPage />} />
+        <Route path="classes/:classId" element={<ClassPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/teacher" replace />} />
     </Routes>

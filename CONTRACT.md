@@ -499,3 +499,73 @@ is derived for old exams: mode external → "website", else "computer". New exam
   deadline may then already be past → answers 409, submit still accepted and marked late); future values → now.
 - Web: local attempt id `offline:<exam_id>`; record `fairplay:offline:<exam_id>` = {exam_id, start_code, started_at, view,
   real_attempt_id}. The exam page keeps running under the offline URL after reconnect and routes every call to the real id.
+
+---
+
+# Classes (Google-Classroom style) — as implemented
+
+Goal: put students in a class once, then give an exam to the whole class. Server: `server/app/classes/`
+(models, service with the eligibility rule) + `server/app/routes_classes.py`. Web: `/teacher/classes`,
+`/teacher/classes/:classId`, `/student/classes`; API module `web/src/api/classes.ts`.
+
+## Model
+- `classes`: id, teacher_id, name (1–120), section (course code, ≤ 64), term (≤ 64), description (≤ 2000),
+  join_code (7 chars from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` — no 0/O/1/I/L; unique; regenerable), join_enabled (default true),
+  archived (default false), created_at.
+- `class_members`: class_id, user_id, joined_at, added_by `"teacher"|"code"|"lms"`; unique (class_id, user_id). Only
+  `role = student` users are ever members.
+- `exam_classes`: exam_id, class_id; unique pair; both FKs `ON DELETE CASCADE` (deleting an exam drops its assignments).
+
+## Eligibility rule (who may see and start an exam)
+Precedence, first match wins (`app.classes.service.exam_gate` / `require_exam_access`):
+1. **Explicit roster** (`scan_exam_roster` rows, `PUT /api/exams/{id}/roster`) → only those students.
+2. **Assigned classes** (≥ 1 `exam_classes` row) → only members of *any* assigned class (union). Archived classes still count.
+3. **Linked LMS course** (`course_link_id`, slice 5, unchanged) → only course members (403 "This exam is for <course> students").
+4. **None of these** → open, as before: any student with the start code.
+- Refused in 1/2 → `403 {"detail":"You are not in a class for this exam"}`. Applied to `POST /api/student/exams/{id}/start`
+  (checked after "Exam is not open" and before the start code, so refused students do not burn wrong-code attempts) and
+  `GET /api/student/exams/{id}/package`. Every other student endpoint is attempt-bound (own attempt only).
+- `GET /api/student/exams`: exams restricted by 1/2 that the student is not in are hidden (unless the student already has
+  an attempt). Each item gains `"class_names": [str]` — the student's classes the exam is assigned to (`[]` when none).
+- Teacher UI shows "Not assigned to any class: any student with the start code can join." for case 4.
+- Paper exams (Scan & Grade): `roster_of` uses the same order — `source` is `"picked"` (explicit roster) >
+  `"classes"` (union of class members) > `"course"` > `"all"`. `PUT roster []` returns to the default (classes, else course, else all).
+
+## Teacher API (role teacher; another teacher's class or exam → 404)
+- `GET /api/classes[?archived=true]` → `[Class]` (active by default), by name. Class =
+  `{"id","name","section","term","description","join_code","join_enabled","archived","created_at","member_count","exam_count"}`.
+- `POST /api/classes` `{"name","section"?,"term"?,"description"?}` → 201 Class (blank name → 422).
+- `GET /api/classes/{id}` → Class + `"students":[{"id","username","name","email"|null,"joined_at","added_by"}]` (by name) +
+  `"exams":[{"id","title","status","course","delivery","scheduled_at","created_at"}]` (newest first).
+- `PATCH /api/classes/{id}` any of `name, section, term, description, join_enabled, archived` → Class (archive = `{"archived":true}`).
+- `POST /api/classes/{id}/join-code` → Class with a new code; the old code stops working.
+- `POST /api/classes/{id}/members` `{"text": "alice\nbob@x.edu"}` and/or `{"entries": [...]}` (newline / comma / semicolon /
+  tab separated, case-insensitive; matches `User.username`, and `User.email` when that column exists) →
+  `{"added":[Student],"already":[Student],"not_found":[str],"class":Class}`. Nothing to add → 422. Teachers never match.
+- `POST /api/classes/{id}/members/csv` `{"csv": "<file text>"}` — header row with `username`/`email`/`login`/`id` columns
+  (+ optional `name` column used in the not-found label `"Name (id)"`), or a plain list (every cell tried) → same shape.
+- `POST /api/classes/{id}/members/lms` `{"course_link_id"}` → copies the already-synced `CourseMember`s of the teacher's
+  linked course (no LMS call); `added_by "lms"`. Unknown / other teacher's link → 404.
+- `DELETE /api/classes/{id}/members/{user_id}` → 204 (not a member → 404).
+- `GET /api/exams/{id}/classes` / `PUT /api/exams/{id}/classes {"class_ids":[...]}` (replace; any exam status) →
+  `{"exam_id","classes":[{"id","name","section","term","archived","member_count"}],"student_count" (union),
+  "roster_override": bool, "audience": "roster"|"classes"|"course"|"open"}`. A class id not owned → 404 "Class not found".
+- `GET /api/gradebook[.csv]?class_id=` → only that class's students and the exams assigned to it (combinable with `course`).
+
+## Student API (role student)
+- `GET /api/student/classes` → `[{"id","name","section","term","description","teacher_name","joined_at",
+  "exams":[{"id","title","course","status","scheduled_at","duration_min","delivery","attempt":null|{"attempt_id","status"}}]}]`
+  — non-archived classes only; exams listed: live, closed, or drafts with a planned date (paper exams never).
+- `POST /api/student/classes/join` `{"code"}` (spaces/dashes ignored, case-insensitive) →
+  `{"id","name","section","term","teacher_name","already_member"}`. Unknown or archived class → 404
+  "No class has this code. Check it with your teacher."; joining off → 403 "Joining this class is turned off. Ask your teacher."
+  (already-members get 200). 10 wrong codes in 10 min → 429 "Too many wrong class codes, wait 10 minutes".
+
+## Web
+- Teacher nav "Classes": tiles (Active / Archived) + "New class"; class page: large join code with Copy, Regenerate
+  (confirm), "Students can join with the code" switch; Add students (usernames/emails textarea, CSV file, "From LMS course"
+  when linked courses exist) with a not-found list; searchable student table with Remove (confirm); assigned exams and
+  "New exam for this class" (`/teacher/exams/new?class=<id>`, class preselected).
+- Exam editor: "Assign to classes" checkbox list (saved with PUT `/classes` after the exam is saved) + the open-exam warning.
+  Exam page: strip with assigned classes, union student count and "Change". Gradebook: "Class" filter.
+- Student: nav "Classes" (join form + class cards with their exams); exam lists show the class names.

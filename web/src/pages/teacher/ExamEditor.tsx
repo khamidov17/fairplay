@@ -6,6 +6,8 @@ import { Icon } from "../../components/ui/Icon";
 import { Switch } from "../../components/ui/Switch";
 import { ExternalExamSettings } from "../../components/teacher/ExternalExamSettings";
 import { LmsCourseSelect } from "../../components/teacher/lms/LmsCourseSelect";
+import { ClassAssignSelect } from "../../components/teacher/classes/ClassAssignSelect";
+import { classesApi } from "../../api/classes";
 import { QuestionImagesEditor } from "../../components/teacher/QuestionImagesEditor";
 import { TopicInput } from "../../components/teacher/TopicInput";
 import {
@@ -50,9 +52,11 @@ interface Props {
   /** Called after a successful save. `opened` is true when the teacher pressed Open exam. */
   onSaved: (exam: Exam, opened: boolean) => void;
   cancelTo: string;
+  /** Classes to preselect for a new exam ("New exam for this class"). */
+  initialClassIds?: number[];
 }
 
-export function ExamEditor({ exam, onSaved, cancelTo }: Props) {
+export function ExamEditor({ exam, onSaved, cancelTo, initialClassIds }: Props) {
   const [draft, setDraft] = useState<DraftExam>(() => draftFromExam(exam));
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [showErrors, setShowErrors] = useState(false);
@@ -61,6 +65,9 @@ export function ExamEditor({ exam, onSaved, cancelTo }: Props) {
   const [focusKey, setFocusKey] = useState<string | null>(null);
   // slice 5: linked LMS course (saved through PUT /api/exams/{id}/lms)
   const [lmsLink, setLmsLink] = useState<number | null>(exam?.course_link_id ?? null);
+  // classes: assigned classes (saved through PUT /api/exams/{id}/classes); null = loading
+  const [classIds, setClassIds] = useState<number[] | null>(exam ? null : (initialClassIds ?? []));
+  const [classesTouched, setClassesTouched] = useState(false);
   const errors = useMemo(() => validateDraft(draft), [draft]);
   // slice 6: topic suggestions (the teacher's earlier topics); failure just means no suggestions
   const [topicSuggestions, setTopicSuggestions] = useState<TopicCount[]>([]);
@@ -114,6 +121,8 @@ export function ExamEditor({ exam, onSaved, cancelTo }: Props) {
       const input = toExamInput(draft);
       let saved = exam ? await teacherApi.updateExam(exam.id, input) : await teacherApi.createExam(input);
       if ((saved.course_link_id ?? null) !== lmsLink) saved = await lmsApi.linkExam(saved.id, lmsLink);
+      if (classIds !== null && (classesTouched || (!exam && classIds.length > 0)))
+        await classesApi.setExamClasses(saved.id, classIds);
       if (andOpen) saved = await teacherApi.openExam(saved.id);
       onSaved(saved, andOpen);
     } catch (e) {
@@ -313,6 +322,14 @@ export function ExamEditor({ exam, onSaved, cancelTo }: Props) {
               onChange={(id, link) => {
                 setLmsLink(id);
                 if (link && !draft.course.trim()) set({ course: (link.code || link.name).slice(0, 64) });
+              }}
+            />
+            <ClassAssignSelect
+              examId={exam?.id}
+              value={classIds}
+              onChange={(ids, initial) => {
+                setClassIds(ids);
+                if (!initial) setClassesTouched(true);
               }}
             />
             <div>

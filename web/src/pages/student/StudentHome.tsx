@@ -123,6 +123,7 @@ function ExamHero({
       ? `Open now · ${isToday(exam.scheduled_at) ? "today" : shortDate(exam.scheduled_at)} ${shortTime(exam.scheduled_at)}`
       : "Open now";
   const meta = [
+    exam.class_names?.length ? exam.class_names.join(", ") : "", // classes
     exam.room && `Room ${exam.room}`,
     `${exam.duration_min} minutes`,
     plural(exam.question_count, "question"),
