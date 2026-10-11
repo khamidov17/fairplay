@@ -499,3 +499,48 @@ is derived for old exams: mode external → "website", else "computer". New exam
   deadline may then already be past → answers 409, submit still accepted and marked late); future values → now.
 - Web: local attempt id `offline:<exam_id>`; record `fairplay:offline:<exam_id>` = {exam_id, start_code, started_at, view,
   real_attempt_id}. The exam page keeps running under the offline URL after reconnect and routes every call to the real id.
+
+---
+
+# Registration + superadmin
+
+## Users (added columns)
+- `email` (nullable, unique, stored lowercase), `status` `"active" | "pending" | "disabled"` (default `active`),
+  `last_login_at` (set on every successful login). Registered usernames are stored lowercase.
+
+## Auth (added / changed)
+- `POST /api/auth/login`: `username` may be a username **or an email** (contains `@`; case-insensitive), max 254.
+  Right password but `status` pending → `403 {"detail": "Your teacher account is waiting for approval by an administrator."}`;
+  disabled → `403 {"detail": "This account has been disabled. Contact your administrator."}`. Wrong password stays 401
+  (status is never revealed before the password is checked). Response `role` may be `"superadmin"`.
+- `POST /api/auth/register` (no token) body `{"name","email","username","password","role": "teacher"|"student"}` →
+  `201 {"status": "active", "role", "name", "token"}` (signed in, like login) or, for a teacher in approval mode,
+  `201 {"status": "pending", "role": "teacher", "name", "token": null, "detail"}`.
+  - name 2–100 chars (whitespace collapsed); email `x@y.z`; username `^[a-z0-9][a-z0-9._-]{2,31}$` after lowercasing;
+    password 8–128 chars, letters plus a digit or symbol, at least 4 distinct characters, not containing the username
+    or the email's local part. Invalid → 422 `{"detail": str}`.
+  - Username or email already used (case-insensitive) → 409. More than 10 sign-ups per client IP per hour → 429.
+  - Teachers follow env `FAIRPLAY_TEACHER_SIGNUP`: `open` (default in development) → active; `approval` (default when
+    `FAIRPLAY_ENV=production`) → pending; `closed` → 403. Students can always sign up (they join classes with a code).
+- Role `superadmin`: accepted in tokens; dependency `require_superadmin`. Teacher/student endpoints answer 403 to it.
+  Dev seed: `admin` / `admin123` ("Platform Admin"), alongside the other dev users.
+
+## Admin API (role superadmin; teachers and students get 403)
+- `GET /api/admin/stats` → `{"teachers": {"active","pending","disabled","total"}, "students", "exams_created",
+  "exams_held" (status live or closed = opened at least once), "attempts_submitted", "active_teachers_7d",
+  "active_teachers_30d", "generated_at"}`. A teacher is active in a window when one of their exams was created or
+  changed (edit/open/close/release bump `updated_at`) or a submitted attempt of theirs was graded/commented
+  (`updated_at > submitted_at`) in it.
+- `GET /api/admin/teachers` → `[{"id","username","name","email"|null,"status","created_at","last_login_at"|null,
+  "exams","students_reached"}]` (pending first, then newest). `students_reached` = distinct students with an attempt.
+- `POST /api/admin/teachers/{id}/approve` (pending → active), `/disable` (any → disabled), `/enable` (disabled → active)
+  → the updated teacher row; not a teacher → 404; wrong current status → 409.
+
+## Web
+- `/register` (`?role=teacher|student` preselects the role): full name, email, username, password + confirmation, role.
+  Linked as "Create account" from `/teacher/login` and `/student/login`; login pages show "Forgot password?" →
+  "Contact your administrator to reset your password." Label "Username or email" (input ids unchanged: `#username`, `#password`).
+- After sign-in on any login page the token is stored for the returned role and the app goes to that role's home:
+  teacher → `/teacher`, student → `/student`, superadmin → `/admin`.
+- `/admin/login`, `/admin` (RequireAuth role superadmin): top bar with name + Sign out, tiles, teacher table with
+  Approve / Disable / Enable. Token key `proctora:token:superadmin`. Types: `SessionRole = Role | "superadmin"`.
