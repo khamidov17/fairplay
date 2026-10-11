@@ -208,29 +208,33 @@ async def submit(aid: str, body: AnswersIn, p: Principal = Depends(require_stude
     questions = exam_questions(exam) if exam else []
     if a.status != "submitted":
         now = utcnow()
-        # One transaction, no read-modify-write (a save racing with submit must never be
-        # overwritten by an older snapshot):
-        # 1. apply the body with the same rule as PUT /answers (strictly newer client_seq
-        #    wins; no deadline check, a late submit still carries its answers),
-        await session.execute(
-            update(Attempt)
-            .where(Attempt.id == aid, Attempt.status == "in_progress",
-                   Attempt.client_seq < body.client_seq)
-            .values(answers=body.answers, client_seq=body.client_seq, updated_at=now))
-        # 2. flip to submitted (this row lock makes later saves see "submitted" -> 409),
-        res = await session.execute(
-            update(Attempt).where(Attempt.id == aid, Attempt.status == "in_progress").values(
-                status="submitted", submitted_at=now, receipt=new_receipt(),
-                late=now > a.deadline_at + LATE_GRACE, auto_submitted=False, updated_at=now))
-        # 3. grade exactly what is stored.
-        if res.rowcount == 1:
-            answers, grades = (await session.execute(
-                select(Attempt.answers, Attempt.grades).where(Attempt.id == aid))).one()
-            score, pending, _ = grade_attempt(questions, answers or {}, grades)
-            await session.execute(update(Attempt).where(Attempt.id == aid)
-                                  .values(score=score, needs_grading=pending))
-        await session.commit()
-        # rowcount 0 means a concurrent submit/close won; refresh returns its receipt.
+        # Same rule as PUT /answers: the body wins only if its client_seq is strictly newer
+        # (no deadline check: a late submit still carries its answers). The UPDATE is a
+        # compare-and-swap on the client_seq we read, so a save landing between our read
+        # and this write can never be overwritten by an older snapshot: the swap then
+        # misses, we re-read and decide again. One statement in the normal case.
+        for _ in range(5):
+            use_body = body.client_seq > a.client_seq
+            answers = body.answers if use_body else (a.answers or {})
+            score, pending, _ = grade_attempt(questions, answers, a.grades)
+            res = await session.execute(
+                update(Attempt)
+                .where(Attempt.id == aid, Attempt.status == "in_progress",
+                       Attempt.client_seq == a.client_seq)
+                .values(status="submitted", submitted_at=now, receipt=new_receipt(),
+                        score=score, needs_grading=pending, answers=answers,
+                        client_seq=max(body.client_seq, a.client_seq),
+                        late=now > a.deadline_at + LATE_GRACE, auto_submitted=False,
+                        updated_at=now))
+            await session.commit()
+            if res.rowcount == 1:
+                break
+            await session.refresh(a)  # a save, submit or close got in first
+            if a.status == "submitted":
+                break
+        else:
+            raise HTTPException(503, "Busy, try again")
+        # what is stored now: our submit, or the receipt of a submit/close that won
         await session.refresh(a)
         await cache_attempt(get_store(), a)
     answers = a.answers or {}

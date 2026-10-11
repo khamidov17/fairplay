@@ -153,6 +153,47 @@ def test_concurrent_save_and_submit_keep_newest(client, teacher, alice, live_exa
     assert res["receipt"] == sub.json()["receipt"]
 
 
+@pytest.mark.parametrize("submit_seq,expected", [(3, "save 9"), (12, "submit 12")])
+def test_save_landing_between_submit_read_and_write(client, teacher, alice, live_exam, attempt,
+                                                    monkeypatch, submit_seq, expected):
+    """Deterministic version of the race: submit has read the attempt (stored seq 2), then
+    a save with seq 9 lands before submit writes. The older snapshot (submit seq 3) must not
+    overwrite it; a newer one (submit seq 12) still wins."""
+    import sqlite3
+
+    from app.db import get_database
+
+    url = get_database().engine.url
+    if url.get_backend_name() != "sqlite":
+        pytest.skip("injects the racing save with a direct SQLite write")
+    aid, (q1, q2, q3) = attempt
+    put(client, alice, aid, {q3: "save 2"}, 2)
+    real = routes_student.grade_attempt
+    fired = []
+
+    def grade_then_race(questions, answers, grades):
+        if not fired:  # between submit's read and its UPDATE: another request saves seq 9
+            fired.append(1)
+            con = sqlite3.connect(url.database, timeout=10)
+            con.execute("UPDATE attempts SET answers = ?, client_seq = 9 WHERE id = ?",
+                        ('{"%s": "save 9"}' % q3, aid))
+            con.commit()
+            con.close()
+        return real(questions, answers, grades)
+
+    monkeypatch.setattr(routes_student, "grade_attempt", grade_then_race)
+    r = client.post(f"/api/student/attempts/{aid}/submit",
+                    json={"answers": {q3: f"submit {submit_seq}"}, "client_seq": submit_seq},
+                    headers=alice)
+    assert r.status_code == 200 and fired
+    monkeypatch.undo()
+    res = results_by_user(client, teacher, live_exam["id"])["alice"]
+    given = {x["question_id"]: x["given"] for x in res["answers"]}
+    assert given[q3] == expected
+    assert res["receipt"] == r.json()["receipt"]
+    assert r.json()["answered"] == 1
+
+
 # ---------------------------------------------------------------- refusals
 def test_save_after_submit_is_409(client, alice, attempt):
     aid, (q1, *_r) = attempt
