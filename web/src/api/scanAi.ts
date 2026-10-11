@@ -11,6 +11,17 @@ export interface Criterion {
   label: string;
   points: number;
   description: string;
+  /** error carried forward: award on a wrong earlier value when the method is right */
+  ecf?: boolean;
+}
+
+/** The key as LaTeX for the math check (app.scan.mathverify). */
+export interface KeyLatex {
+  final_latex?: string;
+  units?: string;
+  solution_latex?: string[];
+  sig_figs?: number | null;
+  latex_source?: "teacher" | "ai" | null;
 }
 
 export interface CommonMistake {
@@ -29,9 +40,14 @@ export interface QuestionKey {
   /** criteria used for grading: the key's, else the essay rubric (ids r1, r2…), else none */
   effective_criteria: Criterion[];
   criteria_source: "key" | "question" | "none";
+  final_latex?: string;
+  units?: string;
+  solution_latex?: string[];
+  sig_figs?: number | null;
+  latex_source?: "teacher" | "ai" | null;
 }
 
-export interface KeySuggestion {
+export interface KeySuggestion extends KeyLatex {
   solution: string;
   criteria: Criterion[];
   partial_credit: string;
@@ -76,17 +92,25 @@ export interface AnswerKey {
   questions: KeyQuestion[];
   drafted?: number;
   failed?: number;
+  converted?: number;
+  latex_warnings?: Record<string, string[]>;
 }
 
 export interface QuestionKeyIn {
   solution: string;
-  criteria: { id?: string; label: string; points: number; description: string }[];
+  criteria: { id?: string; label: string; points: number; description: string; ecf?: boolean }[];
   partial_credit: string;
   common_mistakes: CommonMistake[];
+  final_latex?: string;
+  units?: string;
+  solution_latex?: string[];
+  sig_figs?: number | null;
 }
 
 // ---------------------------------------------------------------- AI suggestion (attempt.ai_drafts[qid])
 export type StepStatus = "correct" | "error" | "missing";
+
+export type VerifyStatus = "verified_ok" | "verified_error" | "unverifiable";
 
 export interface SuggestionStep {
   n: number;
@@ -94,6 +118,41 @@ export interface SuggestionStep {
   status: StepStatus;
   note: string;
   teacher_flipped?: boolean;
+  /** the student's line as LaTeX (prompt fp-step-grade-v2) */
+  latex?: string;
+  /** SymPy check of this step */
+  verify?: VerifyStatus;
+  verify_reason?: string;
+  /** correct given an earlier error (error carried forward) */
+  ecf?: boolean;
+  /** the AI's mark when the math check overruled it */
+  model_status?: StepStatus;
+  verifier_disagrees?: string;
+}
+
+export interface VerifyCheck {
+  status: VerifyStatus;
+  reason: string;
+  student?: string | null;
+  key?: string | null;
+  ecf?: boolean;
+}
+
+export interface Verification {
+  engine: string;
+  version: string;
+  steps: { n: number; status: VerifyStatus; reason: string; ecf: boolean; latex: string | null }[];
+  final: VerifyCheck | null;
+  units: VerifyCheck | null;
+  sig_figs: { required: number; given: number | number[] | null; ok: boolean | null } | null;
+  summary?: Record<VerifyStatus, number>;
+  disagreements: { n: number | string; model: unknown; verifier: unknown; reason: string; changes_points: boolean }[];
+  agrees?: boolean;
+  /** false when nothing in the answer could be checked (prose, chemistry...): the UI shows no math check */
+  checked?: boolean;
+  confidence_before?: number;
+  points_before?: number;
+  error?: string;
 }
 
 export interface SuggestionCriterion {
@@ -103,6 +162,10 @@ export interface SuggestionCriterion {
   max_points: number;
   met: boolean;
   note: string;
+  steps?: number[];
+  ecf?: boolean;
+  model_points?: number;
+  verifier_note?: string;
 }
 
 export interface Misconception {
@@ -127,6 +190,8 @@ export interface SuggestionFields {
   provider?: string;
   model?: string;
   prompt_version?: string;
+  final_answer?: { latex: string; units: string; text: string } | null;
+  verification?: Verification;
 }
 
 /** Phase 2 fields on attempt.grades[qid]. */
@@ -314,11 +379,13 @@ export const scanAiApi = {
   saveKey: (id: string, body: { subject?: string; text?: string }) =>
     request<AnswerKey>("teacher", "PUT", `/api/exams/${enc(id)}/answer-key`, body),
   saveQuestionKey: (id: string, qid: string, body: QuestionKeyIn) =>
-    request<{ question_id: string; key: QuestionKey; ai_suggestion: KeySuggestion | null }>(
+    request<{ question_id: string; key: QuestionKey; ai_suggestion: KeySuggestion | null; latex_warnings?: string[] }>(
       "teacher", "PUT", `/api/exams/${enc(id)}/answer-key/questions/${enc(qid)}`, body),
   uploadKeyFile: (id: string, file: File) => postFiles<AnswerKey>(`/api/exams/${enc(id)}/answer-key/files`, "file", [file]),
   deleteKeyFile: (id: string, fileId: string) =>
     request<AnswerKey>("teacher", "DELETE", `/api/exams/${enc(id)}/answer-key/files/${enc(fileId)}`),
+  keyLatex: (id: string, body: { question_ids?: string[]; overwrite?: boolean } = {}) =>
+    request<AnswerKey>("teacher", "POST", `/api/exams/${enc(id)}/answer-key/latex`, body),
   draftKey: (id: string, questionIds: string[] = []) =>
     request<AnswerKey>("teacher", "POST", `/api/exams/${enc(id)}/answer-key/ai-draft`, { question_ids: questionIds }),
   // AI grading run

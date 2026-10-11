@@ -32,6 +32,7 @@ from typing import Any
 from .. import ai
 from ..grading import grade_question, num
 from ..timeutil import iso, utcnow
+from . import mathverify  # step verification hook (see suggest)
 from .answer_key import misconceptions_for, norm_tag
 
 PROMPT_VERSION = "fp-step-grade-v1"
@@ -366,8 +367,11 @@ async def suggest(q: dict, ctx: dict, images: list[bytes], hint: str = "") -> di
     last = ""
     for attempt in range(RETRIES + 1):
         try:
-            out = await ai.complete_json(SYSTEM, build_prompt(q, ctx, hint), images=images, max_tokens=1500)
-            return parse_suggestion(out, q, ctx)
+            # ---- step verification hook (app.scan.mathverify: LaTeX steps checked with SymPy) ----
+            prompt = mathverify.extend_prompt(build_prompt(q, ctx, hint), q, ctx)
+            out = await ai.complete_json(SYSTEM, prompt, images=images, max_tokens=2000)
+            return await mathverify.apply_async(parse_suggestion(out, q, ctx), out, q, ctx)
+            # ---- end step verification hook ----
         except ai.AIUnavailable as e:
             last = str(e)
             if attempt < RETRIES:

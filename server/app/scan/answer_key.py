@@ -38,6 +38,7 @@ from ..models import Exam, User
 from ..security import Principal, require_teacher
 from ..timeutil import iso, utcnow
 from ..uploads import save_image_bytes, sniff_image
+from . import mathverify
 from .config_models import ScanExamConfig
 
 router = APIRouter(prefix="/api", tags=["scan-ai"])
@@ -117,8 +118,11 @@ def clean_criteria(raw: Any, max_points: float, strict: bool = True) -> list[dic
         while cid in seen:
             cid = f"c{i + 1}_{secrets.token_hex(2)}"
         seen.add(cid)
-        out.append({"id": cid, "label": label, "points": num(pts),
-                    "description": str(c.get("description") or "").strip()[:1000]})
+        row = {"id": cid, "label": label, "points": num(pts),
+               "description": str(c.get("description") or "").strip()[:1000]}
+        if c.get("ecf"):
+            row["ecf"] = True  # error carried forward: method marks on a wrong earlier value (mathverify)
+        out.append(row)
     total = sum(float(c["points"]) for c in out)
     if out and strict and abs(total - float(max_points)) > 1e-6:
         raise ValueError(f"Rubric points must add up to {num(max_points)} (now {num(total)})")
@@ -153,7 +157,11 @@ def entry_out(q: dict, entry: dict | None) -> dict:
             "partial_credit": entry.get("partial_credit", ""),
             "common_mistakes": list(entry.get("common_mistakes") or []),
             "updated_at": entry.get("updated_at"), "updated_by": entry.get("updated_by"),
-            "effective_criteria": crit, "criteria_source": src}
+            "effective_criteria": crit, "criteria_source": src,
+            # math check (app.scan.mathverify): the key as LaTeX
+            "final_latex": entry.get("final_latex", ""), "units": entry.get("units", ""),
+            "solution_latex": list(entry.get("solution_latex") or []), "sig_figs": entry.get("sig_figs"),
+            "latex_source": entry.get("latex_source")}
 
 
 def _correct_answer_text(q: dict) -> str:
@@ -182,6 +190,7 @@ def key_context(key: dict, q: dict, limit: int = 4000) -> dict:
         "partial_credit": entry.get("partial_credit") or "",
         "common_mistakes": list(entry.get("common_mistakes") or []),
         "key_text": (key.get("text") or "")[:limit],
+        **mathverify.key_latex_context(q, entry),
     }
 
 
@@ -262,6 +271,7 @@ class CriterionIn(BaseModel):
     label: str = Field(max_length=200)
     points: float
     description: str = Field(default="", max_length=1000)
+    ecf: bool = False
 
 
 class MistakeIn(BaseModel):
@@ -275,6 +285,11 @@ class QuestionKeyIn(BaseModel):
     criteria: list[CriterionIn] = Field(default_factory=list, max_length=20)
     partial_credit: str = Field(default="", max_length=5000)
     common_mistakes: list[MistakeIn] = Field(default_factory=list, max_length=20)
+    # math check (None = keep what is stored)
+    final_latex: str | None = Field(default=None, max_length=400)
+    units: str | None = Field(default=None, max_length=60)
+    solution_latex: list[str] | None = Field(default=None, max_length=40)
+    sig_figs: int | None = Field(default=None, ge=1, le=15)
 
 
 @router.put("/exams/{exam_id}/answer-key/questions/{qid}")
@@ -297,12 +312,19 @@ async def put_question_key(exam_id: str, qid: str, body: QuestionKeyIn,
                 "partial_credit": body.partial_credit.strip(),
                 "common_mistakes": clean_mistakes([m.model_dump() for m in body.common_mistakes]),
                 "updated_at": iso(utcnow()), "updated_by": u.username if u else None})
+    sent = body.model_dump(exclude_unset=True)
+    lx = {k: sent[k] for k in ("final_latex", "units", "solution_latex", "sig_figs") if k in sent}
+    if lx:
+        old.update(mathverify.clean_key_latex({**{k: old.get(k) for k in ("final_latex", "units", "solution_latex",
+                                                                          "sig_figs")}, **lx}))
+        old["latex_source"] = "teacher"
     entries[qid] = old
     key["questions"] = entries
     key["updated_at"] = iso(utcnow())
     row.answer_key, row.updated_at = key, utcnow()
     await session.commit()
-    return {"question_id": qid, "key": entry_out(q, old), "ai_suggestion": old.get("ai_suggestion")}
+    return {"question_id": qid, "key": entry_out(q, old), "ai_suggestion": old.get("ai_suggestion"),
+            "latex_warnings": mathverify.check_key_latex(old)}
 
 
 # ---------------------------------------------------------------- key files
@@ -400,7 +422,9 @@ KEY_SYSTEM = ("You help a university teacher write a marking scheme. From the qu
               "Reply with ONE JSON object only.")
 KEY_SCHEMA = ('{"solution": "step-by-step worked solution", "criteria": [{"label": "what earns the points", '
               '"points": number, "description": "how to judge it"}], "partial_credit": "rules", '
-              '"common_mistakes": [{"label": "mistake", "tag": "one of the allowed tags", "deduction": number}]}')
+              '"common_mistakes": [{"label": "mistake", "tag": "one of the allowed tags", "deduction": number}], '
+              '"final_latex": "final answer as LaTeX", "units": "unit or empty", '
+              '"solution_latex": ["worked solution, one LaTeX line per step"]}')
 
 
 def key_prompt(q: dict, key: dict) -> str:
@@ -440,6 +464,7 @@ def parse_key_suggestion(out: dict, q: dict) -> dict:
     return {"solution": str(out.get("solution") or "").strip()[:20_000], "criteria": crit,
             "partial_credit": str(out.get("partial_credit") or "").strip()[:5000],
             "common_mistakes": clean_mistakes(out.get("common_mistakes")),
+            **{k: v for k, v in mathverify.clean_key_latex(out).items() if k != "sig_figs"},
             "provider": ai.provider(), "model": ai.model_name(), "prompt_version": KEY_PROMPT_VERSION,
             "created_at": iso(utcnow())}
 
@@ -495,4 +520,71 @@ async def ai_draft_key(exam_id: str, body: KeyDraftIn | None = None, p: Principa
     out = key_out(e, key)
     out["drafted"] = drafted
     out["failed"] = len(qs) - drafted
+    return out
+
+
+# ---------------------------------------------------------------- key as LaTeX (math check, app.scan.mathverify)
+class KeyLatexIn(BaseModel):
+    question_ids: list[str] = Field(default_factory=list, max_length=200)
+    overwrite: bool = False
+
+
+@router.post("/exams/{exam_id}/answer-key/latex")
+async def ai_key_latex(exam_id: str, body: KeyLatexIn | None = None, p: Principal = Depends(require_teacher),
+                       session: AsyncSession = Depends(get_session)):
+    """AI converts each question's key (worked solution + correct answer) to LaTeX once and stores it
+    (`latex_source: "ai"`). Questions whose LaTeX is already stored are kept unless `overwrite`."""
+    e = await _own_exam(session, exam_id, p)
+    if not ai.enabled():
+        raise HTTPException(409, "AI is off on this server — type the LaTeX by hand")
+    key = await load_key(session, e.id)
+    entries0 = key.get("questions") or {}
+    wanted = set((body.question_ids if body else []) or [])
+    overwrite = bool(body and body.overwrite)
+    todo = []
+    for q in exam_questions(e):
+        ent = entries0.get(q["id"]) or {}
+        if wanted and q["id"] not in wanted:
+            continue
+        if q.get("type") == "mcq" or not (ent.get("solution") or _correct_answer_text(q)):
+            continue
+        if ent.get("final_latex") and not overwrite:
+            continue
+        todo.append(q)
+    sem = asyncio.Semaphore(4)
+
+    async def one(q: dict) -> tuple[str, dict | None]:
+        async with sem:
+            ent = entries0.get(q["id"]) or {}
+            try:
+                out = await ai.complete_json(mathverify.KEY_LATEX_SYSTEM,
+                                             mathverify.key_latex_prompt(q, ent, _correct_answer_text(q)),
+                                             max_tokens=1200)
+            except ai.AIUnavailable:
+                return q["id"], None
+            fields = mathverify.clean_key_latex(out if isinstance(out, dict) else {})
+            return q["id"], fields if fields["final_latex"] or fields["solution_latex"] else None
+
+    results = await asyncio.gather(*(one(q) for q in todo))
+    row = await get_config(session, e.id, create=True)
+    key = dict(row.answer_key or {})
+    entries = dict(key.get("questions") or {})
+    converted, warnings = 0, {}
+    for qid, fields in results:
+        if fields is None:
+            continue
+        ent = dict(entries.get(qid) or {})
+        fields["sig_figs"] = ent.get("sig_figs")
+        ent.update(fields)
+        ent["latex_source"] = "ai"
+        entries[qid] = ent
+        converted += 1
+        w = mathverify.check_key_latex(ent)
+        if w:
+            warnings[qid] = w
+    key["questions"] = entries
+    row.answer_key, row.updated_at = key, utcnow()
+    await session.commit()
+    out = key_out(e, key)
+    out.update(converted=converted, failed=len(todo) - converted, latex_warnings=warnings)
     return out

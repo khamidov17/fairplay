@@ -279,7 +279,8 @@ def test_ai_run_records_approve_provenance_and_no_overwrite(client, teacher, pap
     assert r.status_code == 200, r.text
     g = r.json()["grade"]
     assert g["points"] == 4 and g["source"] == "ai_edited" and g["ai_suggested_points"] == 3
-    assert g["steps"][2] == {"n": 3, "text": "+C", "status": "correct", "note": "constant", "teacher_flipped": True}
+    assert {k: g["steps"][2].get(k) for k in ("n", "text", "status", "note", "teacher_flipped")} == \
+        {"n": 3, "text": "+C", "status": "correct", "note": "constant", "teacher_flipped": True}
     assert g["first_error_step"] is None and g["misconception"] is None and g["mistake_tags"] == []
     r = client.post(f"/api/exams/{e['id']}/scan/answers/{al['attempt_id']}/{q[4]}/approve", headers=teacher,
                     json={"criteria": [{"id": "c1", "points": 1}], "points": 3})

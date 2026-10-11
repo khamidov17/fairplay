@@ -21,6 +21,7 @@ import {
   withGrade,
   type QueueFilter,
 } from "./queueLogic";
+import { StepCheck, VerificationPanel } from "./MathVerify";
 import {
   buildSave,
   firstErrorStep,
@@ -599,12 +600,14 @@ function ReviewPane({
                   <span className="rv-step-text">
                     {s.text || <em className="t-muted">(not written)</em>}
                     {s.note && <span className="rv-step-note">{s.note}</span>}
+                    <StepCheck step={s} />
                   </span>
                 </li>
               ))}
             </ol>
           </div>
         )}
+        {sug && d?.verification && <VerificationPanel v={d.verification} finalLatex={d.final_answer?.latex} />}
         {form.steps.length === 0 && d?.transcript && (
           <p className="sc-transcript">
             <span className="t-muted">Reads as:</span> “{d.transcript}”

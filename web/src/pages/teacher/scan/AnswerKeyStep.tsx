@@ -10,12 +10,14 @@ import { Loading } from "../../../components/Loading";
 import { Pill } from "../../../components/teacher/TeacherLayout";
 import { errorText, num, plural } from "../../../components/teacher/util";
 import "../../../styles/scanAi.css";
+import { Tex } from "./MathVerify";
 
 interface CritRow {
   id?: string;
   label: string;
   points: string;
   description: string;
+  ecf?: boolean;
 }
 
 interface Form {
@@ -23,6 +25,11 @@ interface Form {
   criteria: CritRow[];
   partial_credit: string;
   common_mistakes: { label: string; tag: string; deduction: string }[];
+  // math check (LaTeX); optional so older form objects still work
+  final_latex?: string;
+  units?: string;
+  solution_latex?: string;
+  sig_figs?: string;
 }
 
 /** Sum of the criteria points typed in the form (NaN rows count as 0). */
@@ -39,13 +46,29 @@ export function keyFormError(form: Form, max: number): string | null {
   }
   if (form.criteria.length > 0 && Math.abs(criteriaTotal(form.criteria) - max) > 1e-6)
     return `Rubric points must add up to ${num(max)} (now ${num(criteriaTotal(form.criteria))}).`;
+  const sf = (form.sig_figs ?? "").trim();
+  if (sf && !(Number.isInteger(Number(sf)) && Number(sf) >= 1 && Number(sf) <= 15))
+    return "Significant figures must be a whole number from 1 to 15.";
   return null;
 }
 
-function formFrom(src: { solution: string; criteria: { id?: string; label: string; points: number; description: string }[]; partial_credit: string; common_mistakes: CommonMistake[] }): Form {
+function formFrom(src: {
+  solution: string;
+  criteria: { id?: string; label: string; points: number; description: string; ecf?: boolean }[];
+  partial_credit: string;
+  common_mistakes: CommonMistake[];
+  final_latex?: string;
+  units?: string;
+  solution_latex?: string[];
+  sig_figs?: number | null;
+}): Form {
   return {
     solution: src.solution ?? "",
-    criteria: (src.criteria ?? []).map((c) => ({ id: c.id, label: c.label, points: String(c.points), description: c.description ?? "" })),
+    final_latex: src.final_latex ?? "",
+    units: src.units ?? "",
+    solution_latex: (src.solution_latex ?? []).join("\n"),
+    sig_figs: src.sig_figs ? String(src.sig_figs) : "",
+    criteria: (src.criteria ?? []).map((c) => ({ id: c.id, label: c.label, points: String(c.points), description: c.description ?? "", ecf: !!c.ecf })),
     partial_credit: src.partial_credit ?? "",
     common_mistakes: (src.common_mistakes ?? []).map((m) => ({
       label: m.label,
@@ -125,6 +148,27 @@ export function AnswerKeyStep({ examId }: { examId: string }) {
               }
             >
               {busy === "draft" ? "Drafting…" : "Draft rubrics with AI"}
+            </button>
+          )}
+          {key.ai_enabled && (
+            <button
+              type="button"
+              className="btn btn-secondary"
+              disabled={busy !== null}
+              title="Convert each worked solution and final answer to LaTeX once, so the math check can verify steps"
+              onClick={() =>
+                act("latex", async () => {
+                  const k = await scanAiApi.keyLatex(examId);
+                  apply(k);
+                  const warn = Object.keys(k.latex_warnings ?? {}).length;
+                  setNotice(
+                    `Converted ${plural(k.converted ?? 0, "answer key")} to LaTeX for the math check.` +
+                      (warn ? ` ${plural(warn, "question")} could not be read fully — check the LaTeX fields.` : ""),
+                  );
+                })
+              }
+            >
+              {busy === "latex" ? "Converting…" : "Key to LaTeX (math check)"}
             </button>
           )}
         </div>
@@ -218,7 +262,9 @@ function QuestionKeyCard({ examId, q, misconceptions }: { examId: string; q: Key
   const [err, setErr] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const id = `akq-${q.question_id}`;
+  const hasEcf = form.criteria.length > 0;
 
   useEffect(() => setSuggestion(q.ai_suggestion), [q.ai_suggestion]);
 
@@ -239,7 +285,17 @@ function QuestionKeyCard({ examId, q, misconceptions }: { examId: string; q: Key
     try {
       const res = await scanAiApi.saveQuestionKey(examId, q.question_id, {
         solution: form.solution,
-        criteria: form.criteria.map((c) => ({ id: c.id, label: c.label.trim(), points: Number(c.points), description: c.description })),
+        criteria: form.criteria.map((c) => ({
+          id: c.id,
+          label: c.label.trim(),
+          points: Number(c.points),
+          description: c.description,
+          ecf: !!c.ecf,
+        })),
+        final_latex: (form.final_latex ?? "").trim(),
+        units: (form.units ?? "").trim(),
+        solution_latex: (form.solution_latex ?? "").split("\n").map((l) => l.trim()).filter(Boolean),
+        sig_figs: (form.sig_figs ?? "").trim() ? Number(form.sig_figs) : null,
         partial_credit: form.partial_credit,
         common_mistakes: form.common_mistakes
           .filter((m) => m.label.trim())
@@ -247,6 +303,7 @@ function QuestionKeyCard({ examId, q, misconceptions }: { examId: string; q: Key
       });
       setSaved(res.key);
       setForm(formFrom(res.key));
+      setWarnings(res.latex_warnings ?? []);
       setOk("Saved.");
     } catch (e) {
       setErr(errorText(e));
@@ -304,6 +361,60 @@ function QuestionKeyCard({ examId, q, misconceptions }: { examId: string; q: Key
 
       <fieldset className="ak-fieldset">
         <legend>
+          Math check (LaTeX){" "}
+          {saved.latex_source && <span className="t-muted sc-small">· {saved.latex_source === "ai" ? "converted by AI" : "typed by you"}</span>}
+        </legend>
+        <p className="t-muted sc-small">
+          Optional. With the final answer as LaTeX, every step and the final answer are checked with SymPy (units with
+          conversion). Examples: <code>x = 2</code>, <code>{"\\frac{1}{3}"}</code>, <code>19.6</code> with unit <code>m/s</code>.
+        </p>
+        <div className="ak-latex">
+          <div className="t-field">
+            <label htmlFor={`${id}-fl`}>Final answer (LaTeX)</label>
+            <input id={`${id}-fl`} className="input" value={form.final_latex ?? ""} onChange={(e) => set({ final_latex: e.target.value })} />
+          </div>
+          <div className="t-field">
+            <label htmlFor={`${id}-un`}>Units</label>
+            <input id={`${id}-un`} className="input" placeholder="e.g. m/s" value={form.units ?? ""} onChange={(e) => set({ units: e.target.value })} />
+          </div>
+          <div className="t-field">
+            <label htmlFor={`${id}-sf`}>Sig. figures</label>
+            <input
+              id={`${id}-sf`}
+              className="input"
+              inputMode="numeric"
+              placeholder="any"
+              value={form.sig_figs ?? ""}
+              onChange={(e) => set({ sig_figs: e.target.value })}
+            />
+          </div>
+        </div>
+        {(form.final_latex ?? "").trim() && (
+          <p className="ak-latex-preview" aria-label="Preview of the final answer">
+            <Tex latex={form.final_latex ?? ""} /> {form.units && <span className="t-muted">{form.units}</span>}
+          </p>
+        )}
+        <div className="t-field">
+          <label htmlFor={`${id}-sl`}>Worked solution in LaTeX (one step per line)</label>
+          <textarea
+            id={`${id}-sl`}
+            className="textarea"
+            rows={3}
+            value={form.solution_latex ?? ""}
+            onChange={(e) => set({ solution_latex: e.target.value })}
+          />
+        </div>
+        {warnings.length > 0 && (
+          <ul className="t-inline-error" role="alert">
+            {warnings.map((w) => (
+              <li key={w}>{w}</li>
+            ))}
+          </ul>
+        )}
+      </fieldset>
+
+      <fieldset className="ak-fieldset">
+        <legend>
           Rubric criteria{" "}
           <span className={`ak-total${form.criteria.length && Math.abs(total - q.points) > 1e-6 ? " is-bad" : ""}`}>
             {num(total)} / {num(q.points)}
@@ -317,7 +428,7 @@ function QuestionKeyCard({ examId, q, misconceptions }: { examId: string; q: Key
           </p>
         )}
         {form.criteria.map((c, i) => (
-          <div key={i} className="ak-crit">
+          <div key={i} className={`ak-crit${hasEcf ? " has-ecf" : ""}`}>
             <input
               className="input"
               aria-label={`Criterion ${i + 1}`}
@@ -339,6 +450,15 @@ function QuestionKeyCard({ examId, q, misconceptions }: { examId: string; q: Key
               value={c.description}
               onChange={(e) => set({ criteria: form.criteria.map((x, j) => (j === i ? { ...x, description: e.target.value } : x)) })}
             />
+            <label className="ak-ecf" title="Error carried forward: award this criterion when the method is right on a wrong earlier value">
+              <input
+                type="checkbox"
+                aria-label={`ECF for criterion ${i + 1}`}
+                checked={!!c.ecf}
+                onChange={(e) => set({ criteria: form.criteria.map((x, j) => (j === i ? { ...x, ecf: e.target.checked } : x)) })}
+              />
+              ECF
+            </label>
             <button
               type="button"
               className="t-btn-outline"

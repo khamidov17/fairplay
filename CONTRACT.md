@@ -725,6 +725,75 @@ Precedence, first match wins (`app.classes.service.exam_gate` / `require_exam_ac
 - Exam editor: "Assign to classes" checkbox list (saved with PUT `/classes` after the exam is saved) + the open-exam warning.
   Exam page: strip with assigned classes, union student count and "Change". Gradebook: "Class" filter.
 - Student: nav "Classes" (join form + class cards with their exams); exam lists show the class names.
+## Step verification (math/physics)
+Code: `server/app/scan/mathverify.py` (LaTeX parsing, step chain, final answer, reconciliation, prompt v2, key
+LaTeX), `server/app/scan/units.py` (pint units, dimensions, significant figures). One hook in
+`ai_grade.suggest`: `prompt = mathverify.extend_prompt(build_prompt(...))` and
+`mathverify.apply_async(parse_suggestion(out, q, ctx), out, q, ctx)` (worker thread, ≤ 10 s per answer, never
+raises; on timeout the model's draft is kept). `FAIRPLAY_STEP_VERIFY=0` turns it off. Deps:
+`antlr4-python3-runtime==4.11` (SymPy's LaTeX parser; a small built-in LaTeX→SymPy converter is used when it is
+missing or fails) and `pint`.
+
+- **Prompt `fp-step-grade-v2`** = v1 + per step `"latex"` (the student's line as LaTeX, mistakes kept, units as
+  `\text{m/s}`, continuation lines start with `=`), `"ecf": bool`, top-level `"final_answer": {"latex","units"}`,
+  per criterion `"steps": [n...]` (the steps it is judged on); the prompt also carries the key's final answer /
+  worked solution as LaTeX, the ECF criteria and required sig figs. Parsing stays backward compatible: v1 outputs
+  (no LaTeX) are checked from the plain step text; `prompt_version` is `fp-step-grade-v2` only when LaTeX came back.
+- **Per step** (each against the last readable step): expressions algebraically equal (expand / simplify /
+  random-point sampling, `mathcheck.check`); equations equivalent (same equation up to a constant factor, same real
+  solution set for one unknown — "loses / adds solution" errors; physics keeps a dropped negative root; several
+  letters: solved for a shared letter both ways = formula rearranged); `= …` lines compared with the previous
+  value; claims inside a line (`3·4 = 12`, `\frac{d}{dx}(…) = …`, `f'(x)` / `y'` / `dy/dx` against an earlier
+  `f(x) = …`, `\int_a^b … = …`, `\int … dx = F + C` by differentiating F); written decimals compared with their
+  rounding; substituting values / new quantities / prose / inequalities / sums → `unverifiable`.
+  Units come only from `\text{}` / `\mathrm{}` markup or the `units` fields: a unit becomes its SI factor × base-unit
+  symbols, so `72 km/h = 20 m/s` is algebra and `5 m + 3 s` is an error ("adds m and s").
+- **ECF**: after a `verified_error`, a later step that follows from the wrong line is `verified_ok` with
+  `ecf: true` ("correct given the error in step k"); a step that is equivalent to the last correct line again
+  clears it. A wrong final answer that follows from the error gets `final.ecf: true`.
+- **Final answer** (`final_answer.latex`, else the last readable line) vs the key's `final_latex` (else a numeric
+  question's `answer_number`): equivalent forms, solution sets (any order, count must match), vectors `(x, y)` /
+  `\langle\rangle` / `\hat{i}`/`\mathbf{j}` component-wise, tolerance = the question's tolerance, the rounding of
+  the student's decimals (only to ≈3 significant figures or finer) or of a decimal key; units converted (km/h vs
+  m/s), "no units" / "wrong units" errors; significant figures when the key sets `sig_figs` or a criterion says
+  "… N significant figures".
+- **Reconcile** (verifier wins on algebra/arithmetic): a step the model called wrong but SymPy proves → `status`
+  becomes `correct` (`model_status: "error"`, `verifier_disagrees` text); a step the model called right but SymPy
+  refutes → `error`. Criteria with `steps` are re-scored from the checked steps: all `verified_ok` → full; ECF
+  steps count only when the criterion has `ecf: true` (method marks); otherwise max × ok/total, rounded down to
+  0.5; criteria with an unverifiable step keep the model's points (`criteria[i].model_points`, `verifier_note`).
+  `points` = sum. A disagreement that changes points (or a wrong final answer / units / sig figs with full marks, a
+  right final answer with 0, a re-scored criterion) adds review reason `verifier_disagrees` ("The math check
+  disagrees with the AI") and caps confidence at 0.5; a disagreement that changes no points lowers it by 0.1; full
+  agreement (checked steps + final matches the key, or a wrong final the model already marked down) raises it to
+  ≥ 0.9 (no final: +0.15, ≤ 0.95). `first_error_step` is recomputed. Drafts from the key (`source: "key"`) keep
+  their points.
+- Record additions in `attempt.ai_drafts[qid]`:
+  `steps[i] += {latex?, verify: "verified_ok"|"verified_error"|"unverifiable", verify_reason, ecf, model_status?,
+  verifier_disagrees?}`; `criteria[i] += {steps?, ecf?, model_points?, verifier_note?}`;
+  `final_answer: {latex, units, text} | null`;
+  `verification: {engine: "sympy"|"sympy+pint", version: "fp-verify-v1", steps: [{n, status, reason, ecf, latex}],
+  final: {status, reason, student, key, ecf} | null, units: {status, reason, student, key} | null,
+  sig_figs: {required, given: n | [min, max] | null, ok} | null, summary: {verified_ok, verified_error, unverifiable},
+  disagreements: [{n: step | "final" | "units" | "sig_figs" | "criteria", model, verifier, reason, changes_points}],
+  checked (false = nothing was math: no per-step `verify` fields, no UI), agrees, confidence_before, points_before,
+  seconds}` (or `{engine, version, error, ...}` if the check crashed).
+  Approved grades copy the steps as before (the extra fields ride along).
+- **Answer key** (`questions[qid]` in the key): `final_latex`, `units`, `solution_latex: [line]`, `sig_figs` (1–15 |
+  null), `latex_source: "teacher"|"ai"`; criteria may carry `ecf: true`. `PUT …/answer-key/questions/{qid}` accepts
+  `final_latex, units, solution_latex, sig_figs` (omitted = keep) and `criteria[].ecf`, and returns
+  `latex_warnings: [text]` (LaTeX / unit that cannot be read). `POST /api/exams/{id}/answer-key/latex
+  {question_ids?, overwrite?}` → the AI converts each key (worked solution + correct answer) to LaTeX once and
+  stores it (`latex_source: "ai"`; questions that already have `final_latex` are skipped unless `overwrite`; mcq
+  skipped); 409 when AI is off; response = the answer key + `converted, failed, latex_warnings: {qid: [text]}`.
+  The rubric AI draft (`ai-draft`) also returns `final_latex, units, solution_latex`. `key_context` adds
+  `key_final_latex, key_units, key_solution_latex, sig_figs`.
+- **Web**: review screen steps show the LaTeX (KaTeX; unreadable LaTeX as monospace source), a badge next to the
+  AI's mark (`✓ Proved` / `✓ ECF` / `✗ Error` / `? Can't check`) and a one-line disagreement; under the steps a
+  "Math check" box (summary, final answer vs key, units, sig figs, point-changing disagreements). Answer key: "Math
+  check (LaTeX)" fields (final answer with preview, units, sig figs, worked solution lines), an ECF checkbox per
+  criterion and a "Key to LaTeX (math check)" button.
+
 # Phase 3 — Grading quality (benchmark, AI-vs-human metrics, review routing, second marking)
 
 Code: `server/app/quality/` (models, metrics, routing, graders, runner, importer, service, routes);
