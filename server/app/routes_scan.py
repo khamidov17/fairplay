@@ -858,6 +858,7 @@ async def approve(exam_id: str, aid: str, qid: str, body: ApproveIn | None = Non
     a = await _locked_attempt(session, e, aid)
     grade = _apply_grade(e, a, q, body.points, body.comment, body, key, teacher)
     await session.commit()
+    await _homework_auto_release(session, e.id)
     return {"attempt_id": a.id, "question_id": qid, "grade": grade, "score": num(a.score or 0),
             "total_points": num(e.total_points), "percent": percent(a.score or 0, e.total_points),
             "needs_grading": a.needs_grading}
@@ -930,4 +931,14 @@ async def approve_bulk(exam_id: str, body: BulkIn, p: Principal = Depends(requir
             except HTTPException:
                 skipped += 1
     await session.commit()
+    await _homework_auto_release(session, e.id)
     return {"approved": approved, "skipped": skipped}
+
+
+async def _homework_auto_release(session: AsyncSession, exam_id: str) -> None:
+    """Homework with "auto-release" on: release once everything is reviewed (app.homework)."""
+    try:
+        from .homework.service import maybe_auto_release
+    except ImportError:
+        return
+    await maybe_auto_release(session, exam_id)
