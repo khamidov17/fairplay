@@ -2,7 +2,6 @@
 Teacher downloads booklets from the UI -> we "fill them in" (bubble + handwriting stand-in) ->
 upload the scan PDF through the UI -> pages matched -> teacher grades in the queue (UI edit) ->
 release -> student sees score and their scanned answer. Server on :8000 (AI off)."""
-import os
 import json
 import re
 import sys
@@ -18,7 +17,7 @@ from playwright.sync_api import sync_playwright
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "server"))
 from app.scan.print import build_layout  # noqa: E402
 
-BASE = os.environ.get("FAIRPLAY_BASE", "http://127.0.0.1:8000").rstrip("/")
+BASE = "http://127.0.0.1:8000"
 DPI = 200
 S = DPI / 72
 
@@ -145,23 +144,23 @@ def main():
         P.wait_for_timeout(800)
         P.screenshot(path="shots/72-paper-queue.png", full_page=True)
         graded = 0
+        # phase 2 review screen: one answer at a time, scan on the left, points + feedback on the right
         for pts, comment in (("4", "Balanced correctly."), ("1", "Water is H2O, not H2O2.")):
-            edit = P.get_by_role("button", name="Edit")
-            if edit.count() == 0:
+            pane = P.locator(".rv-pane")
+            if pane.count() == 0:
                 break
-            edit.first.click()
-            P.wait_for_timeout(300)
-            P.get_by_label(re.compile(r"^Points \(out of")).first.fill(pts)
-            P.get_by_label("Comment for the student").first.fill(comment)
-            P.get_by_role("button", name="Save grade").first.click()
+            pane.get_by_label("Points", exact=True).fill(pts)
+            pane.get_by_label("Feedback for the student").fill(comment)
+            pane.get_by_role("button", name="Accept and next").click()
             P.wait_for_timeout(1200)
             graded += 1
-        # confirm the automatic bubble reads
-        for _ in range(4):
-            c = P.get_by_role("button", name=re.compile(r"^(Confirm|Approve)$"))
-            if c.count() == 0 or not c.first.is_enabled():
-                break
-            c.first.click()
+        # confirm the automatic bubble reads (question 1, filter All, Enter = accept and next)
+        P.get_by_role("button", name=re.compile(r"^Question 1")).first.click()
+        P.wait_for_timeout(500)
+        P.get_by_role("button", name=re.compile(r"^All \(")).click()
+        P.wait_for_timeout(500)
+        for _ in range(2):
+            P.keyboard.press("Enter")
             P.wait_for_timeout(800)
         print("essays graded in the queue UI:", graded)
         res = api("GET", f"/api/exams/{eid}/results", None, T)

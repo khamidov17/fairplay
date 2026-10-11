@@ -32,6 +32,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         settings.warn_insecure()
+        from .security import _local_tv
+        _local_tv.clear()  # per-process token-version cache starts empty with each app
         db = Database(settings)
         await db.create_all()
         await seed(db, settings)

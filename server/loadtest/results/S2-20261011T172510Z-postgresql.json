@@ -1,0 +1,182 @@
+{
+  "benchmark": "fairplay-bench/1",
+  "scenario": {
+    "name": "S2",
+    "title": "Exam hall",
+    "students": 500,
+    "exams": 10,
+    "ramp_s": 30,
+    "write_s": 90,
+    "p95_ms": 250,
+    "submit_p95_ms": 2000,
+    "drop_after_s": 0,
+    "drop_s": 0,
+    "reconnect_p95_ms": 0,
+    "resync_max_s": 0
+  },
+  "standard": true,
+  "started_at": "2026-10-11T17:25:10Z",
+  "wall_s": 124.1,
+  "base": "http://127.0.0.1:8230",
+  "server": "spawned on this machine: 2 uvicorn worker(s), postgresql, Redis",
+  "machine": {
+    "host": "vm",
+    "os": "Linux-6.18.44-fc-v114-x86_64-with-glibc2.39",
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "logical_cpus": 2,
+    "ram_gb": 7.8,
+    "python": "3.13.16",
+    "httpx": "0.28.1"
+  },
+  "client_procs": 2,
+  "requests": 31034,
+  "offered_rps": 239.5,
+  "achieved_rps": 241.9,
+  "steady": {
+    "events": {
+      "count": 542,
+      "errors": 0,
+      "p50_ms": 15.9,
+      "p95_ms": 285.4,
+      "p99_ms": 717.2,
+      "max_ms": 1083.3
+    },
+    "heartbeat": {
+      "count": 10726,
+      "errors": 0,
+      "p50_ms": 11.4,
+      "p95_ms": 263.0,
+      "p99_ms": 548.7,
+      "max_ms": 1178.4
+    },
+    "live": {
+      "count": 247,
+      "errors": 0,
+      "p50_ms": 25.9,
+      "p95_ms": 137.4,
+      "p99_ms": 706.9,
+      "max_ms": 2748.5
+    },
+    "save_answers": {
+      "count": 17511,
+      "errors": 6,
+      "p50_ms": 15.9,
+      "p95_ms": 361.6,
+      "p99_ms": 1423.6,
+      "max_ms": 3378.9
+    },
+    "ALL": {
+      "count": 29026,
+      "errors": 6,
+      "p50_ms": 14.4,
+      "p95_ms": 313.4,
+      "p99_ms": 1029.3,
+      "max_ms": 3378.9
+    }
+  },
+  "ramp": {
+    "login": {
+      "count": 500,
+      "errors": 0,
+      "p50_ms": 81.6,
+      "p95_ms": 1115.2,
+      "p99_ms": 2031.0,
+      "max_ms": 2363.7
+    },
+    "start": {
+      "count": 500,
+      "errors": 0,
+      "p50_ms": 39.4,
+      "p95_ms": 700.2,
+      "p99_ms": 1198.8,
+      "max_ms": 2061.2
+    },
+    "student_exams": {
+      "count": 500,
+      "errors": 0,
+      "p50_ms": 46.0,
+      "p95_ms": 913.5,
+      "p99_ms": 1509.8,
+      "max_ms": 2044.9
+    },
+    "ALL": {
+      "count": 1500,
+      "errors": 0,
+      "p50_ms": 55.1,
+      "p95_ms": 893.7,
+      "p99_ms": 1612.1,
+      "max_ms": 2363.7
+    }
+  },
+  "submit": {
+    "submit": {
+      "count": 508,
+      "errors": 8,
+      "p50_ms": 1509.0,
+      "p95_ms": 3135.1,
+      "p99_ms": 3418.2,
+      "max_ms": 3457.2
+    },
+    "ALL": {
+      "count": 508,
+      "errors": 8,
+      "p50_ms": 1509.0,
+      "p95_ms": 3135.1,
+      "p99_ms": 3418.2,
+      "max_ms": 3457.2
+    }
+  },
+  "reconnect": null,
+  "resync": null,
+  "verification": {
+    "ok": true,
+    "students": 500,
+    "answers_compared": 5500,
+    "lost_answers": 0,
+    "wrong_answers": 0,
+    "missing_attempts": 0,
+    "not_submitted": 0,
+    "receipt_mismatch": 0,
+    "duplicate_receipts": 0,
+    "extra_attempts": 0,
+    "samples": []
+  },
+  "error_samples": {
+    "save_answers": "HTTP 500: Internal Server Error",
+    "submit": "HTTP 500: Internal Server Error"
+  },
+  "checks": [
+    {
+      "check": "error rate = 0",
+      "pass": false,
+      "value": "6 steady + 8 submit errors"
+    },
+    {
+      "check": "steady p95 <= 250 ms",
+      "pass": false,
+      "value": "313.4 ms"
+    },
+    {
+      "check": "save p95 <= 250 ms",
+      "pass": false,
+      "value": "361.6 ms"
+    },
+    {
+      "check": "submit storm p95 <= 2000 ms",
+      "pass": false,
+      "value": "3135.1 ms"
+    },
+    {
+      "check": "no lost answers (DB == what each student sent)",
+      "pass": true,
+      "value": "5500 answers compared, 0 lost, 0 wrong, 0 missing attempts, 0 duplicate receipts"
+    },
+    {
+      "check": "offered load sustained (>= 90 %)",
+      "pass": true,
+      "value": "242 of 239 req/s"
+    }
+  ],
+  "pass": false,
+  "note": "merged main e55e10e; LB, API, Postgres, Redis on the same 2 vCPUs"
+}

@@ -105,6 +105,8 @@ async def _set_status(session: AsyncSession, user_id: int, allowed_from: tuple[s
         from .security import TOKEN_VERSION_CACHE_S, token_version_key
         from .store import get_store
         await get_store().set(token_version_key(u.id), str(int(u.token_version or 0)), TOKEN_VERSION_CACHE_S)
+        from .security import forget_token_version
+        forget_token_version(u.id)
     else:
         await session.commit()
     exams = await session.scalar(select(func.count()).select_from(Exam).where(Exam.teacher_id == u.id))

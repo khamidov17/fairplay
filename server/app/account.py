@@ -36,6 +36,8 @@ async def revoke_user_tokens(session: AsyncSession, user_id: int, commit: bool =
     if commit:
         await session.commit()
     await get_store().set(token_version_key(user_id), str(int(ver)), TOKEN_VERSION_CACHE_S)
+    from .security import forget_token_version
+    forget_token_version(user_id)
     return int(ver)
 
 

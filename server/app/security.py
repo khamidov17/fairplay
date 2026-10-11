@@ -101,8 +101,31 @@ def token_version_key(user_id: int) -> str:
     return f"tv:{user_id}"
 
 
+# Per-process cache in front of the store, so most requests make no Redis call at all.
+# A revocation made in another worker takes effect here within LOCAL_TV_TTL_S seconds;
+# revocations made in this process clear the entry at once (forget_token_version).
+LOCAL_TV_TTL_S = 5.0
+_local_tv: dict[int, tuple[int | None, float]] = {}
+
+
+def forget_token_version(user_id: int) -> None:
+    _local_tv.pop(user_id, None)
+
+
 async def current_token_version(user_id: int) -> int | None:
     """Current token_version of a user (None: user does not exist)."""
+    hit = _local_tv.get(user_id)
+    now = time.monotonic()
+    if hit is not None and hit[1] > now:
+        return hit[0]
+    ver = await _store_token_version(user_id)
+    if len(_local_tv) > 50000:
+        _local_tv.clear()
+    _local_tv[user_id] = (ver, now + LOCAL_TV_TTL_S)
+    return ver
+
+
+async def _store_token_version(user_id: int) -> int | None:
     from .store import get_store
     store = get_store()
     raw = await store.get(token_version_key(user_id))

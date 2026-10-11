@@ -1,6 +1,6 @@
 /* Phase 2 — AI paper grading (answer key, review, capture, mapping, struggles). Tokens from tokens.css. */
 
-.sc-stepper { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.sc-steps .sc-stepper { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 
 /* export */
 .ex-buttons { display: inline-flex; flex-wrap: wrap; gap: 8px; align-items: center; }

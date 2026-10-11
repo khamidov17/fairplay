@@ -113,8 +113,11 @@ class MemoryStore:
 class RedisStore:
     def __init__(self, url: str):
         import redis.asyncio as aioredis
-        self.r = aioredis.from_url(url, decode_responses=True, max_connections=200,
-                                   socket_timeout=30)
+        # Blocking pool: under a burst (end-of-exam submit storm) a request waits up to 10 s
+        # for a free connection instead of failing with MaxConnectionsError (HTTP 500).
+        pool = aioredis.BlockingConnectionPool.from_url(
+            url, decode_responses=True, max_connections=200, timeout=10, socket_timeout=30)
+        self.r = aioredis.Redis(connection_pool=pool)
 
     async def get(self, key):
         return await self.r.get(key)
