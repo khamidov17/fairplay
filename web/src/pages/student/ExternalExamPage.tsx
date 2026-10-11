@@ -83,6 +83,7 @@ export default function ExternalExamPage() {
         server_time: new Date(Date.now() + offsetRef.current).toISOString(),
         title: a.course ? `${a.course} ${a.title}` : a.title,
         token,
+        exit_check: a.exit_check ?? null, // phase 1a: invigilator exit while offline
       });
       if (!sent) setPhase("openFailed");
     },

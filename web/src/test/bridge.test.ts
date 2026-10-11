@@ -58,7 +58,8 @@ describe("native bridge", () => {
     expect(bridge.openExternal(params)).toBe(false);
     const post = native();
     expect(bridge.openExternal(params)).toBe(true);
-    expect(post).toHaveBeenCalledWith({ action: "openExternal", ...params });
+    // phase 1a: exit_check (invigilator exit verifier) is always sent, null when unknown
+    expect(post).toHaveBeenCalledWith({ action: "openExternal", ...params, exit_check: null });
   });
 
   it("forwards native events to listeners", () => {

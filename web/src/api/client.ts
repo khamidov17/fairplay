@@ -367,3 +367,24 @@ export const practiceApi = {
   answer: (id: string, itemId: string, answer: unknown) =>
     request<PracticeAnswerResponse>("student", "POST", `/api/student/practice/${enc(id)}/items/${enc(itemId)}/answer`, { answer }),
 };
+
+// ---------- phase 1a: offline key release, session timeline, account security ----------
+
+import type { OfflineKeyRelease, SessionTimeline } from "./types";
+
+export const securityApi = {
+  /** Offline-package key wrapped with the start code (served only while the exam is open). */
+  packageKey: (examId: string) =>
+    request<OfflineKeyRelease>("student", "GET", `/api/student/exams/${enc(examId)}/package-key`),
+  /** Teacher: merged audit + integrity + heartbeat-gap timeline of one student session. */
+  timeline: (examId: string, attemptId: string) =>
+    request<SessionTimeline>("teacher", "GET", `/api/exams/${enc(examId)}/attempts/${enc(attemptId)}/timeline`),
+  /** Change the password; every other sign-in of this account stops working. Returns a new token. */
+  changePassword: (role: Role, currentPassword: string, newPassword: string) =>
+    request<LoginResponse>(role, "POST", "/api/auth/password", {
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  /** Sign this account out on every device (this one too). */
+  logoutAll: (role: Role) => request<void>(role, "POST", "/api/auth/logout-all"),
+};

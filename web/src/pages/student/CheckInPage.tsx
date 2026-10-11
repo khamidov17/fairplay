@@ -7,7 +7,7 @@ import { StartCodeForm } from "../../components/student/StartCodeForm";
 import { CheckIcon } from "../../components/student/icons";
 import "../../styles/student.css";
 import { useStudentExams } from "./useStudentExams";
-import { downloadPackage } from "../../lib/offline";
+import { canStartOffline, downloadPackage } from "../../lib/offline";
 
 /** Check-in before an exam: what we can verify about this laptop + the start code. */
 export default function CheckInPage() {
@@ -23,7 +23,8 @@ export default function CheckInPage() {
   useEffect(() => {
     if (!canPackage || !exam) return;
     let alive = true;
-    void downloadPackage(exam.id).then((ok) => alive && setOfflineReady(ok));
+    // phase 1a: ready only when the key release came too (it needs the exam to be open)
+    void downloadPackage(exam.id).then((ok) => alive && setOfflineReady(ok && canStartOffline(exam.id)));
     return () => {
       alive = false;
     };

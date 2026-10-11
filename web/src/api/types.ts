@@ -547,14 +547,32 @@ export interface TopicCount {
   question_count: number;
 }
 
-/** GET /api/student/exams/{id}/package — AES-GCM, key = PBKDF2-SHA256(start_code + exam_id, salt, 100 000). base64 fields. */
+/**
+ * GET /api/student/exams/{id}/package (format version 2, phase 1a): AES-GCM with a random
+ * per-exam content key K (aad = exam_id). Useless without the key release below. base64 fields.
+ */
 export interface OfflinePackage {
   exam_id: string;
   version: number;
   alg: "AES-GCM";
-  salt: string;
   iv: string;
   ciphertext: string;
+}
+
+/**
+ * GET /api/student/exams/{id}/package-key (only while the exam is live): K wrapped with
+ * KEK = PBKDF2-SHA256(start_code + exam_id, salt, iterations) -> AES-GCM(aad = exam_id).
+ */
+export interface OfflineKeyRelease {
+  exam_id: string;
+  version: number;
+  alg: string;
+  iterations: number;
+  salt: string;
+  iv: string;
+  wrapped_key: string;
+  /** Verifier of the invigilator exit code (for the Mac app in an offline-started exam). */
+  exit_check?: ExitCheck | null;
 }
 
 /** Decrypted package plaintext: the student exam view (no answer keys). */
@@ -865,4 +883,57 @@ export interface PracticeAnswerResponse {
   tries?: number;
   result: StudentPracticeResult | null;
   progress: PracticeProgress;
+}
+
+// ---------- phase 1a: invigilator exit code, session timeline ----------
+
+/** Offline verifier of the invigilator exit code: PBKDF2-SHA256(normalised code, salt, iterations). */
+export interface ExitCheck {
+  alg: "PBKDF2-SHA256";
+  iterations: number;
+  salt: string;
+  hash: string;
+}
+
+export interface Exam {
+  /** Invigilator exit code (teacher only; issued when the exam opens). */
+  exit_code?: string | null;
+}
+
+export interface LiveRoom {
+  exit_code?: string | null;
+}
+
+export interface AttemptView {
+  exit_check?: ExitCheck | null;
+}
+
+export type TimelineSource = "audit" | "integrity" | "heartbeat";
+export type TimelineTone = "info" | "warn" | "good";
+
+export interface TimelineEvent {
+  at: string;
+  source: TimelineSource;
+  action: string;
+  summary: string;
+  actor: "student" | "teacher" | "system" | string;
+  ip: string | null;
+  detail: Record<string, unknown>;
+  tone: TimelineTone;
+}
+
+/** GET /api/exams/{exam_id}/attempts/{attempt_id}/timeline */
+export interface SessionTimeline {
+  exam_id: string;
+  attempt_id: string;
+  exam_title: string;
+  student: { username: string; name: string };
+  status: AttemptStatus;
+  started_at: string;
+  deadline_at: string;
+  submitted_at: string | null;
+  receipt: string | null;
+  late: boolean;
+  auto_submitted: boolean;
+  events: TimelineEvent[];
 }

@@ -257,7 +257,9 @@ def test_package_endpoint(client, teacher, alice):
     pkg = r.json()
     assert set(pkg) == {"exam_id", "version", "alg", "iv", "ciphertext"}
     rel = client.get(f"/api/student/exams/{e['id']}/package-key", headers=alice).json()
-    assert set(rel) == {"exam_id", "version", "alg", "iterations", "salt", "iv", "wrapped_key"}
+    assert set(rel) == {"exam_id", "version", "alg", "iterations", "salt", "iv", "wrapped_key",
+                        "exit_check"}
+    assert set(rel["exit_check"]) == {"alg", "iterations", "salt", "hash"}
     plain = decrypt_package(pkg, rel, e["start_code"])
     assert plain["title"] == "Midterm" and plain["duration_min"] == 30
     assert [q["id"] for q in plain["questions"]] == [q["id"] for q in e["questions"]]

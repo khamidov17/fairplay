@@ -18,6 +18,7 @@ import StudentProfilePage from "./StudentProfilePage";
 import PracticePage from "./PracticePage";
 import ScanOverviewPage from "./scan/ScanOverviewPage";
 import ScanExamPage from "./scan/ScanExamPage";
+import SessionTimelinePage from "./SessionTimelinePage";
 
 export default function TeacherRoutes() {
   return (
@@ -37,6 +38,7 @@ export default function TeacherRoutes() {
         <Route path="exams/:id/edit" element={<ExamSetupPage />} />
         <Route path="exams/:id/grading" element={<GradingPage />} />
         <Route path="exams/:id/submissions/:attemptId" element={<SubmissionReviewPage />} />
+        <Route path="exams/:id/submissions/:attemptId/timeline" element={<SessionTimelinePage />} />
         <Route path="grading" element={<GradingListPage />} />
         <Route path="gradebook" element={<GradebookPage />} />
         <Route path="lms" element={<LmsPage />} />

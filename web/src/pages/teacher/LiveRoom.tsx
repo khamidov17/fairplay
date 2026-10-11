@@ -112,6 +112,8 @@ export function LiveRoom({ exam, onClosed, onExamChange }: Props) {
   const counts = live ? countsOf(live) : { writing: 0, submitted: 0, offline: 0, needs_look: 0 };
   const flags = live?.flags ?? [];
   const code = live?.start_code ?? exam.start_code;
+  // phase 1a: per-exam invigilator exit code (Ctrl-Opt-Cmd-E on a locked Mac) — teacher only
+  const exitCode = live?.exit_code ?? exam.exit_code ?? null;
   const left = latestDeadlineMs(students, now);
   const stillWriting = counts.writing + counts.offline;
   const sub = [exam.course, exam.room && `Room ${exam.room}`, plural(students.length, "student")].filter(Boolean).join(" · ");
@@ -129,6 +131,14 @@ export function LiveRoom({ exam, onClosed, onExamChange }: Props) {
             {code ?? "----"}
           </div>
         </div>
+        {exitCode && (
+          <div className="t-dark-box">
+            <span className="t-dark-box-label">Invigilator exit code · do not read aloud</span>
+            <div className="t-live-time" data-testid="exit-code" title="Unlocks a student's Mac in an emergency (Ctrl-Opt-Cmd-E). Every use is logged.">
+              {exitCode}
+            </div>
+          </div>
+        )}
         <div className="t-dark-box">
           <span className="t-dark-box-label">{left == null ? "Each student gets" : "Time left"}</span>
           <div className="t-live-time" title={left == null ? undefined : "Until the last student who is writing must finish"}>

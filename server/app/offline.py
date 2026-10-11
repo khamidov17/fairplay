@@ -247,7 +247,9 @@ async def package_key(exam_id: str, request: Request, p: Principal = Depends(req
     ck = f"pkgkr:{exam_id}:{fp}"
     raw = await store.get(ck)
     if raw:
-        return json.loads(raw)
-    rel = await asyncio.to_thread(wrap_key, key, code, exam_id)
-    await store.set(ck, json.dumps(rel), PACKAGE_CACHE_TTL)
-    return rel
+        rel = json.loads(raw)
+    else:
+        rel = await asyncio.to_thread(wrap_key, key, code, exam_id)
+        await store.set(ck, json.dumps(rel), PACKAGE_CACHE_TTL)
+    # the invigilator exit-code verifier, for a Mac app whose exam then starts offline
+    return {**rel, "exit_check": exam.get("exit_check")}

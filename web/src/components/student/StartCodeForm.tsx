@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, NetworkError, studentApi } from "../../api/client";
 import { CODE_LENGTH, StartCodeBoxes, emptyCode, type StartCodeBoxesHandle } from "./StartCodeBoxes";
-import { WrongCodeError, startOffline, storedPackage } from "../../lib/offline";
+import { WrongCodeError, canStartOffline, startOffline } from "../../lib/offline";
 
 /** Turns a start error into a clear sentence for the student. */
 export function startErrorMessage(err: unknown): string {
@@ -65,7 +65,7 @@ export function StartCodeForm({
         attempt = await studentApi.start(examId, code);
       } catch (err) {
         // Slice 6: no network at start -> open the package downloaded at check-in.
-        if (!(err instanceof NetworkError) || !storedPackage(examId)) throw err;
+        if (!(err instanceof NetworkError) || !canStartOffline(examId)) throw err;
         try {
           attempt = await startOffline(examId, code);
         } catch (offErr) {

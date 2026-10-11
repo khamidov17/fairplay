@@ -120,6 +120,13 @@ export default function SubmissionReviewPage() {
             <Link to={`/teacher/students/${encodeURIComponent(attempt.username)}`} className="t-row-link">
               {attempt.username} · profile
             </Link>
+            {" · "}
+            <Link
+              to={`/teacher/exams/${encodeURIComponent(examId)}/submissions/${encodeURIComponent(attempt.attempt_id)}/timeline`}
+              className="t-row-link"
+            >
+              Session timeline
+            </Link>
             {attempt.submitted_at ? ` · submitted ${formatWhen(attempt.submitted_at)}` : " · still writing"}
             {attempt.auto_submitted ? " (time ran out or exam closed)" : ""}
             {attempt.receipt ? ` · receipt ${attempt.receipt}` : ""}
@@ -176,7 +183,15 @@ export default function SubmissionReviewPage() {
           <OverallComment key={attempt.attempt_id} examId={examId} attempt={attempt} onSaved={load} />
         </section>
         <section className="t-card t-col-2" aria-labelledby="ev-h" style={{ gap: 12 }}>
-          <h2 id="ev-h">Lockdown events</h2>
+          <div className="t-card-head">
+            <h2 id="ev-h">Lockdown events</h2>
+            <Link
+              to={`/teacher/exams/${encodeURIComponent(examId)}/submissions/${encodeURIComponent(attempt.attempt_id)}/timeline`}
+              className="t-card-link"
+            >
+              Full session timeline →
+            </Link>
+          </div>
           {attempt.events.length === 0 ? (
             <p className="t-muted" style={{ margin: 0 }}>
               Nothing recorded.

@@ -1,7 +1,7 @@
 // Native bridge to the FairPlay Mac app (CONTRACT.md "Native bridge").
 // In a normal browser every call is a no-op and isNative() is false.
 
-import type { IntegrityEvent } from "../api/types";
+import type { ExitCheck, IntegrityEvent } from "../api/types";
 
 export type NativeMessage =
   | { type: "state"; locked: boolean; trusted: boolean; version: string }
@@ -21,10 +21,25 @@ export interface OpenExternalParams {
   title: string;
   /** Student bearer token: the app sends heartbeats/events itself while the web page is gone. */
   token: string;
+  /** Phase 1a: offline verifier of the invigilator exit code. */
+  exit_check?: ExitCheck | null;
+}
+
+/**
+ * Phase 1a: what the Mac app needs to check the invigilator exit code (Ctrl-Opt-Cmd-E).
+ * It asks the server first (POST /api/student/attempts/{attempt_id}/exit-code with the token)
+ * and falls back to exit_check only when the server cannot be reached.
+ * attempt_id is null while an offline-started attempt has not reached the server yet.
+ */
+export interface ExamSession {
+  attempt_id: string | null;
+  token: string | null;
+  exit_check: ExitCheck | null;
 }
 
 type OutMessage =
   | { action: "lock" }
+  | ({ action: "examSession" } & ExamSession)
   | { action: "unlock" }
   | { action: "hello" }
   | ({ action: "openExternal" } & OpenExternalParams);
@@ -123,8 +138,19 @@ export function openExternal(params: OpenExternalParams): boolean {
     server_time: params.server_time,
     title: params.title,
     token: params.token,
+    exit_check: params.exit_check ?? null,
   });
   return true;
+}
+
+/** Tell the Mac app which attempt is being written (before locking, and again when it changes). */
+export function setExamSession(session: ExamSession): void {
+  post({
+    action: "examSession",
+    attempt_id: session.attempt_id,
+    token: session.token,
+    exit_check: session.exit_check ?? null,
+  });
 }
 
 export type LockResult = { ok: true } | { ok: false; reason: string };

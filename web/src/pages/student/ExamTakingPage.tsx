@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
-import { ApiError, NetworkError, slice6Api, studentApi } from "../../api/client";
+import { ApiError, NetworkError, getToken, slice6Api, studentApi } from "../../api/client";
 import type { AnswerMap, AnswerValue, AttemptView, IntegrityEvent } from "../../api/types";
 import { NotLockedBanner } from "../../components/LockBanner";
 import { AnswerInput, RubricPanel } from "../../components/student/AnswerInput";
@@ -120,6 +120,8 @@ function ExamTakingInner() {
         (view) => {
           realAidRef.current = view.attempt_id;
           saveOfflineRecord({ ...rec, real_attempt_id: view.attempt_id });
+          // phase 1a: the Mac app can now check an invigilator exit code with the server
+          bridge.setExamSession({ attempt_id: view.attempt_id, token: getToken("student"), exit_check: view.exit_check ?? null });
           setConnected(true);
           setOfflineProblem(null);
           setDeadline(view.deadline_at);
@@ -261,6 +263,8 @@ function ExamTakingInner() {
         setAttempt(a);
         setDeadline(a.deadline_at);
         setOffset(clockOffset(a.server_time));
+        // phase 1a: before locking, tell the Mac app how to check the invigilator exit code
+        bridge.setExamSession({ attempt_id: realAidRef.current, token: getToken("student"), exit_check: a.exit_check ?? null });
         setPhase("locking");
       },
       (e) => {
