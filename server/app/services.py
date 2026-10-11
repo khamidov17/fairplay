@@ -87,6 +87,8 @@ def exam_out(e: Exam, pending_grading: int = 0) -> dict:
         # slice 5: LMS link (ids only; never any credential)
         "course_link_id": e.course_link_id, "lms_assignment_id": e.lms_assignment_id,
         "delivery": exam_delivery(e),  # slice 6
+        # phase 1a: invigilator exit code (teacher view only; issued at open)
+        "exit_code": e.exit_code if e.status != "draft" else None,
     }
 
 
@@ -131,7 +133,8 @@ def exam_key(exam_id: str) -> str:
 
 
 async def invalidate_exam(store: Store, exam_id: str) -> None:
-    await store.delete(exam_key(exam_id))
+    # phase 1a: also the cached offline-package key (app.offline; rotated at close)
+    await store.delete(exam_key(exam_id), f"pkgk:{exam_id}")
 
 
 async def get_exam_cached(store: Store, session: AsyncSession, exam_id: str) -> dict | None:
@@ -152,6 +155,8 @@ async def get_exam_cached(store: Store, session: AsyncSession, exam_id: str) -> 
         "scheduled_at": iso(e.scheduled_at),
         "questions": [student_question(q) for q in e.questions or []],
         **external_fields(e),
+        # phase 1a: offline verifier of the invigilator exit code (never the code itself)
+        "exit_check": _exit_check(e),
     }
     if data["mode"] == "external":
         data["allowed_domains"] = student_allowed_domains(e)
@@ -199,6 +204,11 @@ def shuffled_for(attempt_id: str, questions: list) -> list:
     return out
 
 
+def _exit_check(e: Exam) -> dict | None:
+    from .exitcode import check_of
+    return check_of(getattr(e, "exit_check", None))
+
+
 def attempt_view(a: Attempt, exam: dict, now: datetime) -> dict:
     questions = exam["questions"]
     if exam.get("shuffle_questions"):
@@ -216,4 +226,6 @@ def attempt_view(a: Attempt, exam: dict, now: datetime) -> dict:
         "external_url": exam.get("external_url") if external else None,
         "allowed_domains": list(exam.get("allowed_domains") or []) if external else [],
         "finish_url_contains": exam.get("finish_url_contains") if external else None,
+        # phase 1a: for the Mac app's invigilator exit when the server cannot be reached
+        "exit_check": exam.get("exit_check"),
     }

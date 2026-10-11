@@ -14,15 +14,28 @@ router = APIRouter(prefix="/api", tags=["auth"])
 
 @router.post("/auth/login")
 async def login(body: LoginIn, request: Request, session: AsyncSession = Depends(get_session)):
+    # phase 1a: brute-force limits per username and per IP (app.hardening) + audit rows
+    from . import audit
+    from .hardening import check_login_allowed, note_login_failure, note_login_success
+    from .store import get_store
+    store, ip, username = get_store(), audit.client_ip(request), body.username.strip()
+    await check_login_allowed(store, username, ip)
     row = (await session.execute(
-        select(User.id, User.role, User.name, User.password_hash)
-        .where(User.username == body.username.strip()))).first()
+        select(User.id, User.role, User.name, User.password_hash, User.token_version)
+        .where(User.username == username))).first()
     # Release the pooled connection before the CPU-heavy hash check.
     await session.close()
     if row is None or not await verify_password_async(body.password, row.password_hash):
+        locked = await note_login_failure(store, username, ip)
+        await audit.record("login_locked" if locked else "login_failed", request=request,
+                           actor_id=row.id if row else None, actor_role=row.role if row else "",
+                           detail={"username": username[:64]})
         raise HTTPException(401, "Invalid username or password")
+    await note_login_success(store, username)
+    await audit.record("login_ok", request=request, actor_id=row.id, actor_role=row.role)
     s = request.app.state.settings
-    return {"token": make_token(s.secret, row.id, row.role, s.token_ttl_s),
+    return {"token": make_token(s.secret, row.id, row.role, s.token_ttl_s,
+                                version=row.token_version or 0),
             "role": row.role, "name": row.name}
 
 

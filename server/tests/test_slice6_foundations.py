@@ -222,15 +222,27 @@ def test_bad_question_images(client, teacher, images):
 # ---------------------------------------------------------------- offline packages
 def test_package_crypto_roundtrip():
     plain = {"exam_id": "e_1", "questions": [{"id": "q_1", "prompt": "Ünïcode ✓"}]}
-    pkg = encrypt_package(plain, "4821", "e_1", iterations=1000)
-    assert pkg["alg"] == "AES-GCM" and pkg["exam_id"] == "e_1"
-    assert len(base64.b64decode(pkg["salt"])) == 16 and len(base64.b64decode(pkg["iv"])) == 12
-    assert decrypt_package(pkg, "4821", iterations=1000) == plain
+    pkg, rel = encrypt_package(plain, "4821", "e_1", iterations=1000)
+    assert pkg["alg"] == "AES-GCM" and pkg["exam_id"] == "e_1" and pkg["version"] == 2
+    assert set(pkg) == {"exam_id", "version", "alg", "iv", "ciphertext"}  # no salt: no code in it
+    assert len(base64.b64decode(pkg["iv"])) == 12
+    assert len(base64.b64decode(rel["salt"])) == 16 and rel["iterations"] == 1000
+    assert decrypt_package(pkg, rel, "4821") == plain
     with pytest.raises(InvalidTag):
-        decrypt_package(pkg, "4822", iterations=1000)
-    # a different exam id with the same code is a different key
+        decrypt_package(pkg, rel, "4822")
+    # the key is bound to the exam id (AAD + KDF input)
     with pytest.raises(InvalidTag):
-        decrypt_package({**pkg, "exam_id": "e_2"}, "4821", iterations=1000)
+        decrypt_package({**pkg, "exam_id": "e_2"}, {**rel, "exam_id": "e_2"}, "4821")
+
+
+def test_package_without_key_reveals_nothing_for_any_code():
+    """phase 1a: the package alone cannot be brute-forced with the 10 000 start codes."""
+    plain = {"exam_id": "e_1", "questions": []}
+    pkg, _ = encrypt_package(plain, "4821", "e_1", iterations=1000)
+    from app.offline import decrypt_content, derive_kek
+    for code in ("4821", "0000", "1234"):
+        with pytest.raises(InvalidTag):
+            decrypt_content(pkg, derive_kek(code, "e_1", b"\0" * 16, 1000))
 
 
 def test_package_endpoint(client, teacher, alice):
@@ -238,12 +250,15 @@ def test_package_endpoint(client, teacher, alice):
     q0 = dict(SAMPLE_EXAM["questions"][0], images=[{"url": url, "alt": "pic"}])
     draft = create(client, teacher, {**SAMPLE_EXAM, "questions": [q0] + SAMPLE_EXAM["questions"][1:]})
     assert client.get(f"/api/student/exams/{draft['id']}/package", headers=alice).status_code == 409
+    assert client.get(f"/api/student/exams/{draft['id']}/package-key", headers=alice).status_code == 409
     e = client.post(f"/api/exams/{draft['id']}/open", headers=teacher).json()
     r = client.get(f"/api/student/exams/{e['id']}/package", headers=alice)
     assert r.status_code == 200, r.text
     pkg = r.json()
-    assert set(pkg) == {"exam_id", "version", "alg", "salt", "iv", "ciphertext"}
-    plain = decrypt_package(pkg, e["start_code"])
+    assert set(pkg) == {"exam_id", "version", "alg", "iv", "ciphertext"}
+    rel = client.get(f"/api/student/exams/{e['id']}/package-key", headers=alice).json()
+    assert set(rel) == {"exam_id", "version", "alg", "iterations", "salt", "iv", "wrapped_key"}
+    plain = decrypt_package(pkg, rel, e["start_code"])
     assert plain["title"] == "Midterm" and plain["duration_min"] == 30
     assert [q["id"] for q in plain["questions"]] == [q["id"] for q in e["questions"]]
     for q in plain["questions"]:  # no answer keys, no topics
@@ -252,13 +267,36 @@ def test_package_endpoint(client, teacher, alice):
     assert img["url"].startswith("data:image/png;base64,") and img["alt"] == "pic"
     assert base64.b64decode(img["url"].split(",", 1)[1]) == png_bytes()
     with pytest.raises(InvalidTag):
-        decrypt_package(pkg, "0000" if e["start_code"] != "0000" else "1111")
-    # cached: same package for the next student
+        decrypt_package(pkg, rel, "0000" if e["start_code"] != "0000" else "1111")
+    # cached: same package and key release for the next student
     bob = login(client, "bob")
     assert client.get(f"/api/student/exams/{e['id']}/package", headers=bob).json() == pkg
+    assert client.get(f"/api/student/exams/{e['id']}/package-key", headers=bob).json() == rel
     assert client.get(f"/api/student/exams/{e['id']}/package", headers=teacher).status_code == 403
+    assert client.get(f"/api/student/exams/{e['id']}/package-key", headers=teacher).status_code == 403
     client.post(f"/api/exams/{e['id']}/close", headers=teacher)
     assert client.get(f"/api/student/exams/{e['id']}/package", headers=alice).status_code == 409
+    assert client.get(f"/api/student/exams/{e['id']}/package-key", headers=alice).status_code == 409
+    # reopening uses a new key: the old package no longer opens with the new release
+    e2 = client.post(f"/api/exams/{e['id']}/open", headers=teacher).json()
+    rel2 = client.get(f"/api/student/exams/{e['id']}/package-key", headers=alice).json()
+    with pytest.raises(InvalidTag):
+        decrypt_package(pkg, rel2, e2["start_code"])
+    pkg2 = client.get(f"/api/student/exams/{e['id']}/package", headers=alice).json()
+    assert decrypt_package(pkg2, rel2, e2["start_code"])["title"] == "Midterm"
+
+
+def test_package_early_but_key_only_when_live(client, teacher, alice):
+    """A package can be fetched before a scheduled exam opens; the key only once it is live."""
+    from datetime import datetime, timedelta, timezone
+    soon = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat().replace("+00:00", "Z")
+    d = create(client, teacher, {**SAMPLE_EXAM, "scheduled_at": soon})
+    r = client.get(f"/api/student/exams/{d['id']}/package", headers=alice)
+    assert r.status_code == 200, r.text
+    assert client.get(f"/api/student/exams/{d['id']}/package-key", headers=alice).status_code == 409
+    e = client.post(f"/api/exams/{d['id']}/open", headers=teacher).json()
+    rel = client.get(f"/api/student/exams/{d['id']}/package-key", headers=alice).json()
+    assert decrypt_package(r.json(), rel, e["start_code"])["title"] == "Midterm"
 
 
 def test_package_not_for_website_exams(client, teacher, alice):

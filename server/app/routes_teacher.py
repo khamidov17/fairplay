@@ -6,10 +6,11 @@ import statistics
 import time
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import audit
 from .db import get_session
 from .grading import exam_questions, auto_points, external_question, grade_attempt, is_answered, num, percent, word_count
 from .models import Attempt, Exam, IntegrityEvent, User
@@ -138,13 +139,17 @@ async def delete_exam(exam_id: str, p: Principal = Depends(require_teacher),
 
 
 @router.post("/{exam_id}/open")
-async def open_exam(exam_id: str, p: Principal = Depends(require_teacher),
+async def open_exam(exam_id: str, request: Request, p: Principal = Depends(require_teacher),
                     session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     if e.status == "live":
         raise HTTPException(409, "Exam is already live")
     if exam_delivery(e) == "paper":  # slice 6: printed, scanned and graded; never opened
         raise HTTPException(409, "Paper exams are printed, not opened in the app")
+    from .exitcode import issue
+    e.exit_code, e.exit_check = await issue()  # phase 1a: per-exam invigilator exit code
+    audit.add(session, "exam_opened", request=request, actor_id=p.user_id, actor_role=p.role,
+              exam_id=e.id, detail={"from": e.status})
     e.status = "live"
     e.start_code = new_start_code()
     e.closed_at = None
@@ -155,7 +160,7 @@ async def open_exam(exam_id: str, p: Principal = Depends(require_teacher),
 
 
 @router.post("/{exam_id}/close")
-async def close_exam(exam_id: str, p: Principal = Depends(require_teacher),
+async def close_exam(exam_id: str, request: Request, p: Principal = Depends(require_teacher),
                      session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     if e.status == "closed":
@@ -167,6 +172,7 @@ async def close_exam(exam_id: str, p: Principal = Depends(require_teacher),
     now = utcnow()
     e.status = "closed"
     e.start_code = None
+    e.package_key = None  # phase 1a: the next open gets a new offline-package key
     e.closed_at = now
     e.updated_at = now
     # Flip the exam first so no new attempts start, then auto-submit stragglers.
@@ -177,14 +183,25 @@ async def close_exam(exam_id: str, p: Principal = Depends(require_teacher),
     rows = (await session.execute(
         select(Attempt.id, Attempt.answers, Attempt.deadline_at)
         .where(Attempt.exam_id == exam_id, Attempt.status == "in_progress"))).all()
+    n_auto = 0
     for aid, answers, deadline in rows:
         score, pending, _ = grade_attempt(exam_questions(e), answers or {}, None)
+        receipt = new_receipt()
         # Conditional: a student submit racing with close keeps its own receipt.
-        await session.execute(
+        res = await session.execute(
             update(Attempt).where(Attempt.id == aid, Attempt.status == "in_progress").values(
-                status="submitted", submitted_at=now, auto_submitted=True, receipt=new_receipt(),
+                status="submitted", submitted_at=now, auto_submitted=True, receipt=receipt,
                 score=score, needs_grading=pending, late=now > deadline + LATE_GRACE,
                 updated_at=now))
+        if res.rowcount:
+            n_auto += 1
+            audit.add_many(session, await audit.flush_answer_saves(store, aid))
+            audit.add(session, "auto_submitted", actor_role="system", exam_id=exam_id,
+                      attempt_id=aid, at=now, ip="", ua="",
+                      detail={"receipt": receipt, "answered": len(answers or {}),
+                              "late": now > deadline + LATE_GRACE})
+    audit.add(session, "exam_closed", request=request, actor_id=p.user_id, actor_role=p.role,
+              exam_id=exam_id, at=now, detail={"auto_submitted": n_auto})
     await session.commit()
     if rows:
         await store.delete(*[attempt_key(r[0]) for r in rows])
@@ -247,6 +264,7 @@ async def live(exam_id: str, p: Principal = Depends(require_teacher),
              for eid, aid, typ, detail, st_time, username, name in flag_rows]
     return {"exam_id": e.id, "status": e.status,
             "start_code": e.start_code if e.status == "live" else None,
+            "exit_code": e.exit_code if e.status != "draft" else None,  # phase 1a
             "duration_min": e.duration_min, "students": students,
             "flags": flags, "counts": counts}
 
@@ -346,12 +364,15 @@ async def results(exam_id: str, p: Principal = Depends(require_teacher),
 
 # ---------------------------------------------------------------- slice 2
 @router.post("/{exam_id}/extend")
-async def extend_exam(exam_id: str, body: ExtendIn, p: Principal = Depends(require_teacher),
+async def extend_exam(exam_id: str, body: ExtendIn, request: Request,
+                      p: Principal = Depends(require_teacher),
                       session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     if e.status != "live":
         raise HTTPException(409, "Exam is not live")
     delta = timedelta(minutes=body.minutes)
+    audit.add(session, "deadline_extended", request=request, actor_id=p.user_id,
+              actor_role=p.role, exam_id=exam_id, detail={"minutes": body.minutes})
     e.duration_min += body.minutes
     e.updated_at = utcnow()
     rows = (await session.execute(
@@ -462,8 +483,15 @@ def _question(e: Exam, qid: str) -> dict:
 
 
 async def _save_grades(session: AsyncSession, e: Exam, a: Attempt, qid: str,
-                       grade: dict | None) -> dict:
+                       grade: dict | None, request: Request | None = None,
+                       p: Principal | None = None) -> dict:
     grades = dict(a.grades or {})
+    old = (grades.get(qid) or {}).get("points")
+    qidx = next((i for i, q in enumerate(exam_questions(e)) if q["id"] == qid), None)
+    audit.add(session, "grade_changed", request=request, actor_id=p.user_id if p else None,
+              actor_role=p.role if p else "system", exam_id=e.id, attempt_id=a.id,
+              detail={"question_id": qid, "question_index": qidx, "old_points": old,
+                      "points": grade.get("points") if grade else None})
     if grade is None:
         grades.pop(qid, None)
     else:
@@ -480,7 +508,7 @@ async def _save_grades(session: AsyncSession, e: Exam, a: Attempt, qid: str,
 
 
 @router.put("/{exam_id}/attempts/{aid}/grades/{qid}")
-async def put_grade(exam_id: str, aid: str, qid: str, body: GradeIn,
+async def put_grade(exam_id: str, aid: str, qid: str, body: GradeIn, request: Request,
                     p: Principal = Depends(require_teacher),
                     session: AsyncSession = Depends(get_session)):
     e, a = await _exam_attempt(session, exam_id, aid, p)
@@ -506,24 +534,28 @@ async def put_grade(exam_id: str, aid: str, qid: str, body: GradeIn,
         scores = [num(s) for s in body.rubric_scores]
     grade = {"points": num(body.points), "comment": body.comment, "rubric_scores": scores,
              "graded_at": iso(utcnow())}
-    return await _save_grades(session, e, a, qid, grade)
+    return await _save_grades(session, e, a, qid, grade, request, p)
 
 
 @router.delete("/{exam_id}/attempts/{aid}/grades/{qid}")
-async def delete_grade(exam_id: str, aid: str, qid: str, p: Principal = Depends(require_teacher),
+async def delete_grade(exam_id: str, aid: str, qid: str, request: Request,
+                       p: Principal = Depends(require_teacher),
                        session: AsyncSession = Depends(get_session)):
     e, a = await _exam_attempt(session, exam_id, aid, p)
     _question(e, qid)
     if a.status != "submitted":
         raise HTTPException(409, "Attempt is not submitted")
-    return await _save_grades(session, e, a, qid, None)
+    return await _save_grades(session, e, a, qid, None, request, p)
 
 
 @router.put("/{exam_id}/attempts/{aid}/comment")
-async def put_comment(exam_id: str, aid: str, body: CommentIn,
+async def put_comment(exam_id: str, aid: str, body: CommentIn, request: Request,
                       p: Principal = Depends(require_teacher),
                       session: AsyncSession = Depends(get_session)):
     _, a = await _exam_attempt(session, exam_id, aid, p)
+    if (a.overall_comment or "") != body.comment:
+        audit.add(session, "comment_changed", request=request, actor_id=p.user_id,
+                  actor_role=p.role, exam_id=exam_id, attempt_id=aid)
     a.overall_comment = body.comment
     a.updated_at = utcnow()
     await session.commit()
@@ -531,7 +563,7 @@ async def put_comment(exam_id: str, aid: str, body: CommentIn,
 
 
 @router.post("/{exam_id}/release")
-async def release_grades(exam_id: str, body: ReleaseIn | None = None,
+async def release_grades(exam_id: str, request: Request, body: ReleaseIn | None = None,
                          p: Principal = Depends(require_teacher),
                          session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
@@ -544,14 +576,19 @@ async def release_grades(exam_id: str, body: ReleaseIn | None = None,
         e.grades_released = True
         e.released_at = utcnow()
         e.updated_at = e.released_at
+        audit.add(session, "grades_released", request=request, actor_id=p.user_id,
+                  actor_role=p.role, exam_id=exam_id, detail={"pending": pending})
         await session.commit()
     return exam_out(e, pending)
 
 
 @router.post("/{exam_id}/unrelease")
-async def unrelease_grades(exam_id: str, p: Principal = Depends(require_teacher),
+async def unrelease_grades(exam_id: str, request: Request, p: Principal = Depends(require_teacher),
                            session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
+    if e.grades_released:
+        audit.add(session, "grades_unreleased", request=request, actor_id=p.user_id,
+                  actor_role=p.role, exam_id=exam_id)
     e.grades_released = False
     e.released_at = None
     e.updated_at = utcnow()

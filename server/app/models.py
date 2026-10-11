@@ -21,6 +21,9 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+    # phase 1a: bumped on password change / "sign out everywhere"; tokens carry the version
+    # they were issued with and older ones are refused (app.security.current_principal).
+    token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 
 
 class Exam(Base):
@@ -60,6 +63,12 @@ class Exam(Base):
     # slice 6: "computer" | "paper" | "website". NULL on rows from before slice 6: derived
     # from mode by services.exam_delivery (external -> website, else computer).
     delivery: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # phase 1a: per-exam invigilator exit code (teacher-only, issued at open), its offline
+    # verifier for the Mac app (JSON {alg,iterations,salt,hash}), and the offline-package
+    # content key (base64, 32 bytes; see app.offline).
+    exit_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    exit_check: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    package_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class Attempt(Base):

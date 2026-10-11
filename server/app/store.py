@@ -15,6 +15,7 @@ class Store(Protocol):
     async def set(self, key: str, value: str, ttl: int | None = None) -> None: ...
     async def delete(self, *keys: str) -> None: ...
     async def incr(self, key: str, ttl: int) -> int: ...
+    async def getset(self, key: str, value: str, ttl: int | None = None) -> str | None: ...
     async def ttl(self, key: str) -> int: ...
     async def hset(self, key: str, field: str, value: str, ttl: int) -> None: ...
     async def hgetall(self, key: str) -> dict[str, str]: ...
@@ -58,6 +59,11 @@ class MemoryStore:
         for k in keys:
             self._data.pop(k, None)
             self._exp.pop(k, None)
+
+    async def getset(self, key, value, ttl=None):
+        old = await self.get(key)
+        await self.set(key, value, ttl)
+        return old
 
     async def incr(self, key, ttl):
         n = (int(self._data[key]) if self._alive(key) else 0) + 1
@@ -119,6 +125,9 @@ class RedisStore:
     async def delete(self, *keys):
         if keys:
             await self.r.delete(*keys)
+
+    async def getset(self, key, value, ttl=None):
+        return await self.r.set(key, value, ex=ttl, get=True)
 
     async def incr(self, key, ttl):
         pipe = self.r.pipeline()

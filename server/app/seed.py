@@ -39,13 +39,18 @@ async def upgrade_external_exams(db: Database) -> None:
 
 async def seed(db: Database, settings: Settings) -> None:
     await upgrade_external_exams(db)
-    wanted = [(u, pw, n, r) for u, pw, n, r in SEED_USERS]
+    # Demo users only outside production (FAIRPLAY_ENV=production never creates them; the
+    # first real account comes from `python -m app.manage create-user`).
+    wanted = [(u, pw, n, r) for u, pw, n, r in SEED_USERS] if settings.should_seed_demo_users() else []
     lt_hash = None
-    if settings.seed_loadtest_users > 0:
+    n_lt = settings.loadtest_users_to_seed()
+    if n_lt > 0:
         # Same password for every load-test user: hash once to keep startup fast.
         lt_hash = hash_password("loadtest", settings.pbkdf2_iterations)
-        for i in range(1, settings.seed_loadtest_users + 1):
+        for i in range(1, n_lt + 1):
             wanted.append((f"lt{i:04d}", None, f"Load Test {i:04d}", "student"))
+    if not wanted:
+        return
     async with db.sessionmaker() as session:
         existing = set((await session.execute(select(User.username))).scalars())
         rows = []

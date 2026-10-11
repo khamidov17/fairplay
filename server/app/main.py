@@ -27,6 +27,7 @@ log = logging.getLogger("proctora")
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or Settings()
+    settings.validate()  # phase 1a: production refuses unsafe settings (ConfigError)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -47,8 +48,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="Proctora", version="0.1", lifespan=lifespan)
     app.state.settings = settings
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
-                       allow_headers=["*"])
+    # phase 1a: CORS from FAIRPLAY_CORS_ORIGINS ("*" only in development; production
+    # default is same-origin only = no CORS headers at all) + security headers.
+    origins = settings.allowed_origins()
+    if origins:
+        app.add_middleware(CORSMiddleware, allow_origins=origins, allow_methods=["*"],
+                           allow_headers=["*"])
+    from .hardening import SecurityHeadersMiddleware
+    app.add_middleware(SecurityHeadersMiddleware, production=settings.production)
 
     app.include_router(auth_router)
     app.include_router(teacher_router)
@@ -69,6 +76,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(topics_router)
     from .routes_scan import router as scan_router  # slice 6 D: Scan & Grade (paper exams)
     app.include_router(scan_router)
+    # phase 1a: audit timeline, password change / sign out everywhere, invigilator exit code
+    from .account import router as account_router
+    from .audit import router as audit_router
+    from .exitcode import router as exitcode_router
+    app.include_router(audit_router)
+    app.include_router(account_router)
+    app.include_router(exitcode_router)
 
     @app.get("/api/health")
     async def health():

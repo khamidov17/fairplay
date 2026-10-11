@@ -4,11 +4,12 @@ import json
 import time
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import and_, func, insert, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import audit
 from .db import get_session
 from .grading import exam_questions, grade_attempt, is_answered, num, percent
 from .models import Attempt, Exam, IntegrityEvent
@@ -69,7 +70,8 @@ async def my_exams(p: Principal = Depends(require_student),
 
 
 @router.post("/exams/{exam_id}/start")
-async def start(exam_id: str, body: StartIn, p: Principal = Depends(require_student),
+async def start(exam_id: str, body: StartIn, request: Request,
+                p: Principal = Depends(require_student),
                 session: AsyncSession = Depends(get_session)):
     store = get_store()
     exam = await get_exam_cached(store, session, exam_id)
@@ -88,11 +90,15 @@ async def start(exam_id: str, body: StartIn, p: Principal = Depends(require_stud
         if n >= MAX_WRONG_CODES:
             await store.set(lock_key, "1", WRONG_CODE_LOCK_S)
             await store.delete(count_key)
+        await audit.record("start_code_wrong", request=request, actor_id=p.user_id,
+                           actor_role="student", exam_id=exam_id,
+                           detail={"offline": body.offline_started_at is not None})
         raise HTTPException(403, "Wrong start code")
     await store.delete(count_key)
 
     now = utcnow()
     a = await find_attempt(session, exam_id, p.user_id)
+    created = False
     if a is None:
         started = offline_start(body.offline_started_at, now)
         a = Attempt(id=new_id("a"), exam_id=exam_id, student_id=p.user_id, status="in_progress",
@@ -100,8 +106,16 @@ async def start(exam_id: str, body: StartIn, p: Principal = Depends(require_stud
                     deadline_at=started + timedelta(minutes=exam["duration_min"]),
                     answers={}, client_seq=-1, updated_at=now)
         session.add(a)
+        detail = {"deadline_at": iso(a.deadline_at)}
+        if body.offline_started_at is not None:
+            detail.update(offline=True, offline_started_at=iso(started),
+                          claimed_started_at=iso(body.offline_started_at))
+        audit.add(session, "attempt_started", request=request, actor_id=p.user_id,
+                  actor_role="student", exam_id=exam_id, attempt_id=a.id, at=started,
+                  detail=detail)
         try:
             await session.commit()
+            created = True
         except IntegrityError:  # double-click / two tabs: someone else inserted it first
             await session.rollback()
             a = await find_attempt(session, exam_id, p.user_id)
@@ -109,6 +123,9 @@ async def start(exam_id: str, body: StartIn, p: Principal = Depends(require_stud
                 raise
     if a.status == "submitted":
         raise HTTPException(409, "Already submitted")
+    if not created:
+        await audit.record("attempt_resumed", request=request, actor_id=p.user_id,
+                           actor_role="student", exam_id=exam_id, attempt_id=a.id)
     await cache_attempt(store, a)
     return attempt_view(a, exam, now)
 
@@ -131,7 +148,8 @@ async def get_attempt(aid: str, p: Principal = Depends(require_student),
 
 
 @router.put("/attempts/{aid}/answers")
-async def save_answers(aid: str, body: AnswersIn, p: Principal = Depends(require_student),
+async def save_answers(aid: str, body: AnswersIn, request: Request,
+                       p: Principal = Depends(require_student),
                        session: AsyncSession = Depends(get_session)):
     now = utcnow()
     # Hot path: exactly one conditional UPDATE, no read-modify-write.
@@ -143,6 +161,8 @@ async def save_answers(aid: str, body: AnswersIn, p: Principal = Depends(require
         .values(answers=body.answers, client_seq=body.client_seq, updated_at=now))
     await session.commit()
     if res.rowcount == 1:
+        # phase 1a: coalesced audit (store only; a DB row at most once per window)
+        await audit.note_answer_saved(get_store(), aid, None, p.user_id, body.client_seq, request)
         return {"saved": True, "client_seq": body.client_seq, "server_time": iso(now)}
     # Slow path: find out why nothing was updated.
     row = (await session.execute(
@@ -158,7 +178,8 @@ async def save_answers(aid: str, body: AnswersIn, p: Principal = Depends(require
 
 
 @router.post("/attempts/{aid}/heartbeat")
-async def heartbeat(aid: str, body: HeartbeatIn, p: Principal = Depends(require_student),
+async def heartbeat(aid: str, body: HeartbeatIn, request: Request,
+                    p: Principal = Depends(require_student),
                     session: AsyncSession = Depends(get_session)):
     store = get_store()
     meta = await get_attempt_meta(store, session, aid)  # store hit; DB only on cache miss
@@ -168,6 +189,8 @@ async def heartbeat(aid: str, body: HeartbeatIn, p: Principal = Depends(require_
     await store.hset(f"hb:{meta['exam_id']}", aid,
                      json.dumps({"t": now, "cq": body.current_question, "locked": body.locked}),
                      LIVE_TTL)
+    if meta["status"] == "in_progress":  # phase 1a: connection gaps -> audit
+        await audit.note_heartbeat(store, aid, meta["exam_id"], p.user_id, request)
     return {"ok": True, "status": meta["status"], "server_time": iso(utcnow()),
             "deadline_at": meta["deadline_at"]}
 
@@ -196,7 +219,8 @@ async def events(aid: str, body: EventsIn, p: Principal = Depends(require_studen
 
 
 @router.post("/attempts/{aid}/submit")
-async def submit(aid: str, body: AnswersIn, p: Principal = Depends(require_student),
+async def submit(aid: str, body: AnswersIn, request: Request,
+                 p: Principal = Depends(require_student),
                  session: AsyncSession = Depends(get_session)):
     a = await _own_attempt(session, aid, p)
     if a.status != "submitted":
@@ -206,12 +230,21 @@ async def submit(aid: str, body: AnswersIn, p: Principal = Depends(require_stude
         use_body = body.client_seq > a.client_seq
         answers = body.answers if use_body else (a.answers or {})
         score, pending, _ = grade_attempt(exam_questions(exam) if exam else [], answers, a.grades)
-        await session.execute(
+        receipt, late = new_receipt(), now > a.deadline_at + LATE_GRACE
+        res = await session.execute(
             update(Attempt).where(Attempt.id == aid, Attempt.status == "in_progress").values(
-                status="submitted", submitted_at=now, receipt=new_receipt(), score=score,
+                status="submitted", submitted_at=now, receipt=receipt, score=score,
                 needs_grading=pending,
                 answers=answers, client_seq=max(body.client_seq, a.client_seq),
-                late=now > a.deadline_at + LATE_GRACE, auto_submitted=False, updated_at=now))
+                late=late, auto_submitted=False, updated_at=now))
+        if res.rowcount:
+            store = get_store()
+            audit.add_many(session, await audit.flush_answer_saves(store, aid))
+            audit.add(session, "submitted", request=request, actor_id=p.user_id,
+                      actor_role="student", exam_id=a.exam_id, attempt_id=aid, at=now,
+                      detail={"receipt": receipt, "late": late, "client_seq": body.client_seq,
+                              "answers_from_submit": use_body,
+                              "answered": sum(1 for v in answers.values() if is_answered(v))})
         await session.commit()
         # rowcount 0 means a concurrent submit/close won; refresh returns its receipt.
         await session.refresh(a)
