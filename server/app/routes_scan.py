@@ -22,7 +22,7 @@ from . import ai
 from .db import get_database, get_session
 from .grading import exam_questions, grade_attempt, is_answered, num, paper_answer, paper_given, percent
 from .models import Attempt, CourseMember, Exam, User
-from .scan import ai_grade, answer_key  # phase 2: step-level AI grading + answer key
+from .scan import ai_grade, answer_key, review  # phase 2: step-level AI grading + answer key
 from .scan import grading as scan_grading
 from .scan import pipeline
 from .scan import print as print_mod
@@ -706,6 +706,7 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
                      session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     qs = exam_questions(e)
+    key_entries = (await answer_key.load_key(session, e.id)).get("questions") or {}
     rows = (await session.execute(
         select(Attempt, User.username, User.name).join(User, User.id == Attempt.student_id)
         .where(Attempt.exam_id == e.id, Attempt.status == "submitted")
@@ -752,7 +753,11 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
         "questions": [{"question_id": q["id"], "index": i, "type": q["type"], "prompt": q.get("prompt", ""),
                        "points": q.get("points", 1), "images": list(q.get("images") or []),
                        "options": list(q.get("options") or []),
-                       "correct_answer": _correct_answer(q), **stats[q["id"]]} for i, q in enumerate(qs)],
+                       "correct_answer": _correct_answer(q),
+                       # phase 2: rubric criteria used for grading + the worked solution
+                       "criteria": answer_key.effective_criteria(q, key_entries.get(q["id"]))[0],
+                       "solution": (key_entries.get(q["id"]) or {}).get("solution", ""),
+                       **stats[q["id"]]} for i, q in enumerate(qs)],
         "items": items,
         "groups": [dict(g, count=len(g["items"])) for g in groups.values() if len(g["items"]) >= 2],
     }
@@ -772,9 +777,17 @@ def _correct_answer(q: dict) -> Any:
 class ApproveIn(BaseModel):
     points: float | None = None
     comment: str | None = Field(default=None, max_length=5000)
+    # phase 2: per-criterion points (recompute the total), step marks flipped by the teacher,
+    # misconception tag, and the time between opening the item and saving (sent by the client)
+    criteria: list[review.CriterionPoints] | None = Field(default=None, max_length=20)
+    steps: list[review.StepMark] | None = Field(default=None, max_length=100)
+    misconception: review.MisconceptionIn | None = None
+    grading_seconds: float | None = Field(default=None, ge=0, le=86400)
 
 
-def _apply_grade(e: Exam, a: Attempt, q: dict, points: float | None, comment: str | None) -> dict:
+def _apply_grade(e: Exam, a: Attempt, q: dict, points: float | None, comment: str | None,
+                 body: ApproveIn | None = None, key: dict | None = None,
+                 teacher: tuple[int, str] | None = None) -> dict:
     """Turn the draft (or the teacher's edit) into a grade on the attempt (no commit)."""
     if a.status != "submitted":
         raise HTTPException(409, "Attempt is not submitted")
@@ -782,28 +795,22 @@ def _apply_grade(e: Exam, a: Attempt, q: dict, points: float | None, comment: st
     if not paper_answer(ans):
         raise HTTPException(404, "No paper answer for this question")
     d = (a.ai_drafts or {}).get(q["id"]) or {}
-    max_points = float(q.get("points", 1))
-    if points is None:
-        if d.get("source") == "fallback":
-            raise HTTPException(409, "There is no AI grade for this answer — enter the points")
-        if d:
-            points = float(d.get("points") or 0)
-        else:
-            given, pend = paper_given(q, ans, None)
-            if pend:
-                raise HTTPException(409, "No AI draft yet — enter the points")
-            points = max_points if q.get("type") == "mcq" and given == q.get("correct_index") else 0.0
-    if not -1e-9 <= points <= max_points + 1e-9:
-        raise HTTPException(422, f"Points must be between 0 and {num(max_points)}")
-    grade = {"points": num(points), "comment": (comment if comment is not None else d.get("comment", "")) or "",
-             "rubric_scores": None, "graded_at": iso(utcnow()),
-             "transcript": d.get("transcript") or "", "source": "scan",
-             "from_draft": comment is None and (d.get("points") == num(points))}
+    entry = ((key or {}).get("questions") or {}).get(q["id"])
+    eff, src = answer_key.effective_criteria(q, entry)
+    body = body or ApproveIn()
+    grade = review.build_grade(q, ans, d, points, comment, eff_criteria=eff, criteria_source=src,
+                               criteria=body.criteria, steps=body.steps, misconception=body.misconception,
+                               grading_seconds=body.grading_seconds, teacher=teacher)
     grades = dict(a.grades or {})
     grades[q["id"]] = grade
     score, pending, _ = grade_attempt(exam_questions(e), a.answers, grades)
     a.grades, a.score, a.needs_grading, a.updated_at = grades, score, pending, utcnow()
     return grade
+
+
+async def _teacher(session: AsyncSession, p: Principal) -> tuple[int, str]:
+    u = await session.get(User, p.user_id)
+    return p.user_id, (u.username if u else str(p.user_id))
 
 
 async def _locked_attempt(session: AsyncSession, e: Exam, aid: str) -> Attempt:
@@ -827,9 +834,11 @@ async def approve(exam_id: str, aid: str, qid: str, body: ApproveIn | None = Non
                   p: Principal = Depends(require_teacher), session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     q = _q(e, qid)
-    a = await _locked_attempt(session, e, aid)
     body = body or ApproveIn()
-    grade = _apply_grade(e, a, q, body.points, body.comment)
+    key = await answer_key.load_key(session, e.id)
+    teacher = await _teacher(session, p)
+    a = await _locked_attempt(session, e, aid)
+    grade = _apply_grade(e, a, q, body.points, body.comment, body, key, teacher)
     await session.commit()
     return {"attempt_id": a.id, "question_id": qid, "grade": grade, "score": num(a.score or 0),
             "total_points": num(e.total_points), "percent": percent(a.score or 0, e.total_points),
@@ -880,6 +889,8 @@ async def approve_bulk(exam_id: str, body: BulkIn, p: Principal = Depends(requir
     without a draft are skipped)."""
     e = await _own_exam(session, exam_id, p)
     qmap = _question_map(e)
+    key = await answer_key.load_key(session, e.id)
+    teacher = await _teacher(session, p)
     by_attempt: dict[str, list[str]] = {}
     for it in body.items:
         by_attempt.setdefault(it.attempt_id, []).append(it.question_id)
@@ -896,7 +907,7 @@ async def approve_bulk(exam_id: str, body: BulkIn, p: Principal = Depends(requir
                 skipped += 1
                 continue
             try:
-                _apply_grade(e, a, q, None, None)
+                _apply_grade(e, a, q, None, None, None, key, teacher)
                 approved += 1
             except HTTPException:
                 skipped += 1
