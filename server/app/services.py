@@ -212,6 +212,9 @@ def attempt_view(a: Attempt, exam: dict, now: datetime) -> dict:
         "deadline_at": iso(a.deadline_at), "server_time": iso(now),
         "questions": [] if external else questions,
         "answers": {} if external else (a.answers or {}), "status": a.status,
+        # Phase 1b: the stored client_seq, so a client without a local copy (another
+        # computer, cleared storage) continues above it instead of from 0.
+        "client_seq": a.client_seq if a.client_seq is not None else -1,
         "mode": mode,
         "external_url": exam.get("external_url") if external else None,
         "allowed_domains": list(exam.get("allowed_domains") or []) if external else [],

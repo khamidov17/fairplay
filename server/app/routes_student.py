@@ -146,7 +146,8 @@ async def save_answers(aid: str, body: AnswersIn, p: Principal = Depends(require
         return {"saved": True, "client_seq": body.client_seq, "server_time": iso(now)}
     # Slow path: find out why nothing was updated.
     row = (await session.execute(
-        select(Attempt.student_id, Attempt.status, Attempt.deadline_at, Attempt.client_seq)
+        select(Attempt.student_id, Attempt.status, Attempt.deadline_at, Attempt.client_seq,
+               Attempt.answers)
         .where(Attempt.id == aid))).first()
     if row is None or row.student_id != p.user_id:
         raise HTTPException(404, "Attempt not found")
@@ -154,7 +155,11 @@ async def save_answers(aid: str, body: AnswersIn, p: Principal = Depends(require
         raise HTTPException(409, "Attempt already submitted")
     if now >= row.deadline_at:
         raise HTTPException(409, "Time is up")
-    return {"saved": False, "client_seq": row.client_seq, "server_time": iso(now)}
+    # An exact repeat of the stored save (response lost, client retried) is reported as
+    # saved. The same seq with DIFFERENT answers (a second tab or computer) is not: that
+    # client must bump its seq and resend, or it would show "saved" for unsaved work.
+    dup = row.client_seq == body.client_seq and (row.answers or {}) == body.answers
+    return {"saved": dup, "client_seq": row.client_seq, "server_time": iso(now)}
 
 
 @router.post("/attempts/{aid}/heartbeat")
@@ -199,24 +204,39 @@ async def events(aid: str, body: EventsIn, p: Principal = Depends(require_studen
 async def submit(aid: str, body: AnswersIn, p: Principal = Depends(require_student),
                  session: AsyncSession = Depends(get_session)):
     a = await _own_attempt(session, aid, p)
+    exam = await session.get(Exam, a.exam_id)
+    questions = exam_questions(exam) if exam else []
     if a.status != "submitted":
-        exam = await session.get(Exam, a.exam_id)
         now = utcnow()
-        # Same rule as PUT /answers: the body wins only if it is strictly newer.
-        use_body = body.client_seq > a.client_seq
-        answers = body.answers if use_body else (a.answers or {})
-        score, pending, _ = grade_attempt(exam_questions(exam) if exam else [], answers, a.grades)
+        # One transaction, no read-modify-write (a save racing with submit must never be
+        # overwritten by an older snapshot):
+        # 1. apply the body with the same rule as PUT /answers (strictly newer client_seq
+        #    wins; no deadline check, a late submit still carries its answers),
         await session.execute(
+            update(Attempt)
+            .where(Attempt.id == aid, Attempt.status == "in_progress",
+                   Attempt.client_seq < body.client_seq)
+            .values(answers=body.answers, client_seq=body.client_seq, updated_at=now))
+        # 2. flip to submitted (this row lock makes later saves see "submitted" -> 409),
+        res = await session.execute(
             update(Attempt).where(Attempt.id == aid, Attempt.status == "in_progress").values(
-                status="submitted", submitted_at=now, receipt=new_receipt(), score=score,
-                needs_grading=pending,
-                answers=answers, client_seq=max(body.client_seq, a.client_seq),
+                status="submitted", submitted_at=now, receipt=new_receipt(),
                 late=now > a.deadline_at + LATE_GRACE, auto_submitted=False, updated_at=now))
+        # 3. grade exactly what is stored.
+        if res.rowcount == 1:
+            answers, grades = (await session.execute(
+                select(Attempt.answers, Attempt.grades).where(Attempt.id == aid))).one()
+            score, pending, _ = grade_attempt(questions, answers or {}, grades)
+            await session.execute(update(Attempt).where(Attempt.id == aid)
+                                  .values(score=score, needs_grading=pending))
         await session.commit()
         # rowcount 0 means a concurrent submit/close won; refresh returns its receipt.
         await session.refresh(a)
         await cache_attempt(get_store(), a)
-    return {"status": "submitted", "submitted_at": iso(a.submitted_at), "receipt": a.receipt}
+    answers = a.answers or {}
+    answered = sum(1 for q in questions if is_answered(answers.get(q["id"])))
+    return {"status": "submitted", "submitted_at": iso(a.submitted_at), "receipt": a.receipt,
+            "answered": answered}
 
 
 # ---------------------------------------------------------------- slice 2: grades
