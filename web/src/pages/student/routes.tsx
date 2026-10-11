@@ -12,6 +12,7 @@ import FeedbackPage from "./FeedbackPage";
 import StudentPracticePage from "./PracticePage";
 import ExternalExamPage from "./ExternalExamPage";
 import ExternalDonePage from "./ExternalDonePage";
+import ClassesPage from "./ClassesPage";
 
 export default function StudentRoutes() {
   return (
@@ -28,6 +29,7 @@ export default function StudentRoutes() {
       <Route path="grades/:examId" element={<RequireAuth role="student"><FeedbackPage /></RequireAuth>} />
       <Route path="practice" element={<RequireAuth role="student"><StudentPracticePage /></RequireAuth>} />
       <Route path="practice/:setId" element={<RequireAuth role="student"><StudentPracticePage /></RequireAuth>} />
+      <Route path="classes" element={<RequireAuth role="student"><ClassesPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/student" replace />} />
     </Routes>
   );

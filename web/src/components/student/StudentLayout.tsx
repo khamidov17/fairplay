@@ -34,6 +34,7 @@ export function StudentLayout({ children, white }: { children: ReactNode; white?
             Home
           </NavLink>
           <NavLink to="/student/exams">Exams</NavLink>
+          <NavLink to="/student/classes">Classes</NavLink>
           <NavLink to="/student/grades">Grades</NavLink>
           <NavLink to="/student/practice">Practice</NavLink>
         </nav>

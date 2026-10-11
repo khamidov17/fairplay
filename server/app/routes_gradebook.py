@@ -37,18 +37,24 @@ async def grading_overview(p: Principal = Depends(require_teacher),
             for eid, title, course, status, rel, n, pending in rows]
 
 
-async def _gradebook(session: AsyncSession, p: Principal, course: str | None) -> dict:
+async def _gradebook(session: AsyncSession, p: Principal, course: str | None,
+                     class_id: int | None = None) -> dict:
     course = (course or "").strip()
     all_exams = list((await session.execute(
         select(Exam).where(Exam.teacher_id == p.user_id, Exam.status != "draft")
         .order_by(Exam.created_at, Exam.id))).scalars())
     courses = sorted({e.course for e in all_exams if e.course})
     exams = [e for e in all_exams if not course or e.course == course]
+
+    student_q = select(User.id, User.username, User.name).where(User.role == "student")
+    if class_id is not None:  # classes: that class's students and the exams assigned to it
+        from .classes.service import class_filter
+        member_ids, exam_ids = await class_filter(session, p.user_id, class_id)
+        exams = [e for e in exams if e.id in exam_ids]
+        student_q = student_q.where(User.id.in_(member_ids))
     exam_by_id = {e.id: e for e in exams}
 
-    students = (await session.execute(
-        select(User.id, User.username, User.name).where(User.role == "student")
-        .order_by(User.name, User.username))).all()
+    students = (await session.execute(student_q.order_by(User.name, User.username))).all()
 
     # (student_id, exam_id) -> cell, from every attempt of the selected exams.
     cells: dict[tuple[int, str], dict] = {}
@@ -92,16 +98,18 @@ async def _gradebook(session: AsyncSession, p: Principal, course: str | None) ->
 
 @gradebook_router.get("/gradebook")
 async def gradebook(course: str | None = Query(default=None, max_length=64),
+                    class_id: int | None = Query(default=None),
                     p: Principal = Depends(require_teacher),
                     session: AsyncSession = Depends(get_session)):
-    return await _gradebook(session, p, course)
+    return await _gradebook(session, p, course, class_id)
 
 
 @gradebook_router.get("/gradebook.csv")
 async def gradebook_csv(course: str | None = Query(default=None, max_length=64),
+                        class_id: int | None = Query(default=None),
                         p: Principal = Depends(require_teacher),
                         session: AsyncSession = Depends(get_session)):
-    gb = await _gradebook(session, p, course)
+    gb = await _gradebook(session, p, course, class_id)
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Student", "Username", *[e["title"] for e in gb["exams"]], "Average %"])

@@ -5,6 +5,7 @@ import { errorText, formatWhen, plural } from "../../../components/teacher/util"
 
 const SOURCE_TEXT: Record<Roster["source"], string> = {
   picked: "Students you picked",
+  classes: "Everyone in the exam's classes",
   course: "Everyone in the linked LMS course",
   all: "All students in FairPlay",
 };
@@ -169,7 +170,7 @@ export function PrintStep({ examId, title }: { examId: string; title: string }) 
           <button type="button" className="btn btn-secondary" onClick={saveRoster} disabled={!rosterChanged || busy !== null}>
             {busy === "roster" ? "Saving…" : picked.size === 0 ? "Use the default list" : `Save list (${picked.size})`}
           </button>
-          {picked.size === 0 && <span className="t-muted">With nobody picked, the linked course (or everyone) is used.</span>}
+          {picked.size === 0 && <span className="t-muted">With nobody picked, the exam's classes (else the linked course, else everyone) are used.</span>}
         </div>
       </section>
 

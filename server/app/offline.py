@@ -174,9 +174,9 @@ async def _offline_exam(session: AsyncSession, exam_id: str, p: Principal) -> di
         raise HTTPException(404, "Exam not found")
     if (exam.get("mode") or "questions") == "external":
         raise HTTPException(409, "This exam runs on another website and needs the internet")
-    if exam.get("course_link_id"):
-        from .routes_lms import course_gate
-        await course_gate(session, exam["course_link_id"], p.user_id)
+    # classes: same audience rule as start (roster > classes > LMS course > open)
+    from .classes.service import require_exam_access
+    await require_exam_access(session, exam, p.user_id)
     return exam
 
 

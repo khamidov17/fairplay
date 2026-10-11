@@ -12,8 +12,8 @@ export interface ScanStudent {
 
 export interface Roster {
   exam_id: string;
-  /** picked = chosen by the teacher; course = linked LMS course; all = every student */
-  source: "picked" | "course" | "all";
+  /** picked = chosen by the teacher; classes = union of the exam's classes; course = linked LMS course; all = every student */
+  source: "picked" | "classes" | "course" | "all";
   students: ScanStudent[];
   all_students: ScanStudent[];
 }

@@ -77,6 +77,11 @@ async def roster_of(session: AsyncSession, e: Exam) -> tuple[str, list[User]]:
         .where(ExamRoster.exam_id == e.id).order_by(User.name, User.username))).scalars().all()
     if picked:
         return "picked", list(picked)
+    # classes: union of the members of the exam's assigned classes (explicit pick wins)
+    from .classes.service import class_member_users
+    members = await class_member_users(session, e.id)
+    if members is not None:
+        return "classes", members
     if e.course_link_id:
         members = (await session.execute(
             select(User).join(CourseMember, CourseMember.user_id == User.id)
@@ -146,7 +151,7 @@ async def get_roster(exam_id: str, p: Principal = Depends(require_teacher),
 async def put_roster(exam_id: str, body: RosterIn, p: Principal = Depends(require_teacher),
                      session: AsyncSession = Depends(get_session)):
     """Pick the students who get a booklet. An empty list goes back to the default
-    (the linked LMS course, else all students)."""
+    (members of the assigned classes, else the linked LMS course, else all students)."""
     e = await _own_exam(session, exam_id, p)
     wanted = sorted({u.strip() for u in body.usernames if u and u.strip()})
     users = []

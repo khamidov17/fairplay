@@ -87,6 +87,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(audit_router)
     app.include_router(account_router)
     app.include_router(exitcode_router)
+    from .routes_classes import router as classes_router  # classes + exam assignment
+    app.include_router(classes_router)
 
     @app.get("/api/health")
     async def health():

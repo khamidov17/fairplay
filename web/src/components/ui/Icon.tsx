@@ -110,6 +110,13 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M4 12h16" />
     </>
   ),
+  // classes: a class board
+  classes: (
+    <>
+      <rect x="3" y="4" width="18" height="12" rx="1.5" />
+      <path d="M8 20h8M12 16v4M7 9h6M7 12h4" />
+    </>
+  ),
 };
 
 export type IconName = keyof typeof PATHS;

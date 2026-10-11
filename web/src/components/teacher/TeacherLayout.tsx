@@ -5,12 +5,13 @@ import { useMe } from "../../lib/useMe";
 import { Icon, LogoMark, type IconName } from "../ui/Icon";
 import "../../styles/teacher.css";
 
-type Section = "home" | "exams" | "grading" | "gradebook" | "lms" | "insights" | "students" | "practice" | "scan";
+type Section = "home" | "exams" | "classes" | "grading" | "gradebook" | "lms" | "insights" | "students" | "practice" | "scan";
 
 /** Which nav item is active for a path. */
 export function sectionFor(pathname: string): Section | null {
   const p = pathname.replace(/\/+$/, "");
   if (p === "/teacher") return "home";
+  if (p.startsWith("/teacher/classes")) return "classes";
   if (p.startsWith("/teacher/gradebook")) return "gradebook";
   if (p.startsWith("/teacher/lms")) return "lms";
   if (p.startsWith("/teacher/insights")) return "insights";
@@ -25,6 +26,7 @@ export function sectionFor(pathname: string): Section | null {
 const NAV: { id: Section; to: string; label: string; icon: IconName }[] = [
   { id: "home", to: "/teacher", label: "Home", icon: "home" },
   { id: "exams", to: "/teacher/exams", label: "Exams", icon: "exams" },
+  { id: "classes", to: "/teacher/classes", label: "Classes", icon: "classes" },
   { id: "grading", to: "/teacher/grading", label: "Grading", icon: "grading" },
   { id: "scan", to: "/teacher/scan", label: "Scan & Grade", icon: "scan" },
   { id: "gradebook", to: "/teacher/gradebook", label: "Gradebook", icon: "gradebook" },
