@@ -757,7 +757,8 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
             key = scan_grading.group_key(d)
             items.append({
                 "attempt_id": a.id, "username": username, "name": name, "question_id": qid,
-                "image": ans.get("image"), "page": ans.get("page"), "mcq": ans.get("mcq"),
+                "image": ans.get("image"), "images": ans.get("images"),  # homework: several pages
+                "page": ans.get("page"), "mcq": ans.get("mcq"),
                 "marks": ans.get("marks"), "blank": bool(ans.get("blank")),
                 "draft": d, "grade": g, "status": status, "auto_points": auto,
                 "low_confidence": low, "group": key,
@@ -870,6 +871,7 @@ async def approve(exam_id: str, aid: str, qid: str, body: ApproveIn | None = Non
     a = await _locked_attempt(session, e, aid)
     grade = _apply_grade(e, a, q, body.points, body.comment, body, key, teacher)
     await session.commit()
+    await _homework_auto_release(session, e.id)
     return {"attempt_id": a.id, "question_id": qid, "grade": grade, "score": num(a.score or 0),
             "total_points": num(e.total_points), "percent": percent(a.score or 0, e.total_points),
             "needs_grading": a.needs_grading}
@@ -942,4 +944,14 @@ async def approve_bulk(exam_id: str, body: BulkIn, p: Principal = Depends(requir
             except HTTPException:
                 skipped += 1
     await session.commit()
+    await _homework_auto_release(session, e.id)
     return {"approved": approved, "skipped": skipped}
+
+
+async def _homework_auto_release(session: AsyncSession, exam_id: str) -> None:
+    """Homework with "auto-release" on: release once everything is reviewed (app.homework)."""
+    try:
+        from .homework.service import maybe_auto_release
+    except ImportError:
+        return
+    await maybe_auto_release(session, exam_id)

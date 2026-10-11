@@ -521,7 +521,13 @@ function ReviewPane({
               zoom={zoom}
             />
           ) : item.image ? (
-            <img src={item.image} alt={`Answer of ${item.name}`} style={{ width: `${zoom * 100}%`, maxWidth: "none" }} />
+            <>
+              <img src={item.image} alt={`Answer of ${item.name}`} style={{ width: `${zoom * 100}%`, maxWidth: "none" }} />
+              {/* homework: an answer can span several pages */}
+              {(item.images ?? []).slice(1).map((u, i) => (
+                <img key={u} src={u} alt={`Answer of ${item.name}, page ${i + 2}`} style={{ width: `${zoom * 100}%`, maxWidth: "none" }} />
+              ))}
+            </>
           ) : (
             <span className="t-muted">No picture</span>
           )}

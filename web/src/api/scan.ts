@@ -133,6 +133,8 @@ export interface QueueItem {
     not_found: boolean;
     regions: { page: number; page_id: number; box: [number, number, number, number] }[];
   } | null;
+  /** homework: every picture of this answer (the first one is `image`) */
+  images?: string[] | null;
 }
 
 export interface QueueQuestion {

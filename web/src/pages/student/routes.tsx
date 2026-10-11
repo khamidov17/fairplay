@@ -13,6 +13,9 @@ import StudentPracticePage from "./PracticePage";
 import ExternalExamPage from "./ExternalExamPage";
 import ExternalDonePage from "./ExternalDonePage";
 import ClassesPage from "./ClassesPage";
+import StudentHomeworkListPage from "./homework/HomeworkListPage";
+import HomeworkUploadPage from "./homework/HomeworkUploadPage";
+import MyProgressPage from "./homework/MyProgressPage";
 
 export default function StudentRoutes() {
   return (
@@ -30,6 +33,9 @@ export default function StudentRoutes() {
       <Route path="practice" element={<RequireAuth role="student"><StudentPracticePage /></RequireAuth>} />
       <Route path="practice/:setId" element={<RequireAuth role="student"><StudentPracticePage /></RequireAuth>} />
       <Route path="classes" element={<RequireAuth role="student"><ClassesPage /></RequireAuth>} />
+      <Route path="homework" element={<RequireAuth role="student"><StudentHomeworkListPage /></RequireAuth>} />
+      <Route path="homework/:id" element={<RequireAuth role="student"><HomeworkUploadPage /></RequireAuth>} />
+      <Route path="progress" element={<RequireAuth role="student"><MyProgressPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/student" replace />} />
     </Routes>
   );

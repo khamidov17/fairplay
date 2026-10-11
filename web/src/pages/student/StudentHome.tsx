@@ -9,6 +9,7 @@ import { StartCodeForm } from "../../components/student/StartCodeForm";
 import { StudentLayout, StuLoading } from "../../components/student/StudentLayout";
 import { useMe } from "../../lib/useMe";
 import { pastExams, upcomingExams, useStudentExams } from "./useStudentExams";
+import { HomeworkHomeCard } from "./homework/HomeworkHomeCard";
 
 export default function StudentHome() {
   const me = useMe("student");
@@ -40,6 +41,8 @@ export default function StudentHome() {
             <h1 className="stu-h1">{name ? `Hi ${name}` : "Hi"}</h1>
             <p className="stu-sub" aria-live="polite">{summary}</p>
           </div>
+
+          <HomeworkHomeCard />
 
           {error && (
             <div className="stu-alert warn" role="alert">

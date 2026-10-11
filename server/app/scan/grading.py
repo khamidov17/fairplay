@@ -133,6 +133,13 @@ async def draft_for(q: dict, answer: dict, image: bytes | None, hint: str = "",
     if answer.get("whole_page"):
         ctx["whole_page"] = True
     images = [image] if image is not None else []
+    # homework: an answer may span several pictures (`images`, the first one is `image`)
+    extra = [u for u in (answer.get("images") or [])[1:6] if isinstance(u, str)]
+    if extra:
+        import asyncio
+
+        from .storage import read_url
+        images += [b for b in await asyncio.to_thread(lambda: [read_url(u) for u in extra]) if b]
     if ctx.get("diagram"):  # graph / diagram questions: reference drawing + OpenCV checks
         from . import diagrams
         ctx, images = await diagrams.prepare(ctx, images)

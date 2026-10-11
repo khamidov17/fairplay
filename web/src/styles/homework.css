@@ -1,0 +1,525 @@
+/* Homework mode + progress dashboard (teacher and student). Uses tokens.css. */
+.hw-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------------------------------------------------------------- teacher: create */
+.hw-new {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 880px;
+}
+.hw-new .t-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hw-class-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.hw-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  cursor: pointer;
+}
+.hw-check:has(input:checked) {
+  border-color: var(--primary);
+  background: var(--primary-tint);
+}
+.hw-actions {
+  display: flex;
+  gap: 8px;
+}
+.hw-qlist {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hw-options {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------- teacher: homework page */
+.hw-stats {
+  margin-bottom: 4px;
+}
+.hw-next {
+  color: var(--text-2);
+  margin: 4px 0 12px;
+}
+.hw-table td {
+  vertical-align: top;
+}
+.hw-table .t-pill + .t-pill {
+  margin-left: 6px;
+}
+.hw-thumbs {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.hw-thumbs img {
+  width: 40px;
+  height: 52px;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface-2);
+}
+.hw-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+}
+.hw-settings hr {
+  border: 0;
+  border-top: 1px solid var(--divider);
+  width: 100%;
+}
+.hw-row {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.hw-collect > p {
+  margin: 0 0 12px;
+}
+.hw-print {
+  margin-top: 16px;
+}
+.hw-print summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+/* ---------------------------------------------------------------- teacher: progress */
+.hw-dash-top {
+  display: grid;
+  grid-template-columns: 1fr 1fr 2fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+@media (max-width: 1000px) {
+  .hw-dash-top {
+    grid-template-columns: 1fr;
+  }
+}
+.hw-trend-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hw-trend-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hw-up,
+.hw-down-good {
+  color: var(--success);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hw-down,
+.hw-up-bad {
+  color: var(--danger);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.hw-mis td {
+  vertical-align: top;
+}
+
+.hm-legend {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 10px;
+  font-size: 12px;
+}
+.hm-legend .hm-cell {
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.hm-table {
+  border-collapse: separate;
+  border-spacing: 3px;
+  font-variant-numeric: tabular-nums;
+}
+.hm-table th {
+  text-align: left;
+  font-weight: 600;
+  padding: 4px 8px 4px 0;
+  white-space: nowrap;
+}
+.hm-table th a {
+  color: var(--text);
+  text-decoration: none;
+}
+.hm-table th a:hover {
+  text-decoration: underline;
+}
+.hm-topic {
+  vertical-align: bottom;
+  max-width: 90px;
+  white-space: normal !important;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.hm-class-row th,
+.hm-class-row td {
+  font-weight: 700;
+  border-bottom: 2px solid var(--border);
+}
+.hm-cell {
+  min-width: 52px;
+  height: 34px;
+  text-align: center;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+span.hm-cell {
+  display: inline-block;
+  min-width: 52px;
+  height: auto;
+  padding: 3px 6px;
+}
+.hm-strong {
+  background: #DDF1E6;
+  color: #0E5A37;
+}
+.hm-developing {
+  background: #FCEBD5;
+  color: #7A3B06;
+}
+.hm-struggling {
+  background: #FADAD6;
+  color: #8E1B12;
+}
+.hm-none {
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.hm-trend {
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  padding-left: 8px;
+}
+.hm-trend.slipping {
+  color: var(--danger);
+}
+.hm-trend.improving {
+  color: var(--success);
+}
+.hm-trend.steady,
+.hm-trend.new {
+  color: var(--muted);
+}
+
+.hw-actions-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hw-actions-list li {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.hw-action-text {
+  flex: 1 1 320px;
+}
+.hw-action-btns {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* per-student page */
+.sp-topics {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sp-topics li {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.4fr) 130px 70px 70px 1fr;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.sp-topic-name {
+  font-weight: 600;
+}
+.sp-ref {
+  stroke: var(--border-strong);
+  stroke-dasharray: 3 3;
+}
+.sp-line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2;
+}
+.sp-dot {
+  fill: var(--primary);
+}
+.sp-mistakes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sp-mis-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.sp-examples {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.sp-examples figure {
+  margin: 0;
+  width: 180px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.sp-examples img,
+.sp-noimg {
+  width: 180px;
+  height: 120px;
+  object-fit: cover;
+  object-position: top;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.sp-noimg {
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+.sp-examples figcaption {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+}
+.sp-note-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.sp-note-form textarea {
+  flex: 1;
+}
+.sp-notes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.sp-notes li {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.sp-notes li span:first-child {
+  flex: 1;
+}
+
+/* ---------------------------------------------------------------- student */
+.hw-stu-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hw-stu-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-decoration: none;
+  color: inherit;
+}
+.hw-stu-item:hover {
+  border-color: var(--primary-soft);
+}
+.hw-stu-title {
+  font-weight: 700;
+  font-size: 17px;
+}
+.hw-stu-tags {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 4px;
+}
+.hw-stu-score {
+  margin-left: auto;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.hw-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.hw-upload .stu-sub .stu-pill {
+  margin-left: 6px;
+}
+.hw-feedback {
+  border-color: var(--primary-soft);
+  background: var(--primary-tint-2);
+}
+.hw-big {
+  font-size: 28px;
+  font-weight: 800;
+  margin: 0;
+}
+.hw-instructions {
+  white-space: pre-wrap;
+  margin: 0;
+}
+.hw-stu-questions {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hw-stu-options {
+  margin: 4px 0;
+}
+.hw-pages {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px;
+}
+.hw-page {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-2);
+  text-decoration: none;
+}
+.hw-page img,
+.hw-pdf {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.hw-pdf {
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+}
+.hw-page-tools {
+  display: flex;
+  gap: 2px;
+}
+.hw-progress {
+  width: 100%;
+  margin: 8px 0;
+}
+.hw-stu-progress {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+.hw-stu-topics,
+.hw-stu-mistakes,
+.hw-home-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.hw-stu-topics li {
+  display: grid;
+  grid-template-columns: 1fr 80px 44px;
+  gap: 8px;
+  align-items: center;
+}
+.hw-stu-meter {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--divider);
+  overflow: hidden;
+}
+.hw-stu-meter span {
+  display: block;
+  height: 100%;
+  background: var(--primary);
+}
+.hw-stu-mistakes li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.hw-home {
+  gap: 8px;
+}
+.hw-home-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+}
+.hw-badge {
+  margin-left: 8px;
+}
