@@ -3,12 +3,13 @@ Teacher creates an external exam -> student (with a simulated Mac app bridge) ch
 the page locks and sends openExternal with the right URL/domains/token -> the app
 "finishes" by loading /student/external-done/<aid> -> receipt, unlock -> teacher sees
 the submission; release is refused; gradebook shows "Submitted". Server on :8000."""
+import os
 import json
 import re
 import urllib.request
 from playwright.sync_api import sync_playwright, expect
 
-BASE = "http://127.0.0.1:8000"
+BASE = os.environ.get("FAIRPLAY_BASE", "http://127.0.0.1:8000").rstrip("/")
 TITLE = "E2E Google Form Quiz"
 FAKE_NATIVE = """
 window.__native = [];

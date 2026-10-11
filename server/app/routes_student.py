@@ -172,7 +172,8 @@ async def save_answers(aid: str, body: AnswersIn, request: Request,
         return {"saved": True, "client_seq": body.client_seq, "server_time": iso(now)}
     # Slow path: find out why nothing was updated.
     row = (await session.execute(
-        select(Attempt.student_id, Attempt.status, Attempt.deadline_at, Attempt.client_seq)
+        select(Attempt.student_id, Attempt.status, Attempt.deadline_at, Attempt.client_seq,
+               Attempt.answers)
         .where(Attempt.id == aid))).first()
     if row is None or row.student_id != p.user_id:
         raise HTTPException(404, "Attempt not found")
@@ -180,7 +181,11 @@ async def save_answers(aid: str, body: AnswersIn, request: Request,
         raise HTTPException(409, "Attempt already submitted")
     if now >= row.deadline_at:
         raise HTTPException(409, "Time is up")
-    return {"saved": False, "client_seq": row.client_seq, "server_time": iso(now)}
+    # An exact repeat of the stored save (response lost, client retried) is reported as
+    # saved. The same seq with DIFFERENT answers (a second tab or computer) is not: that
+    # client must bump its seq and resend, or it would show "saved" for unsaved work.
+    dup = row.client_seq == body.client_seq and (row.answers or {}) == body.answers
+    return {"saved": dup, "client_seq": row.client_seq, "server_time": iso(now)}
 
 
 @router.post("/attempts/{aid}/heartbeat")
@@ -229,33 +234,51 @@ async def submit(aid: str, body: AnswersIn, request: Request,
                  p: Principal = Depends(require_student),
                  session: AsyncSession = Depends(get_session)):
     a = await _own_attempt(session, aid, p)
+    exam = await session.get(Exam, a.exam_id)
+    questions = exam_questions(exam) if exam else []
     if a.status != "submitted":
-        exam = await session.get(Exam, a.exam_id)
         now = utcnow()
-        # Same rule as PUT /answers: the body wins only if it is strictly newer.
-        use_body = body.client_seq > a.client_seq
-        answers = body.answers if use_body else (a.answers or {})
-        score, pending, _ = grade_attempt(exam_questions(exam) if exam else [], answers, a.grades)
-        receipt, late = new_receipt(), now > a.deadline_at + LATE_GRACE
-        res = await session.execute(
-            update(Attempt).where(Attempt.id == aid, Attempt.status == "in_progress").values(
-                status="submitted", submitted_at=now, receipt=receipt, score=score,
-                needs_grading=pending,
-                answers=answers, client_seq=max(body.client_seq, a.client_seq),
-                late=late, auto_submitted=False, updated_at=now))
-        if res.rowcount:
-            store = get_store()
-            audit.add_many(session, await audit.flush_answer_saves(store, aid))
-            audit.add(session, "submitted", request=request, actor_id=p.user_id,
-                      actor_role="student", exam_id=a.exam_id, attempt_id=aid, at=now,
-                      detail={"receipt": receipt, "late": late, "client_seq": body.client_seq,
-                              "answers_from_submit": use_body,
-                              "answered": sum(1 for v in answers.values() if is_answered(v))})
-        await session.commit()
-        # rowcount 0 means a concurrent submit/close won; refresh returns its receipt.
+        # Same rule as PUT /answers: the body wins only if its client_seq is strictly newer
+        # (no deadline check: a late submit still carries its answers). The UPDATE is a
+        # compare-and-swap on the client_seq we read, so a save landing between our read
+        # and this write can never be overwritten by an older snapshot: the swap then
+        # misses, we re-read and decide again. One statement in the normal case.
+        for _ in range(5):
+            use_body = body.client_seq > a.client_seq
+            answers = body.answers if use_body else (a.answers or {})
+            score, pending, _ = grade_attempt(questions, answers, a.grades)
+            receipt, late = new_receipt(), now > a.deadline_at + LATE_GRACE
+            res = await session.execute(
+                update(Attempt)
+                .where(Attempt.id == aid, Attempt.status == "in_progress",
+                       Attempt.client_seq == a.client_seq)
+                .values(status="submitted", submitted_at=now, receipt=receipt,
+                        score=score, needs_grading=pending, answers=answers,
+                        client_seq=max(body.client_seq, a.client_seq),
+                        late=late, auto_submitted=False, updated_at=now))
+            if res.rowcount == 1:
+                store = get_store()
+                audit.add_many(session, await audit.flush_answer_saves(store, aid))
+                audit.add(session, "submitted", request=request, actor_id=p.user_id,
+                          actor_role="student", exam_id=a.exam_id, attempt_id=aid, at=now,
+                          detail={"receipt": receipt, "late": late, "client_seq": body.client_seq,
+                                  "answers_from_submit": use_body,
+                                  "answered": sum(1 for v in answers.values() if is_answered(v))})
+                await session.commit()
+                break
+            await session.commit()
+            await session.refresh(a)  # a save, submit or close got in first
+            if a.status == "submitted":
+                break
+        else:
+            raise HTTPException(503, "Busy, try again")
+        # what is stored now: our submit, or the receipt of a submit/close that won
         await session.refresh(a)
         await cache_attempt(get_store(), a)
-    return {"status": "submitted", "submitted_at": iso(a.submitted_at), "receipt": a.receipt}
+    answers = a.answers or {}
+    answered = sum(1 for q in questions if is_answered(answers.get(q["id"])))
+    return {"status": "submitted", "submitted_at": iso(a.submitted_at), "receipt": a.receipt,
+            "answered": answered}
 
 
 # ---------------------------------------------------------------- slice 2: grades

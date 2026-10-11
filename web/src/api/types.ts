@@ -392,6 +392,8 @@ export interface AttemptView {
   external_url?: string | null;
   allowed_domains?: string[];
   finish_url_contains?: string | null;
+  /** phase 1b: the stored client_seq (-1 = nothing saved yet); clients without a local copy continue above it */
+  client_seq?: number;
 }
 
 export interface SaveAnswersResponse {
@@ -416,6 +418,8 @@ export interface SubmitResponse {
   status: "submitted";
   submitted_at: string;
   receipt: string;
+  /** phase 1b: questions the server holds an answer for (what was really received) */
+  answered?: number;
 }
 
 // ---------- slice 5: LMS sync ----------

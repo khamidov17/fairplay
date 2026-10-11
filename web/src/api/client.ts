@@ -120,31 +120,54 @@ function detailOf(body: unknown, fallback: string): string {
   return fallback;
 }
 
+export interface RequestOptions {
+  /** Abort and throw NetworkError when there is no response after this long (0 = never). */
+  timeoutMs?: number;
+}
+
+/**
+ * Exam-time student calls (save, submit, heartbeat, events, resume) give up after this
+ * long. Without it a request on a half-open connection (Wi-Fi switched, laptop woke from
+ * sleep) can hang for minutes and, for submit, leave the student stuck on "Submitting".
+ */
+export const STUDENT_REQUEST_TIMEOUT_MS = 15_000;
+
 export async function request<T>(
   role: SessionRole | null,
   method: string,
   path: string,
   body?: unknown,
+  opts: RequestOptions = {},
 ): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const token = role ? getToken(role) : null;
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  const ctrl = opts.timeoutMs && typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), opts.timeoutMs) : null;
   let res: Response;
   try {
     res = await fetch(path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      ...(ctrl ? { signal: ctrl.signal } : {}),
     });
   } catch {
-    throw new NetworkError();
+    if (timer) clearTimeout(timer);
+    throw new NetworkError(ctrl?.signal.aborted ? "The server did not answer in time" : undefined);
   }
-
   let data: unknown = null;
   if (res.status !== 204) {
-    const text = await res.text();
+    let text: string;
+    try {
+      text = await res.text();
+    } catch {
+      throw new NetworkError(ctrl?.signal.aborted ? "The server did not answer in time" : undefined);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
     if (text) {
       try {
         data = JSON.parse(text);
@@ -153,6 +176,7 @@ export async function request<T>(
       }
     }
   }
+  if (timer) clearTimeout(timer);
 
   if (!res.ok) {
     if (res.status === 401 && role) {
@@ -240,28 +264,40 @@ export const teacherApi = {
 
 // ---------- student ----------
 
+const STUDENT_TIMEOUT: RequestOptions = { timeoutMs: STUDENT_REQUEST_TIMEOUT_MS };
+
 export const studentApi = {
   listExams: () => request<StudentExamSummary[]>("student", "GET", "/api/student/exams"),
   start: (examId: string, startCode: string) =>
     request<AttemptView>("student", "POST", `/api/student/exams/${enc(examId)}/start`, { start_code: startCode }),
-  getAttempt: (aid: string) => request<AttemptView>("student", "GET", `/api/student/attempts/${enc(aid)}`),
+  getAttempt: (aid: string) =>
+    request<AttemptView>("student", "GET", `/api/student/attempts/${enc(aid)}`, undefined, STUDENT_TIMEOUT),
   saveAnswers: (aid: string, answers: AnswerMap, clientSeq: number) =>
-    request<SaveAnswersResponse>("student", "PUT", `/api/student/attempts/${enc(aid)}/answers`, {
-      answers,
-      client_seq: clientSeq,
-    }),
+    request<SaveAnswersResponse>(
+      "student",
+      "PUT",
+      `/api/student/attempts/${enc(aid)}/answers`,
+      { answers, client_seq: clientSeq },
+      STUDENT_TIMEOUT,
+    ),
   heartbeat: (aid: string, currentQuestion: number, locked: boolean) =>
-    request<HeartbeatResponse>("student", "POST", `/api/student/attempts/${enc(aid)}/heartbeat`, {
-      current_question: currentQuestion,
-      locked,
-    }),
+    request<HeartbeatResponse>(
+      "student",
+      "POST",
+      `/api/student/attempts/${enc(aid)}/heartbeat`,
+      { current_question: currentQuestion, locked },
+      STUDENT_TIMEOUT,
+    ),
   events: (aid: string, events: IntegrityEvent[]) =>
-    request<EventsResponse>("student", "POST", `/api/student/attempts/${enc(aid)}/events`, { events }),
+    request<EventsResponse>("student", "POST", `/api/student/attempts/${enc(aid)}/events`, { events }, STUDENT_TIMEOUT),
   submit: (aid: string, answers: AnswerMap, clientSeq: number) =>
-    request<SubmitResponse>("student", "POST", `/api/student/attempts/${enc(aid)}/submit`, {
-      answers,
-      client_seq: clientSeq,
-    }),
+    request<SubmitResponse>(
+      "student",
+      "POST",
+      `/api/student/attempts/${enc(aid)}/submit`,
+      { answers, client_seq: clientSeq },
+      STUDENT_TIMEOUT,
+    ),
   grades: () => request<StudentGradeSummary[]>("student", "GET", "/api/student/grades"),
   feedback: (examId: string) =>
     request<StudentFeedback>("student", "GET", `/api/student/grades/${enc(examId)}`),

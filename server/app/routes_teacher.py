@@ -322,7 +322,7 @@ async def results(exam_id: str, p: Principal = Depends(require_teacher),
                 q_correct[qid] += bool(r["correct"])
         attempts.append({
             "attempt_id": a.id, "username": username, "name": name, "status": a.status,
-            "auto_submitted": a.auto_submitted,
+            "auto_submitted": a.auto_submitted, "late": bool(a.late),
             "score": None if external else num(score), "total_points": num(total),
             "percent": None if external else pct,
             "submitted_at": iso(a.submitted_at), "receipt": a.receipt,

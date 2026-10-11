@@ -193,7 +193,9 @@ function ExamTakingInner() {
         const res = await call((aid) => studentApi.submit(aid, sent, seq));
         submittingRef.current = false;
         const total = attempt?.questions.length;
-        const answered = attempt ? attempt.questions.filter((qq) => sent[qq.id] !== undefined).length : undefined;
+        // what the server reports it holds (phase 1b), else what this computer sent
+        const answered =
+          res.answered ?? (attempt ? attempt.questions.filter((qq) => sent[qq.id] !== undefined).length : undefined);
         finish({ receipt: res.receipt, submitted_at: res.submitted_at, title: attempt?.title ?? "", answered, total });
       } catch (e) {
         submittingRef.current = false;
@@ -258,7 +260,7 @@ function ExamTakingInner() {
           setAnswers(queue.getAnswers());
         });
         queueRef.current = queue;
-        queue.init(a.answers);
+        queue.init(a.answers, a.client_seq ?? -1);
         setAnswers(queue.getAnswers());
         setAttempt(a);
         setDeadline(a.deadline_at);
@@ -350,6 +352,14 @@ function ExamTakingInner() {
     };
   }, [flushEvents]);
 
+  // ----- network back: send waiting answers at once (not after the retry backoff) -----
+
+  useEffect(() => {
+    const onOnline = () => queueRef.current?.nudge();
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, []);
+
   // ----- heartbeat every 5 s -----
 
   useEffect(() => {
@@ -359,6 +369,7 @@ function ExamTakingInner() {
       try {
         const res = await call((aid) => studentApi.heartbeat(aid, currentRef.current, bridge.isLocked()));
         setOffset(clockOffset(res.server_time));
+        queueRef.current?.nudge(); // the server is reachable: send waiting answers now
         if (res.deadline_at) setDeadline(res.deadline_at);
         if (res.status === "submitted") {
           // closed by the teacher (or submitted elsewhere): finish and unlock
