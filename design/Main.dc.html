@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Teacher home</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F6F9}
+a{color:#2F4BD8}a:hover{color:#1F35A8}
+</style>
+</helmet>
+<div style="min-height: 1080px; display: flex; flex-wrap: wrap; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: #14161F; background: #F5F6F9">
+
+  <nav aria-label="Main" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 24px 16px; background: #FFFFFF; border-right: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 12px 24px">
+      <div style="width: 32px; height: 32px; border-radius: 9px; background: #2F4BD8; display: flex; align-items: center; justify-content: center">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4v5c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V7z"></path><path d="M8.5 12l2.5 2.5 4.5-5"></path></svg>
+      </div>
+      <span style="font-weight: 700; font-size: 18px">Proctora</span>
+    </div>
+    <a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; background: #E9EDFC; color: #2F4BD8; font-weight: 600; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"></path></svg>Home</a>
+    <a href="TeacherExamSetup.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; color: #3A3F4E; font-weight: 500; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg>Exams</a>
+    <a href="TeacherHomework.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; color: #3A3F4E; font-weight: 500; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-2z"></path><path d="M4 17a2 2 0 0 1 2-2h12"></path></svg>Homework</a>
+    <a href="TeacherLiveRoom.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; color: #3A3F4E; font-weight: 500; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>Live room</a>
+    <a href="TeacherCanvasImport.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; color: #3A3F4E; font-weight: 500; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"></path></svg>Canvas sync</a>
+    <a href="TeacherGrading.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; color: #3A3F4E; font-weight: 500; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5 9-10"></path></svg>Grading</a>
+    <a href="TeacherGradebook.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; color: #3A3F4E; font-weight: 500; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"></rect><path d="M3 10h18M9 4v16"></path></svg>Gradebook</a>
+    <div style="flex-grow: 1"></div>
+    <div style="margin: 16px 4px 0; padding: 14px; border-radius: 12px; background: #E6F4EC; display: flex; flex-direction: column; gap: 4px">
+      <span style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: #12704A"><span style="width: 8px; height: 8px; border-radius: 50%; background: #12704A"></span>Canvas connected</span>
+      <span style="font-size: 12px; color: #3A3F4E">Last sync 5 min ago</span>
+    </div>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px 40px 48px; display: flex; flex-direction: column; gap: 28px">
+
+    <header style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 4px">
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.01em">Good afternoon, [Teacher name]</h1>
+        <p style="margin: 0; font-size: 15px; color: #565B6B">You have 1 exam today and 2 homework sets due this week.</p>
+      </div>
+      <a href="TeacherExamSetup.dc.html" style="display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 20px; border-radius: 10px; background: #2F4BD8; color: #FFFFFF; font-weight: 600; font-size: 15px; text-decoration: none">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>Create</a>
+    </header>
+
+    <section aria-label="Start something" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px">
+      <a href="TeacherCanvasImport.dc.html" style="display: flex; flex-direction: column; gap: 10px; padding: 20px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E3E6EE; color: #14161F; text-decoration: none">
+        <span style="width: 40px; height: 40px; border-radius: 10px; background: #E9EDFC; color: #2F4BD8; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"></path></svg></span>
+        <span style="font-weight: 600; font-size: 16px">Import from Canvas</span>
+        <span style="font-size: 14px; color: #565B6B; line-height: 1.5">Bring in quizzes and assignments you already made.</span>
+      </a>
+      <a href="TeacherExamSetup.dc.html" style="display: flex; flex-direction: column; gap: 10px; padding: 20px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E3E6EE; color: #14161F; text-decoration: none">
+        <span style="width: 40px; height: 40px; border-radius: 10px; background: #FDEEE3; color: #B4470B; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg></span>
+        <span style="font-weight: 600; font-size: 16px">Create a new exam</span>
+        <span style="font-size: 14px; color: #565B6B; line-height: 1.5">Write questions here, then choose how strict it is.</span>
+      </a>
+      <a href="TeacherExamSetup.dc.html" style="display: flex; flex-direction: column; gap: 10px; padding: 20px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E3E6EE; color: #14161F; text-decoration: none">
+        <span style="width: 40px; height: 40px; border-radius: 10px; background: #E6F4EC; color: #12704A; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><path d="M14 3v6h6M12 18v-6M9 15l3-3 3 3"></path></svg></span>
+        <span style="font-weight: 600; font-size: 16px">Upload Word or Excel</span>
+        <span style="font-size: 14px; color: #565B6B; line-height: 1.5">AI turns your old paper exam into a digital one.</span>
+      </a>
+    </section>
+
+    <section aria-labelledby="today-h" style="display: flex; flex-wrap: wrap; align-items: center; gap: 24px; padding: 24px 28px; border-radius: 16px; background: #14161F; color: #FFFFFF">
+      <div style="flex: 1 1 320px; display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 13px; font-weight: 600; color: #B7C2F5; text-transform: uppercase; letter-spacing: 0.06em">Today · 14:00 – 15:30</span>
+        <h2 id="today-h" style="margin: 0; font-size: 22px; font-weight: 700">MATH 201 · Midterm exam</h2>
+        <span style="font-size: 14px; color: #C9CCD6">Room AB 1087 · 48 students · Lockdown + room camera</span>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 18px; border-radius: 12px; background: #262938">
+        <span style="font-size: 12px; color: #C9CCD6">Starts in</span>
+        <span style="font-family: 'JetBrains Mono', monospace; font-size: 24px; font-weight: 600">01:12:40</span>
+      </div>
+      <a href="TeacherLiveRoom.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 20px; border-radius: 10px; background: #FFFFFF; color: #14161F; font-weight: 600; font-size: 15px; text-decoration: none">Open live room</a>
+    </section>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+
+      <section aria-labelledby="exams-h" style="flex: 3 1 420px; min-width: 0; padding: 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <h2 id="exams-h" style="margin: 0; font-size: 18px; font-weight: 700">Upcoming exams</h2>
+          <a href="TeacherExamSetup.dc.html" style="font-size: 14px; font-weight: 600">See all</a>
+        </div>
+        <div style="overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; font-size: 14px; min-width: 520px">
+            <thead>
+              <tr style="text-align: left; color: #565B6B">
+                <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Exam</th>
+                <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #E3E6EE">When</th>
+                <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Source</th>
+                <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="padding: 14px 8px; border-bottom: 1px solid #F0F2F6; font-weight: 600">MATH 201 Midterm</td>
+                <td style="padding: 14px 8px; border-bottom: 1px solid #F0F2F6">Today, 14:00</td>
+                <td style="padding: 14px 8px; border-bottom: 1px solid #F0F2F6">Canvas</td>
+                <td style="padding: 14px 8px; border-bottom: 1px solid #F0F2F6"><span style="padding: 4px 10px; border-radius: 99px; background: #E6F4EC; color: #12704A; font-weight: 600; font-size: 13px">Ready</span></td>
+              </tr>
+              <tr>
+                <td style="padding: 14px 8px; border-bottom: 1px solid #F0F2F6; font-weight: 600">STATS 302 Quiz 4</td>
+                <td style="padding: 14px 8px; border-bottom: 1px solid #F0F2F6">Thu, 10:00</td>
+                <td style="padding: 14px 8px; border-bottom: 1px solid #F0F2F6">Proctora</td>
+                <td style="padding: 14px 8px; border-bottom: 1px solid #F0F2F6"><span style="padding: 4px 10px; border-radius: 99px; background: #FDEEE3; color: #B4470B; font-weight: 600; font-size: 13px">3 questions missing</span></td>
+              </tr>
+              <tr>
+                <td style="padding: 14px 8px; font-weight: 600">MATH 201 Final</td>
+                <td style="padding: 14px 8px">Dec 18, 09:00</td>
+                <td style="padding: 14px 8px">Word upload</td>
+                <td style="padding: 14px 8px"><span style="padding: 4px 10px; border-radius: 99px; background: #F0F2F6; color: #3A3F4E; font-weight: 600; font-size: 13px">Draft</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section aria-labelledby="hw-h" style="flex: 2 1 300px; min-width: 0; padding: 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 18px">
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <h2 id="hw-h" style="margin: 0; font-size: 18px; font-weight: 700">Homework this week</h2>
+          <a href="TeacherHomework.dc.html" style="font-size: 14px; font-weight: 600">Open</a>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; justify-content: space-between; font-size: 14px"><span style="font-weight: 600">Problem Set 6 · Integrals</span><span style="color: #565B6B">32 / 48</span></div>
+          <div style="height: 8px; border-radius: 99px; background: #F0F2F6"><div style="width: 67%; height: 8px; border-radius: 99px; background: #2F4BD8"></div></div>
+          <span style="font-size: 13px; color: #565B6B">Due Wed · AI tutor on</span>
+        </div>
+        <div style="display: flex; flex-direction: column; gap: 8px">
+          <div style="display: flex; justify-content: space-between; font-size: 14px"><span style="font-weight: 600">Reading quiz · Ch. 7</span><span style="color: #565B6B">12 / 48</span></div>
+          <div style="height: 8px; border-radius: 99px; background: #F0F2F6"><div style="width: 25%; height: 8px; border-radius: 99px; background: #2F4BD8"></div></div>
+          <span style="font-size: 13px; color: #565B6B">Due Fri · AI tutor off</span>
+        </div>
+        <div style="padding: 14px; border-radius: 12px; background: #F5F6F9; font-size: 14px; line-height: 1.5; color: #3A3F4E">
+          <strong style="color: #14161F">Students asked the tutor most about:</strong> u-substitution, choosing limits of integration.
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

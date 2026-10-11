@@ -1,0 +1,17 @@
+from playwright.sync_api import sync_playwright
+with sync_playwright() as p:
+    b = p.chromium.launch()
+    pg = b.new_page(viewport={"width":1280,"height":860})
+    pg.goto("http://127.0.0.1:8000/teacher/login")
+    pg.fill("#username","teacher"); pg.fill("#password","teacher123")
+    pg.get_by_role("button", name="Sign in").click()
+    pg.wait_for_timeout(1000)
+    print("URL", pg.url); print(pg.locator("body").inner_text()[:500])
+    pg.screenshot(path="shots/02-teacher-home.png")
+    pg.get_by_role("link", name="Create exam").or_(pg.get_by_role("button", name="Create exam")).first.click()
+    pg.wait_for_timeout(800)
+    print("URL", pg.url); print(pg.locator("body").inner_text()[:1200])
+    print([(i.get_attribute("id"), i.get_attribute("aria-label"), i.get_attribute("type")) for i in pg.locator("input,select,textarea").all()])
+    print([x.inner_text() for x in pg.get_by_role("button").all()])
+    pg.screenshot(path="shots/03-create-exam.png", full_page=True)
+    b.close()

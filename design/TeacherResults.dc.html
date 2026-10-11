@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exam results</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F6F9}
+a{color:#2F4BD8}a:hover{color:#1F35A8}
+</style>
+</helmet>
+<div style="min-height: 1080px; display: flex; flex-direction: column; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: #14161F; background: #F5F6F9">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 32px; background: #FFFFFF; border-bottom: 1px solid #E3E6EE">
+    <a href="Main.dc.html" style="font-size: 14px; font-weight: 600; text-decoration: none">← Home</a>
+    <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-weight: 700; font-size: 17px">Results · MATH 201 Midterm</span>
+      <span style="font-size: 13px; color: #565B6B">Oct 10 · 48 students · not released yet</span>
+    </div>
+    <a href="TeacherGrading.dc.html" style="display: inline-flex; align-items: center; min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #D5D9E3; background: #FFFFFF; font-weight: 600; font-size: 14px; color: #14161F; text-decoration: none">Grade 32 answers left</a>
+    <button type="button" disabled style="min-height: 44px; padding: 0 20px; border-radius: 10px; border: none; background: #B9C0D0; font: inherit; font-weight: 600; font-size: 14px; color: #FFFFFF">Release grades</button>
+  </header>
+
+  <main style="flex: 1; box-sizing: border-box; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 24px">
+
+    <section aria-label="Summary" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px">
+      <div style="padding: 18px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: #565B6B">Average</span><span style="font-size: 30px; font-weight: 700">71%</span></div>
+      <div style="padding: 18px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: #565B6B">Median</span><span style="font-size: 30px; font-weight: 700">74%</span></div>
+      <div style="padding: 18px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: #565B6B">Submitted</span><span style="font-size: 30px; font-weight: 700">48 <span style="font-size: 16px; color: #565B6B; font-weight: 500">/ 48</span></span></div>
+      <div style="padding: 18px; border-radius: 14px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 13px; color: #565B6B">Flags reviewed</span><span style="font-size: 30px; font-weight: 700">5 <span style="font-size: 16px; color: #565B6B; font-weight: 500">· 1 incident</span></span></div>
+    </section>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+
+      <section aria-labelledby="dist-h" style="flex: 2 1 380px; min-width: 0; padding: 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 16px">
+        <h2 id="dist-h" style="margin: 0; font-size: 17px; font-weight: 700">Score spread (sample data)</h2>
+        <div role="img" aria-label="Score distribution, most students between 60 and 90 percent" style="display: flex; align-items: flex-end; gap: 10px; height: 200px; padding-bottom: 8px; border-bottom: 1px solid #D5D9E3">
+          <sc-for list="{{bins}}" as="b" hint-placeholder-count="10">
+            <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 4px; height: 100%">
+              <span style="font-size: 12px; font-weight: 600; color: #3A3F4E">{{b.n}}</span>
+              <div style="{{b.style}}"></div>
+            </div>
+          </sc-for>
+        </div>
+        <div style="display: flex; gap: 10px">
+          <sc-for list="{{bins}}" as="b" hint-placeholder-count="10">
+            <span style="flex: 1; text-align: center; font-size: 11px; color: #565B6B">{{b.label}}</span>
+          </sc-for>
+        </div>
+      </section>
+
+      <section aria-labelledby="int-h" style="flex: 1 1 300px; min-width: 0; padding: 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 12px">
+        <h2 id="int-h" style="margin: 0; font-size: 17px; font-weight: 700">Integrity log</h2>
+        <div style="display: flex; justify-content: space-between; font-size: 14px; padding: 10px 0; border-bottom: 1px solid #F0F2F6"><span>Room camera flags</span><span style="font-weight: 600">3 · 2 fine, 1 walked over</span></div>
+        <div style="display: flex; justify-content: space-between; font-size: 14px; padding: 10px 0; border-bottom: 1px solid #F0F2F6"><span>Blocked app attempts</span><span style="font-weight: 600">1 · dismissed</span></div>
+        <div style="display: flex; justify-content: space-between; font-size: 14px; padding: 10px 0; border-bottom: 1px solid #F0F2F6"><span>Similar wrong answers</span><span style="font-weight: 600; color: #B4470B">1 pair · incident</span></div>
+        <div style="display: flex; justify-content: space-between; font-size: 14px; padding: 10px 0"><span>Went offline</span><span style="font-weight: 600">1 · all answers synced</span></div>
+        <a href="TeacherLiveRoom.dc.html" style="font-size: 14px; font-weight: 600">Open full log</a>
+      </section>
+    </div>
+
+    <section aria-labelledby="qa-h" style="padding: 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center">
+        <h2 id="qa-h" style="margin: 0; font-size: 17px; font-weight: 700">Question by question</h2>
+        <span style="font-size: 13px; color: #565B6B">"Top vs bottom" = how much better the top 27% did than the bottom 27%</span>
+      </div>
+      <div style="overflow-x: auto">
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px; min-width: 640px">
+          <thead><tr style="text-align: left; color: #565B6B">
+            <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Question</th>
+            <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Type</th>
+            <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Got it right</th>
+            <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Top vs bottom</th>
+            <th style="padding: 10px 8px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Note</th>
+          </tr></thead>
+          <tbody>
+            <tr><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6; font-weight: 600">Q1 · ∫ x·e^(x²) dx</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">Multiple choice</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">88%</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">+0.31</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">—</td></tr>
+            <tr><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6; font-weight: 600">Q3 · Area between curves</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">Math expression</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">52%</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">+0.58</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">Hardest useful question</td></tr>
+            <tr><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6; font-weight: 600">Q9 · Ratio test</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">Multi-select</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">23%</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6">−0.12</td><td style="padding: 12px 8px; border-bottom: 1px solid #F0F2F6"><span style="padding: 4px 10px; border-radius: 99px; background: #FDEEE3; color: #8A3508; font-weight: 600; font-size: 13px">Check answer key</span></td></tr>
+            <tr><td style="padding: 12px 8px; font-weight: 600">Q12 · Integral test essay</td><td style="padding: 12px 8px">Essay</td><td style="padding: 12px 8px">Grading 31 / 48</td><td style="padding: 12px 8px">—</td><td style="padding: 12px 8px">—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var counts = [0, 1, 1, 2, 3, 6, 9, 12, 9, 5];
+    var max = 12;
+    var bins = counts.map(function (n, i) {
+      var h = Math.max(4, Math.round(n / max * 160));
+      return {
+        n: n,
+        label: (i * 10) + '–' + (i * 10 + 10) + '%',
+        style: 'width: 100%; height: ' + h + 'px; border-radius: 6px 6px 0 0; background: ' + (i >= 6 && i <= 8 ? '#2F4BD8' : '#B7C2F5')
+      };
+    });
+    return { bins: bins };
+  }
+}
+</script>
+</body>
+</html>

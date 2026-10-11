@@ -1,0 +1,286 @@
+/* Slice 3: external-website exams (student pages + teacher settings).
+   Light only, built on tokens.css. Class prefix "ext-" so nothing collides. */
+
+.ext-page {
+  min-height: 100vh;
+  background: var(--ground);
+  color: var(--text);
+  font-family: var(--font);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  box-sizing: border-box;
+}
+
+.ext-card {
+  width: 100%;
+  max-width: 520px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-paper);
+  padding: 32px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ext-card h1 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.ext-card p,
+.ext-card ol {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.ext-eyebrow {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  margin: 0;
+}
+
+.ext-small {
+  font-size: 13px !important;
+  color: var(--muted) !important;
+}
+
+.ext-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.ext-btn {
+  min-height: var(--touch);
+  padding: 0 18px;
+  border-radius: var(--r-control);
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text);
+  font: 600 15px/1 var(--font);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.ext-btn:hover {
+  background: var(--surface-2);
+}
+
+.ext-btn.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+
+.ext-btn.primary:hover {
+  background: var(--primary-hover);
+}
+
+.ext-btn:focus-visible,
+.ext-choice:focus-within,
+.ext-input:focus-visible {
+  outline: 3px solid var(--primary-soft);
+  outline-offset: 2px;
+}
+
+.ext-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid var(--primary-tint);
+  border-top-color: var(--primary);
+  animation: ext-spin 0.9s linear infinite;
+}
+
+@keyframes ext-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ext-spinner {
+    animation: none;
+  }
+}
+
+.ext-status {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.ext-alert {
+  border-radius: var(--r-tile);
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--warn-tint);
+  color: var(--warn-dark);
+  border: 1px solid var(--warn-border);
+}
+
+/* ---------- teacher: "Where do students answer?" ---------- */
+
+.ext-settings {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-family: var(--font);
+  color: var(--text);
+}
+
+.ext-settings legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ext-choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.ext-choice {
+  position: relative;
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.ext-choice:hover {
+  border-color: var(--border-strong);
+}
+
+.ext-choice.selected {
+  border-color: var(--primary);
+  background: var(--primary-tint-2);
+  box-shadow: inset 0 0 0 1px var(--primary);
+}
+
+.ext-choice input {
+  margin: 3px 0 0;
+  accent-color: var(--primary);
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+
+.ext-choice-title {
+  display: block;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.ext-choice-hint {
+  display: block;
+  margin-top: 3px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.ext-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
+  background: var(--surface-2);
+}
+
+.ext-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ext-field label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ext-optional {
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.ext-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: var(--touch);
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  color: var(--text);
+  font: 400 15px/1.4 var(--font);
+}
+
+textarea.ext-input {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.ext-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.ext-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.ext-error {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.ext-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ext-chips li {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: var(--primary-tint);
+  color: var(--primary);
+  font-weight: 600;
+}

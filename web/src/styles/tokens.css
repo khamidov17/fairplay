@@ -1,0 +1,53 @@
+/* Design tokens — CONTRACT.md "Visual style (slice 3)".
+   Light only: no black or near-black surfaces. Ink (#1B2533) is for text only.
+   Contrast (WCAG): ink 15.4:1, text-2 7.5:1 on white / 6.9:1 on ground,
+   muted 4.6:1 on white only (use text-2 on ground and tints),
+   primary 6.7:1 on white / 6.0:1 on primary-tint, warn-dark 6.3:1 on warn-tint. */
+:root {
+  --font: "Plus Jakarta Sans", system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  /* Exam-paper serif: question prompts, essays and students' written answers. */
+  --serif: "Source Serif 4", "Source Serif Pro", Georgia, "Times New Roman", "Songti SC", serif;
+  /* Kept for old class names: numbers use the UI font with tabular figures, never monospace. */
+  --mono: var(--font);
+
+  --ground: #F3F5F7;
+  --surface: #FFFFFF;
+  --surface-2: #F8F9FB;
+  --border: #E2E6EC;
+  --border-strong: #CDD3DC;
+  --divider: #EDF0F3;
+  --text: #1B2533;
+  --text-2: #4A5568;
+  --muted: #6B7686;
+  --faint: #6B7686;
+
+  --primary: #2F4BD8;
+  --primary-hover: #2239B0;
+  --primary-tint: #EEF1FD;
+  --primary-tint-2: #F6F8FE;
+  --primary-soft: #BAC5F5;
+
+  --success: #16794C;
+  --success-tint: #E8F5EE;
+  --warn: #B4570B;
+  --warn-dark: #8F4508;
+  --warn-tint: #FDF1E6;
+  --warn-border: #F1D2B4;
+  --warn-bg: #FFF9F3;
+  --danger: #B42318;
+  --danger-tint: #FDECEA;
+
+  /* Legacy names: there are no dark surfaces any more; these resolve to light values. */
+  --dark: #1B2533;
+  --dark-2: #F3F5F7;
+  --dark-3: #CDD3DC;
+  --on-dark-muted: #4A5568;
+
+  --r-control: 8px;
+  --r-tile: 10px;
+  --r-card: 14px;
+  --touch: 44px;
+
+  --shadow-paper: 0 1px 2px rgba(27, 37, 51, 0.04), 0 6px 24px rgba(27, 37, 51, 0.05);
+  --shadow-pop: 0 12px 32px rgba(27, 37, 51, 0.12);
+}

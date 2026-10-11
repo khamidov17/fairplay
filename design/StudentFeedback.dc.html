@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exam feedback</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F6F9}
+a{color:#2F4BD8}a:hover{color:#1F35A8}
+</style>
+</helmet>
+<div style="min-height: 1100px; display: flex; flex-direction: column; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: #14161F; background: #F5F6F9">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 40px; background: #FFFFFF; border-bottom: 1px solid #E3E6EE">
+    <a href="StudentGrades.dc.html" style="font-size: 14px; font-weight: 600; text-decoration: none">← Grades</a>
+  </header>
+
+  <main style="width: 100%; max-width: 920px; margin: 0 auto; box-sizing: border-box; padding: 32px 24px 48px; display: flex; flex-direction: column; gap: 20px">
+
+    <section style="display: flex; flex-wrap: wrap; align-items: center; gap: 24px; padding: 28px; border-radius: 18px; background: #FFFFFF; border: 1px solid #E3E6EE">
+      <div style="flex: 1 1 300px; display: flex; flex-direction: column; gap: 6px">
+        <span style="font-size: 13px; font-weight: 600; color: #565B6B">MATH 201 · Exam · Sep 25</span>
+        <h1 style="margin: 0; font-size: 26px; font-weight: 700">Quiz 4 · Integration techniques</h1>
+        <p style="margin: 6px 0 0; font-size: 15px; line-height: 1.6; color: #3A3F4E"><strong>From your teacher:</strong> Strong work. Remember the constant of integration on indefinite integrals.</p>
+      </div>
+      <div style="display: flex; flex-direction: column; align-items: center; padding: 18px 26px; border-radius: 16px; background: #F2F4FE">
+        <span style="font-size: 40px; font-weight: 700; color: #1F35A8">9<span style="font-size: 20px; color: #3A3F4E"> / 10</span></span>
+        <span style="font-size: 13px; color: #3A3F4E">Class average 7.4</span>
+      </div>
+    </section>
+
+    <article style="padding: 22px 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 14px; font-weight: 700">Question 1 · Multiple choice</span><span style="padding: 4px 10px; border-radius: 99px; background: #E6F4EC; color: #12704A; font-weight: 700; font-size: 13px">2 / 2 ✓</span></div>
+      <span style="font-size: 16px; line-height: 1.5">Evaluate ∫ x·e<sup>x²</sup> dx.</span>
+      <div style="display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #E6F4EC; font-size: 15px"><span style="font-weight: 700">Your answer:</span>B · ½ e<sup>x²</sup> + C</div>
+    </article>
+
+    <article style="padding: 22px 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 14px; font-weight: 700">Question 2 · Math</span><span style="padding: 4px 10px; border-radius: 99px; background: #FDEEE3; color: #8A3508; font-weight: 700; font-size: 13px">3 / 4 · partial</span></div>
+      <span style="font-size: 16px; line-height: 1.5">Find ∫ x·cos(x) dx.</span>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+        <div style="padding: 12px 14px; border-radius: 12px; background: #FDEEE3; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; font-weight: 700; color: #8A3508">YOUR ANSWER</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 15px">x·sin(x) + cos(x)</span></div>
+        <div style="padding: 12px 14px; border-radius: 12px; background: #E6F4EC; display: flex; flex-direction: column; gap: 4px"><span style="font-size: 12px; font-weight: 700; color: #12704A">CORRECT ANSWER</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 15px">x·sin(x) + cos(x) + C</span></div>
+      </div>
+      <div style="padding: 12px 14px; border-radius: 12px; border-left: none; background: #F5F6F9; font-size: 14px; line-height: 1.5"><strong>Teacher:</strong> Integration by parts done right. −1 for missing + C.</div>
+    </article>
+
+    <article style="padding: 22px 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 12px">
+      <div style="display: flex; justify-content: space-between; align-items: center"><span style="font-size: 14px; font-weight: 700">Question 3 · Code (Python)</span><span style="padding: 4px 10px; border-radius: 99px; background: #E6F4EC; color: #12704A; font-weight: 700; font-size: 13px">4 / 4 ✓</span></div>
+      <span style="font-size: 16px; line-height: 1.5">Write <code style="font-family: 'JetBrains Mono', monospace; background: #F2F4FE; padding: 1px 6px; border-radius: 4px">trapezoid(f, a, b, n)</code> that approximates ∫ f from a to b.</span>
+      <div style="display: flex; flex-wrap: wrap; gap: 8px">
+        <span style="padding: 6px 12px; border-radius: 99px; background: #E6F4EC; color: #12704A; font-size: 13px; font-weight: 600">Hidden tests 10 / 10 passed</span>
+        <span style="padding: 6px 12px; border-radius: 99px; background: #F0F2F6; color: #3A3F4E; font-size: 13px; font-weight: 600">Slowest test 0.04 s</span>
+      </div>
+      <button type="button" style="align-self: flex-start; min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px solid #D5D9E3; background: #FFFFFF; font: inherit; font-weight: 600; font-size: 14px">Show my code</button>
+    </article>
+
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 22px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE">
+      <span style="font-size: 14px; color: #3A3F4E">Think a question was graded wrong?</span>
+      <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid #2F4BD8; background: #FFFFFF; font: inherit; font-weight: 600; font-size: 14px; color: #2F4BD8">Ask for a regrade</button>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

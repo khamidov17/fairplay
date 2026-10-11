@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gradebook</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F6F9}
+a{color:#2F4BD8}a:hover{color:#1F35A8}
+</style>
+</helmet>
+<div style="min-height: 1080px; display: flex; flex-direction: column; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: #14161F; background: #F5F6F9">
+
+  <header style="display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 16px 32px; background: #FFFFFF; border-bottom: 1px solid #E3E6EE">
+    <a href="Main.dc.html" style="font-size: 14px; font-weight: 600; text-decoration: none">← Home</a>
+    <div style="flex: 1 1 240px; display: flex; flex-direction: column; gap: 2px">
+      <span style="font-weight: 700; font-size: 17px">Gradebook · MATH 201</span>
+      <span style="font-size: 13px; color: #565B6B">48 students · 5 assessments</span>
+    </div>
+    <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600">Section
+      <select style="min-height: 44px; padding: 0 10px; border-radius: 10px; border: 1px solid #D5D9E3; font: inherit; font-weight: 500; background: #FFFFFF"><option>All sections</option></select>
+    </label>
+    <button type="button" style="min-height: 44px; padding: 0 16px; border-radius: 10px; border: 1px solid #D5D9E3; background: #FFFFFF; font: inherit; font-weight: 600; font-size: 14px">Export Excel</button>
+  </header>
+
+  <main style="flex: 1; box-sizing: border-box; padding: 24px 32px 40px; display: flex; flex-direction: column; gap: 18px">
+
+    <div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 18px; border-radius: 12px; background: #FDEEE3; border: 1px solid #F3C9AC">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B4470B" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 8v5M12 17h.01"></path><circle cx="12" cy="12" r="9"></circle></svg>
+      <span style="flex: 1 1 280px; font-size: 14px"><strong>3 grades didn't reach Canvas</strong> for Quiz 5 (Canvas was unavailable). We'll retry automatically.</span>
+      <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 10px; border: none; background: #B4470B; color: #FFFFFF; font: inherit; font-weight: 600; font-size: 14px">Send now</button>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; color: #3A3F4E">
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 4px; background: #FDEEE3; border: 1px solid #B4470B"></span>Late</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 4px; background: #FDECEA; border: 1px solid #B42318"></span>Missing</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 4px; background: #F2F4FE; border: 1px solid #2F4BD8"></span>Needs grading</span>
+      <span style="display: inline-flex; align-items: center; gap: 6px"><span style="width: 12px; height: 12px; border-radius: 4px; background: #F0F2F6; border: 1px dashed #8A8F9E"></span>Excused</span>
+      <span>· Click any cell to override (reason required)</span>
+    </div>
+
+    <section aria-label="Grades" style="padding: 8px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; overflow-x: auto">
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px; min-width: 900px">
+        <thead><tr style="text-align: left; color: #565B6B">
+          <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Student</th>
+          <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Quiz 4</th>
+          <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Quiz 5</th>
+          <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E3E6EE">PS 5</th>
+          <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E3E6EE">PS 6</th>
+          <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Midterm</th>
+          <th style="padding: 12px; font-weight: 600; border-bottom: 1px solid #E3E6EE">Total</th>
+        </tr></thead>
+        <tbody>
+          <sc-for list="{{rows}}" as="r" hint-placeholder-count="8">
+            <tr>
+              <td style="padding: 12px; border-bottom: 1px solid #F0F2F6; font-weight: 600">{{r.name}}</td>
+              <td style="padding: 8px; border-bottom: 1px solid #F0F2F6"><span style="{{r.c1.style}}">{{r.c1.v}}</span></td>
+              <td style="padding: 8px; border-bottom: 1px solid #F0F2F6"><span style="{{r.c2.style}}">{{r.c2.v}}</span></td>
+              <td style="padding: 8px; border-bottom: 1px solid #F0F2F6"><span style="{{r.c3.style}}">{{r.c3.v}}</span></td>
+              <td style="padding: 8px; border-bottom: 1px solid #F0F2F6"><span style="{{r.c4.style}}">{{r.c4.v}}</span></td>
+              <td style="padding: 8px; border-bottom: 1px solid #F0F2F6"><span style="{{r.c5.style}}">{{r.c5.v}}</span></td>
+              <td style="padding: 12px; border-bottom: 1px solid #F0F2F6; font-weight: 700">{{r.total}}</td>
+            </tr>
+          </sc-for>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var base = 'display: inline-flex; align-items: center; min-height: 36px; padding: 0 10px; border-radius: 8px; font-size: 14px; ';
+    var st = {
+      ok: base + 'color: #14161F',
+      late: base + 'background: #FDEEE3; border: 1px solid #B4470B; color: #8A3508; font-weight: 600',
+      miss: base + 'background: #FDECEA; border: 1px solid #B42318; color: #8E1B12; font-weight: 600',
+      need: base + 'background: #F2F4FE; border: 1px solid #2F4BD8; color: #1F35A8; font-weight: 600',
+      exc: base + 'background: #F0F2F6; border: 1px dashed #8A8F9E; color: #3A3F4E'
+    };
+    function c(v, k) { return { v: v, style: st[k || 'ok'] }; }
+    var rows = [
+      { name: '[Student 1]', c1: c('9/10'), c2: c('8/10'), c3: c('18/20'), c4: c('Needs grading', 'need'), c5: c('Needs grading', 'need'), total: '—' },
+      { name: '[Student 2]', c1: c('10/10'), c2: c('7/10'), c3: c('17/20', 'late'), c4: c('19/20'), c5: c('82/100'), total: '86%' },
+      { name: '[Student 3]', c1: c('6/10'), c2: c('Missing', 'miss'), c3: c('14/20'), c4: c('15/20'), c5: c('64/100'), total: '63%' },
+      { name: '[Student 4]', c1: c('Excused', 'exc'), c2: c('9/10'), c3: c('20/20'), c4: c('18/20'), c5: c('91/100'), total: '92%' },
+      { name: '[Student 5]', c1: c('8/10'), c2: c('8/10'), c3: c('16/20'), c4: c('Missing', 'miss'), c5: c('70/100'), total: '68%' },
+      { name: '[Student 6]', c1: c('7/10'), c2: c('9/10'), c3: c('19/20'), c4: c('17/20', 'late'), c5: c('Needs grading', 'need'), total: '—' },
+      { name: '[Student 7]', c1: c('10/10'), c2: c('10/10'), c3: c('20/20'), c4: c('20/20'), c5: c('97/100'), total: '98%' },
+      { name: '[Student 8]', c1: c('5/10'), c2: c('6/10'), c3: c('12/20'), c4: c('13/20'), c5: c('55/100'), total: '57%' }
+    ];
+    return { rows: rows };
+  }
+}
+</script>
+</body>
+</html>

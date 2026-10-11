@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Exam setup</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F5F6F9}
+a{color:#2F4BD8}a:hover{color:#1F35A8}
+</style>
+</helmet>
+<div style="min-height: 1080px; display: flex; flex-wrap: wrap; font-family: 'Plus Jakarta Sans', system-ui, sans-serif; color: #14161F; background: #F5F6F9">
+
+  <nav aria-label="Main" style="flex: 1 1 240px; max-width: 100%; box-sizing: border-box; padding: 24px 16px; background: #FFFFFF; border-right: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 4px">
+    <div style="display: flex; align-items: center; gap: 10px; padding: 4px 12px 24px">
+      <div style="width: 32px; height: 32px; border-radius: 9px; background: #2F4BD8; display: flex; align-items: center; justify-content: center">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#FFFFFF" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l8 4v5c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V7z"></path><path d="M8.5 12l2.5 2.5 4.5-5"></path></svg>
+      </div>
+      <span style="font-weight: 700; font-size: 18px">Proctora</span>
+    </div>
+    <a href="Main.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; color: #3A3F4E; font-weight: 500; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"></path></svg>Home</a>
+    <a href="TeacherExamSetup.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; background: #E9EDFC; color: #2F4BD8; font-weight: 600; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="3" width="16" height="18" rx="2"></rect><path d="M8 8h8M8 12h8M8 16h5"></path></svg>Exams</a>
+    <a href="TeacherHomework.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; color: #3A3F4E; font-weight: 500; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19V5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-2z"></path><path d="M4 17a2 2 0 0 1 2-2h12"></path></svg>Homework</a>
+    <a href="TeacherLiveRoom.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; color: #3A3F4E; font-weight: 500; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>Live room</a>
+    <a href="TeacherCanvasImport.dc.html" style="display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 10px; color: #3A3F4E; font-weight: 500; font-size: 15px; text-decoration: none">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3L20 9M20 4v5h-5M20 12a8 8 0 0 1-14 5.3L4 15M4 20v-5h5"></path></svg>Canvas sync</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; box-sizing: border-box; padding: 32px 40px 48px; display: flex; flex-direction: column; gap: 24px">
+
+    <header style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px">
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <span style="display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: #565B6B"><span style="padding: 3px 8px; border-radius: 6px; background: #E9EDFC; color: #2F4BD8; font-weight: 600">From Canvas</span>MATH 201</span>
+        <h1 style="margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.01em">Midterm exam</h1>
+      </div>
+      <div style="display: flex; gap: 12px">
+        <button type="button" style="min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid #D5D9E3; background: #FFFFFF; font: inherit; font-weight: 600; font-size: 15px; color: #14161F">Preview as student</button>
+        <button type="button" style="min-height: 44px; padding: 0 20px; border-radius: 10px; border: none; background: #2F4BD8; font: inherit; font-weight: 600; font-size: 15px; color: #FFFFFF">Schedule exam</button>
+      </div>
+    </header>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start">
+
+      <section aria-labelledby="q-h" style="flex: 3 1 440px; min-width: 0; padding: 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 14px">
+        <div style="display: flex; justify-content: space-between; align-items: center">
+          <h2 id="q-h" style="margin: 0; font-size: 18px; font-weight: 700">Questions <span style="color: #565B6B; font-weight: 500">· 24</span></h2>
+          <button type="button" style="min-height: 40px; padding: 0 14px; border-radius: 10px; border: 1px dashed #B9C0D0; background: #FFFFFF; font: inherit; font-weight: 600; font-size: 14px; color: #2F4BD8">+ Add question</button>
+        </div>
+        <div style="display: flex; gap: 14px; padding: 16px; border-radius: 12px; border: 1px solid #E3E6EE">
+          <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #565B6B">01</span>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 8px">
+            <span style="font-size: 15px; line-height: 1.5">Evaluate ∫ x·e<sup>x²</sup> dx.</span>
+            <span style="font-size: 13px; color: #565B6B">Multiple choice · 4 options · 4 pts</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 14px; padding: 16px; border-radius: 12px; border: 1px solid #E3E6EE">
+          <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #565B6B">02</span>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 8px">
+            <span style="font-size: 15px; line-height: 1.5">Does the series Σ 1/n<sup>p</sup> converge for p = 1.5? Explain.</span>
+            <span style="font-size: 13px; color: #565B6B">Short answer · 6 pts</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 14px; padding: 16px; border-radius: 12px; border: 1px solid #F3C9AC; background: #FFF8F3">
+          <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #8A3508">03</span>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 8px">
+            <span style="font-size: 15px; line-height: 1.5">Find the area between y = x² and y = 2x.</span>
+            <span style="font-size: 13px; color: #8A3508; font-weight: 600">Converted from a Canvas formula question · check the answer</span>
+          </div>
+        </div>
+        <div style="display: flex; gap: 14px; padding: 16px; border-radius: 12px; border: 1px solid #E3E6EE">
+          <span style="font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #565B6B">04</span>
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 8px">
+            <span style="font-size: 15px; line-height: 1.5">True or false: every bounded sequence converges.</span>
+            <span style="font-size: 13px; color: #565B6B">True / false · 2 pts</span>
+          </div>
+        </div>
+        <span style="font-size: 14px; color: #565B6B; text-align: center; padding-top: 4px">+ 20 more questions</span>
+      </section>
+
+      <aside style="flex: 2 1 340px; min-width: 0; display: flex; flex-direction: column; gap: 20px">
+
+        <section aria-labelledby="sec-h" style="padding: 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 14px">
+          <h2 id="sec-h" style="margin: 0; font-size: 18px; font-weight: 700">How strict?</h2>
+          <div role="radiogroup" aria-label="Security level" style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+            <button type="button" role="radio" aria-checked="false" style="min-height: 72px; padding: 10px; border-radius: 12px; border: 1px solid #E3E6EE; background: #FFFFFF; font: inherit; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left"><span style="font-weight: 700; font-size: 14px">Light</span><span style="font-size: 12px; color: #565B6B">Lockdown only</span></button>
+            <button type="button" role="radio" aria-checked="true" style="min-height: 72px; padding: 10px; border-radius: 12px; border: 2px solid #2F4BD8; background: #F2F4FE; font: inherit; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left"><span style="font-weight: 700; font-size: 14px; color: #2F4BD8">Standard</span><span style="font-size: 12px; color: #3A3F4E">+ room camera</span></button>
+            <button type="button" role="radio" aria-checked="false" style="min-height: 72px; padding: 10px; border-radius: 12px; border: 1px solid #E3E6EE; background: #FFFFFF; font: inherit; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left"><span style="font-weight: 700; font-size: 14px">Strict</span><span style="font-size: 12px; color: #565B6B">+ laptop camera</span></button>
+          </div>
+
+          <div style="display: flex; flex-direction: column">
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #F0F2F6">
+              <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600; font-size: 14px">Full-screen lockdown</span><span style="font-size: 13px; color: #565B6B">No other apps, no copy-paste</span></span>
+              <span aria-label="On" style="width: 44px; height: 26px; border-radius: 99px; background: #2F4BD8; position: relative; flex-shrink: 0"><span style="position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%; background: #FFFFFF"></span></span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #F0F2F6">
+              <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600; font-size: 14px">Classroom camera</span><span style="font-size: 13px; color: #565B6B">Room AB 1087 · flags go to you, never auto-punished</span></span>
+              <span aria-label="On" style="width: 44px; height: 26px; border-radius: 99px; background: #2F4BD8; position: relative; flex-shrink: 0"><span style="position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%; background: #FFFFFF"></span></span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #F0F2F6">
+              <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600; font-size: 14px">Laptop camera</span><span style="font-size: 13px; color: #565B6B">Students can choose ID check by staff instead</span></span>
+              <span aria-label="Off" style="width: 44px; height: 26px; border-radius: 99px; background: #D5D9E3; position: relative; flex-shrink: 0"><span style="position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #FFFFFF"></span></span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid #F0F2F6">
+              <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600; font-size: 14px">Shuffle questions per student</span><span style="font-size: 13px; color: #565B6B">Neighbours see different orders</span></span>
+              <span aria-label="On" style="width: 44px; height: 26px; border-radius: 99px; background: #2F4BD8; position: relative; flex-shrink: 0"><span style="position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border-radius: 50%; background: #FFFFFF"></span></span>
+            </div>
+            <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 0">
+              <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-weight: 600; font-size: 14px">Allowed apps</span><span style="font-size: 13px; color: #565B6B">Built-in scientific calculator</span></span>
+              <button type="button" style="min-height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid #D5D9E3; background: #FFFFFF; font: inherit; font-size: 13px; font-weight: 600">Edit</button>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 10px; background: #F5F6F9; font-size: 13px; color: #3A3F4E">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#565B6B" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"></rect><path d="M8 11V7a4 4 0 0 1 8 0v4"></path></svg>
+            AI tutor is always off during exams.
+          </div>
+        </section>
+
+        <section aria-labelledby="when-h" style="padding: 24px; border-radius: 16px; background: #FFFFFF; border: 1px solid #E3E6EE; display: flex; flex-direction: column; gap: 14px">
+          <h2 id="when-h" style="margin: 0; font-size: 18px; font-weight: 700">When and where</h2>
+          <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+            <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: #3A3F4E">Date<input type="text" value="Oct 10, 2026" style="min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid #D5D9E3; font: inherit; font-size: 15px; font-weight: 500; color: #14161F"></label>
+            <label style="display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: #3A3F4E">Time<input type="text" value="14:00 – 15:30" style="min-height: 44px; padding: 0 12px; border-radius: 10px; border: 1px solid #D5D9E3; font: inherit; font-size: 15px; font-weight: 500; color: #14161F"></label>
+          </div>
+          <p style="margin: 0; font-size: 13px; line-height: 1.5; color: #565B6B">The exam downloads to laptops 30 min early, locked. It opens only when you read out the start code in the room.</p>
+        </section>
+
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1080}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

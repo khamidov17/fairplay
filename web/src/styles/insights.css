@@ -1,0 +1,337 @@
+/* Slice 6 F/G: class insights + student profiles. Light style, tokens from tokens.css.
+   Heatmap = one sequential hue (primary blue), light = low, dark = high. Steps 3–4 carry
+   white text (≥ 4.5:1), steps 0–2 ink text. Every cell also prints its number. */
+
+.ins-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+.ins-two {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+.ins-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ins-card-head h2,
+.ins-section-title {
+  margin: 0;
+  font-size: 18px;
+}
+.ins-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.ins-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-2);
+  min-height: 32px;
+  cursor: pointer;
+}
+.ins-check input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--primary);
+}
+.ins-filters {
+  flex-wrap: wrap;
+}
+
+/* exam picker */
+.ins-exam-picker {
+  position: relative;
+}
+.ins-exam-picker > summary {
+  list-style: none;
+  cursor: pointer;
+}
+.ins-exam-picker > summary::-webkit-details-marker {
+  display: none;
+}
+.ins-exam-picker fieldset {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 280px;
+  max-height: 340px;
+  overflow: auto;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(27, 37, 51, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* legend */
+.ins-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.ins-legend-title {
+  font-weight: 600;
+  color: var(--text);
+}
+.ins-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ins-swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+/* heat steps */
+.ins-heat-0 { background: #DCE3FB; color: var(--text); }
+.ins-heat-1 { background: #B7C4F6; color: var(--text); }
+.ins-heat-2 { background: #8B9FEF; color: var(--text); }
+.ins-heat-3 { background: #4F68E0; color: #FFFFFF; }
+.ins-heat-4 { background: #2239B0; color: #FFFFFF; }
+.ins-heat-none {
+  background: var(--surface);
+  color: var(--muted);
+  box-shadow: inset 0 0 0 1px var(--border);
+  background-image: repeating-linear-gradient(135deg, transparent 0 5px, var(--divider) 5px 6px);
+}
+
+/* heatmap table */
+.ins-heat-wrap {
+  overflow-x: auto;
+  max-width: 100%;
+}
+.ins-heat {
+  border-collapse: separate;
+  border-spacing: 2px;
+  font-size: 14px;
+  min-width: 100%;
+}
+.ins-heat th {
+  text-align: left;
+  font-weight: 600;
+  color: var(--text-2);
+  padding: 6px 8px;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+.ins-heat thead th {
+  font-size: 13px;
+}
+.ins-heat tbody th {
+  color: var(--text);
+  max-width: 240px;
+  white-space: normal;
+}
+.ins-heat-exam {
+  display: block;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ins-heat-date {
+  display: block;
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 12px;
+}
+.ins-heat-cell {
+  min-width: 72px;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 6px;
+  text-align: center;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.ins-heat-total {
+  outline: 2px solid var(--surface);
+  font-weight: 700;
+}
+.ins-heat-trend {
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.ins-trend {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.ins-trend.up {
+  color: var(--primary);
+}
+
+/* reteach */
+.ins-reteach {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ins-reteach li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.ins-reteach li:last-child {
+  border-bottom: none;
+}
+.ins-small-btn {
+  min-height: 40px;
+  padding: 8px 14px;
+  font-size: 14px;
+  white-space: nowrap;
+  text-decoration: none;
+  align-self: flex-start;
+}
+.ins-prompt {
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--text-2);
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* chips */
+.ins-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.ins-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 99px;
+  background: var(--primary-tint);
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+.ins-chip.strong {
+  background: var(--success-tint);
+  color: var(--success);
+}
+.ins-chip.weak {
+  background: var(--warn-tint);
+  color: var(--warn-dark);
+}
+
+/* mistakes */
+.ins-mistakes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+.ins-mistake {
+  gap: 10px;
+}
+.ins-mistake-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+.ins-mistake-head h3 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 1.35;
+}
+.ins-examples {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ins-examples q {
+  font-family: var(--serif);
+  color: var(--text);
+  font-size: 14px;
+}
+.ins-examples a {
+  color: var(--primary);
+}
+
+/* profile */
+.ins-spark {
+  display: block;
+  overflow: visible;
+}
+.ins-spark-ref {
+  stroke: var(--border-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.ins-spark-line {
+  fill: none;
+  stroke: var(--primary);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ins-spark-dot {
+  fill: var(--primary);
+  stroke: var(--surface);
+  stroke-width: 1.5;
+}
+.ins-note {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.ins-practice {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+@media (max-width: 640px) {
+  .ins-two,
+  .ins-mistakes {
+    grid-template-columns: 1fr;
+  }
+  .ins-exam-picker fieldset {
+    left: 0;
+    right: auto;
+  }
+}

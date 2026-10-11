@@ -1,0 +1,269 @@
+/* Slice 6: question images, image editor, topic chips + input, delivery cards, offline note.
+   Light style only (tokens.css). */
+
+/* ---------- pictures above a prompt ---------- */
+.fp-qimgs {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.fp-qimgs.compact {
+  margin: 4px 0 8px;
+  gap: 8px;
+}
+.fp-qimg-btn {
+  display: block;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
+  background: var(--surface);
+  cursor: zoom-in;
+  overflow: hidden;
+  min-width: var(--touch);
+  min-height: var(--touch);
+}
+.fp-qimg-btn:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+.fp-qimg-btn img {
+  display: block;
+  max-width: min(100%, 360px);
+  max-height: 260px;
+  object-fit: contain;
+}
+.fp-qimgs.compact .fp-qimg-btn img {
+  max-width: 140px;
+  max-height: 100px;
+}
+.fp-qimgs li {
+  max-width: 100%;
+}
+
+.fp-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(243, 245, 247, 0.94);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+}
+.fp-viewer-box {
+  position: relative;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  box-shadow: var(--shadow-pop);
+  padding: 52px 16px 16px;
+  max-width: min(96vw, 1200px);
+  max-height: 94vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+.fp-viewer-box img {
+  max-width: 100%;
+  max-height: calc(94vh - 110px);
+  object-fit: contain;
+}
+.fp-viewer-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  min-height: var(--touch);
+  padding: 0 16px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.fp-viewer-alt {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 14px;
+  text-align: center;
+}
+
+/* ---------- image editor (teacher) ---------- */
+.fp-imged {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.fp-imged-drop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 14px;
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--r-tile);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: 14px;
+}
+.fp-imged-drop.over {
+  border-color: var(--primary);
+  background: var(--primary-tint-2);
+}
+.fp-imged-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px;
+}
+.fp-imged-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-tile);
+  background: var(--surface);
+}
+.fp-imged-item img {
+  width: 100%;
+  height: 120px;
+  object-fit: contain;
+  background: var(--surface-2);
+  border-radius: 6px;
+}
+.fp-imged-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.fp-imged-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---------- topics ---------- */
+.fp-topic-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.fp-topic-chips li,
+.fp-topic-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--primary-tint);
+  color: var(--primary-hover);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.fp-topic-chip button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 15px;
+  line-height: 1;
+  padding: 2px 4px;
+  min-width: 24px;
+  min-height: 24px;
+  border-radius: 999px;
+}
+.fp-topic-chip button:focus-visible {
+  outline: 2px solid var(--primary);
+}
+.fp-topic-box {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  min-height: var(--touch);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-control);
+  background: var(--surface);
+}
+.fp-topic-box:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-tint);
+}
+.fp-topic-box.invalid {
+  border-color: var(--danger);
+}
+.fp-topic-box input {
+  flex: 1 1 140px;
+  min-width: 120px;
+  border: none;
+  outline: none;
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 2px;
+  background: transparent;
+  color: var(--text);
+}
+.fp-topic-box input:focus,
+.fp-topic-box input:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border: none;
+}
+.fp-topic-menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  z-index: 20;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-control);
+  box-shadow: var(--shadow-pop);
+  max-height: 220px;
+  overflow: auto;
+}
+.fp-topic-menu li {
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fp-topic-menu li[aria-selected="true"] {
+  background: var(--primary-tint);
+}
+.fp-topic-menu li span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* ---------- delivery cards ---------- */
+.ext-choices.three {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+/* ---------- offline note on the exam page ---------- */
+.fp-offline-note {
+  margin: 8px auto 0;
+  max-width: 760px;
+  width: calc(100% - 32px);
+}

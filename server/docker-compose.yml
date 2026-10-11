@@ -1,0 +1,40 @@
+# Production-shaped stack: API (scale with `docker compose up --scale api=4`), Postgres, Redis, nginx.
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: proctora
+      POSTGRES_PASSWORD: proctora
+      POSTGRES_DB: proctora
+    command: ["postgres", "-c", "max_connections=500", "-c", "shared_buffers=512MB"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U proctora"]
+      interval: 3s
+      retries: 20
+
+  redis:
+    image: redis:7
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--maxclients", "20000"]
+
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql+asyncpg://proctora:proctora@postgres/proctora
+      REDIS_URL: redis://redis:6379/0
+      PROCTORA_SECRET: ${PROCTORA_SECRET:?set PROCTORA_SECRET to a long random string}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
+      DB_POOL_SIZE: "10"
+      DB_MAX_OVERFLOW: "20"
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_started}
+
+  nginx:
+    image: nginx:1.27
+    ports: ["8000:80"]
+    volumes: [./nginx.conf:/etc/nginx/conf.d/default.conf:ro]
+    depends_on: [api]
+
+volumes:
+  pgdata:
