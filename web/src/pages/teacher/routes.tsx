@@ -27,11 +27,14 @@ import BenchmarksPage from "./quality/BenchmarksPage";
 import BenchmarkSetPage from "./quality/BenchmarkSetPage";
 import BenchmarkRunPage from "./quality/BenchmarkRunPage";
 import SecondMarkingQueuePage from "./quality/SecondMarkingQueuePage";
+import CapturePage from "./scan/CapturePage";
 
 export default function TeacherRoutes() {
   return (
     <Routes>
       <Route path="login" element={<LoginPage role="teacher" />} />
+      {/* phase 2: phone capture page — no login (one-time link scoped to one exam) */}
+      <Route path="capture/:token" element={<CapturePage />} />
       <Route
         element={
           <RequireAuth role="teacher">

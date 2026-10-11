@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 import pymupdf
 
+from . import photo
 from . import print as layout_mod
 from .storage import save_file
 
@@ -65,6 +66,8 @@ def load_page(path: str, index: int, dpi: int = DPI) -> np.ndarray:
             return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     data = np.fromfile(path, dtype=np.uint8)
     img = cv2.imdecode(data, cv2.IMREAD_COLOR)
+    if img is None and photo.is_heic(data[:16].tobytes()):
+        img = photo.decode_heic(data.tobytes())  # iPhone photos (needs pillow-heif)
     if img is None:
         raise ValueError("not a readable image")
     h, w = img.shape[:2]
@@ -383,13 +386,36 @@ def _gray(img: np.ndarray) -> np.ndarray:
     return cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
 
 
-def process_source_page(path: str, index: int, exam_id: str, layout: dict) -> dict:
+def analyze_unprinted(img: np.ndarray) -> dict:
+    """Answer sheets not printed by FairPlay: keep the (flattened) page for manual mapping."""
+    gray = _gray(img)
+    return {"status": "unmatched", "reason": "Not a FairPlay booklet — map this page by hand",
+            "student_id": None, "page_no": None, "qr_found": 0, "rotation": 0, "crops": {}, "name_crop": None,
+            "preview": save_file(_jpg(gray, 1000), "jpg"), "source_image": save_file(_jpg(gray, 1700, 85), "jpg")}
+
+
+def process_source_page(path: str, index: int, exam_id: str, layout: dict, unprinted: bool = False) -> dict:
     try:
         img = load_page(path, index)
     except Exception as e:  # unreadable page/image
         return {"status": "unmatched", "reason": f"Could not read this page ({e.__class__.__name__})",
                 "student_id": None, "page_no": None, "qr_found": 0, "rotation": 0, "crops": {},
                 "name_crop": None, "source_image": None, "preview": None}
+    # phase 2: photos (not PDF pages) are flattened first when a page outline is visible
+    flat = None
+    if not is_pdf(path):
+        try:
+            flat = photo.rectify(img)
+        except Exception:  # noqa: BLE001 - never fail a page because of the photo step
+            flat = None
+    if unprinted:
+        return analyze_unprinted(flat if flat is not None else img)
+    if flat is not None:
+        res = analyze_page(flat, exam_id, layout)
+        if res["qr_found"]:
+            return res
+        orig = analyze_page(img, exam_id, layout)
+        return orig if orig["qr_found"] else res
     return analyze_page(img, exam_id, layout)
 
 

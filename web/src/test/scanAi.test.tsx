@@ -30,6 +30,10 @@ vi.mock("../api/scanAi", async (importOriginal) => {
 
 import { AnswerKeyStep, criteriaTotal, keyFormError } from "../pages/teacher/scan/AnswerKeyStep";
 import { ExportButtons } from "../pages/teacher/scan/ExportButtons";
+import CapturePage from "../pages/teacher/scan/CapturePage";
+import { PhoneCapture } from "../pages/teacher/scan/PhoneCapture";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { ApiError } from "../api/client";
 
 const KEY: AnswerKey = {
   exam_id: "e1",
@@ -96,6 +100,59 @@ describe("answer key", () => {
     expect(body.criteria.map((c: { points: number }) => c.points)).toEqual([2, 2]);
     expect(body.common_mistakes).toEqual([{ label: "forgets +C", tag: "missing step", deduction: 1 }]);
     expect(await screen.findByText("Rubric set")).toBeInTheDocument();
+  });
+});
+
+describe("phone capture", () => {
+  it("shows a QR link on the upload step", async () => {
+    api.newCapture.mockResolvedValue({
+      token: "tok", path: "/teacher/capture/tok", url: "http://fp.example/teacher/capture/tok",
+      expires_at: "2026-10-12T10:30:00Z", qr_svg: "<svg data-testid='qr'></svg>",
+    });
+    render(<PhoneCapture examId="e1" unprinted={false} />);
+    await userEvent.click(screen.getByRole("button", { name: "Show QR code" }));
+    expect(await screen.findByRole("img", { name: "QR code for the phone link" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "http://fp.example/teacher/capture/tok" })).toHaveAttribute("href", "/teacher/capture/tok");
+    expect(api.newCapture).toHaveBeenCalledWith("e1", false);
+  });
+
+  it("phone page: take photos, remove one, send", async () => {
+    Object.assign(URL, { createObjectURL: vi.fn(() => "blob:p"), revokeObjectURL: vi.fn() });
+    api.captureInfo.mockResolvedValue({ exam_title: "Paper Midterm", course: "MATH 201", expires_at: "x", photos: 0, uploads: 0, unprinted: false });
+    api.captureUpload.mockResolvedValue({ batch_id: "b1", photos: 1 });
+    render(
+      <MemoryRouter initialEntries={["/teacher/capture/tok"]}>
+        <Routes>
+          <Route path="/teacher/capture/:token" element={<CapturePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("heading", { name: "Paper Midterm" })).toBeInTheDocument();
+    const input = screen.getByLabelText("Take photo") as HTMLInputElement;
+    expect(input).toHaveAttribute("capture", "environment");
+    expect(input).toHaveAttribute("accept", "image/*");
+    const a = new File(["a"], "a.jpg", { type: "image/jpeg" });
+    const b = new File(["b"], "b.jpg", { type: "image/jpeg" });
+    await userEvent.upload(input, [a, b]);
+    expect(screen.getAllByRole("img")).toHaveLength(2);
+    await userEvent.click(screen.getByRole("button", { name: "Remove photo 1" }));
+    await userEvent.click(screen.getByRole("button", { name: "Send 1 photo" }));
+    await waitFor(() => expect(api.captureUpload).toHaveBeenCalled());
+    expect(api.captureUpload.mock.calls[0][0]).toBe("tok");
+    expect(api.captureUpload.mock.calls[0][1]).toEqual([b]);
+    expect(await screen.findByText(/Sent 1 photo\./)).toBeInTheDocument();
+  });
+
+  it("phone page: expired link", async () => {
+    api.captureInfo.mockRejectedValue(new ApiError(410, "expired"));
+    render(
+      <MemoryRouter initialEntries={["/teacher/capture/old"]}>
+        <Routes>
+          <Route path="/teacher/capture/:token" element={<CapturePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent("This link has expired");
   });
 });
 

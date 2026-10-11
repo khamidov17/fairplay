@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { scanApi, type BatchStatus, type ScanBatch, type ScanStatus, type ScanStudent, type UnmatchedPage } from "../../../api/scan";
+import { scanAiApi } from "../../../api/scanAi";
 import { Loading } from "../../../components/Loading";
 import { Pill } from "../../../components/teacher/TeacherLayout";
 import { errorText, formatWhen } from "../../../components/teacher/util";
+import { PhoneCapture } from "./PhoneCapture";
 
 const ACTIVE: BatchStatus[] = ["queued", "reading", "grading"];
 
@@ -30,6 +32,8 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
+  // phase 2: answer sheets not printed by FairPlay (no QR codes) are mapped by hand
+  const [unprinted, setUnprinted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -64,7 +68,8 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
     setError(null);
     setProgress(0);
     try {
-      await scanApi.upload(examId, files, setProgress);
+      if (unprinted) await scanAiApi.uploadUnprinted(examId, files, setProgress);
+      else await scanApi.upload(examId, files, setProgress);
       await refresh();
     } catch (e) {
       setError(errorText(e));
@@ -97,7 +102,15 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
         }}
       >
         <p className="sc-drop-title">Drop the scanned PDF here</p>
-        <p className="t-muted">One big PDF from the copier is fine — pages can be in any order or upside down. Photos (JPEG/PNG) work too.</p>
+        <p className="t-muted">
+          {unprinted
+            ? "Pages in order, one student after another. You assign students and questions to pages after the upload."
+            : "One big PDF from the copier is fine — pages can be in any order or upside down. Photos (JPEG/PNG) work too."}
+        </p>
+        <label className="sc-check">
+          <input type="checkbox" checked={unprinted} onChange={(e) => setUnprinted(e.target.checked)} />
+          These answer sheets were not printed by FairPlay (no codes)
+        </label>
         <label className="btn btn-primary sc-file-btn">
           Choose files
           <input
@@ -105,7 +118,7 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
             type="file"
             className="sr-only"
             multiple
-            accept="application/pdf,image/png,image/jpeg,image/tiff,image/webp"
+            accept="application/pdf,image/png,image/jpeg,image/tiff,image/webp,image/heic,.heic"
             onChange={(e) => upload(Array.from(e.target.files ?? []))}
             disabled={progress !== null}
           />
@@ -116,6 +129,8 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
           </div>
         )}
       </div>
+
+      <PhoneCapture examId={examId} unprinted={unprinted} />
 
       <div className="t-stats">
         <div className="t-stat">

@@ -5,9 +5,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter
 
-from .scan import answer_key, export, review
+from .scan import answer_key, capture, export, review
 
 router = APIRouter()
 router.include_router(answer_key.router)
 router.include_router(review.router)
 router.include_router(export.router)
+router.include_router(capture.router)

@@ -22,7 +22,7 @@ from . import ai
 from .db import get_database, get_session
 from .grading import exam_questions, grade_attempt, is_answered, num, paper_answer, paper_given, percent
 from .models import Attempt, CourseMember, Exam, User
-from .scan import ai_grade, answer_key, review  # phase 2: step-level AI grading + answer key
+from .scan import ai_grade, answer_key, photo, review  # phase 2: step-level AI grading + answer key
 from .scan import grading as scan_grading
 from .scan import pipeline
 from .scan import print as print_mod
@@ -262,17 +262,21 @@ def _sniff(head: bytes) -> str | None:
         return "webp"
     if head[:2] == b"BM":
         return "bmp"
+    if photo.is_heic(head):  # phase 2: iPhone photos
+        return "heic"
     return None
 
 
 @router.post("/exams/{exam_id}/scans", status_code=202)
-async def upload_scans(exam_id: str, files: list[UploadFile] = File(...),
+async def upload_scans(exam_id: str, files: list[UploadFile] = File(...), unprinted: int = 0,
                        p: Principal = Depends(require_teacher), session: AsyncSession = Depends(get_session)):
+    """`?unprinted=1`: answer sheets NOT printed by FairPlay (no QR codes) — pages are kept for
+    the manual "Map pages" step instead of being matched by QR."""
     e = await _own_exam(session, exam_id, p)
     _printable(e)
     if e.status == "live" and delivery_of(e) != "paper":
         raise HTTPException(409, "Close the exam before uploading scans")
-    if await session.get(PrintLayout, e.id) is None:
+    if not unprinted and await session.get(PrintLayout, e.id) is None:
         raise HTTPException(409, "Print the booklets from FairPlay first — scans are read with their layout")
     if not files or len(files) > MAX_FILES:
         raise HTTPException(422, f"Upload 1 to {MAX_FILES} files")
@@ -285,6 +289,9 @@ async def upload_scans(exam_id: str, files: list[UploadFile] = File(...),
             kind = _sniff(head)
             if kind is None:
                 raise HTTPException(422, f"{f.filename or 'A file'} is not a PDF or an image")
+            if kind == "heic" and not photo.heic_supported():
+                raise HTTPException(422, f"{f.filename or 'A photo'} is HEIC (iPhone) — not supported on this server "
+                                         "yet. Export it as JPEG or set the camera to Most Compatible")
             path = os.path.join(sources_dir(), f"{batch_id}_{i}.{kind}")
             with open(path, "wb") as out:
                 out.write(head)
@@ -302,7 +309,8 @@ async def upload_scans(exam_id: str, files: list[UploadFile] = File(...),
         raise
     names = ", ".join(f.filename or "scan" for f in files)
     b = ScanBatch(id=batch_id, exam_id=e.id, teacher_id=p.user_id, status="queued",
-                  filename=names[:300], sources=paths, created_at=utcnow())
+                  filename=names[:300], sources=paths, created_at=utcnow(),
+                  mode="unprinted" if unprinted else "printed")
     session.add(b)
     # A paper exam is "collected" once scans arrive: closed, so grades can be released.
     if e.status != "closed":
@@ -337,9 +345,10 @@ async def run_batch(batch_id: str) -> None:
             b = await s.get(ScanBatch, batch_id)
             e = await s.get(Exam, b.exam_id) if b else None
             row = await s.get(PrintLayout, b.exam_id) if b else None
-            if b is None or e is None or row is None:
+            unprinted = bool(b) and (b.mode or "printed") == "unprinted"
+            if b is None or e is None or (row is None and not unprinted):
                 return
-            layout = row.layout
+            layout = row.layout if row is not None else {}
             b.status = "reading"
             await s.commit()
             sources = list(b.sources or [])
@@ -351,7 +360,7 @@ async def run_batch(batch_id: str) -> None:
         seq = 0
         for pth, n in zip(sources, counts):
             for i in range(n):
-                res = await asyncio.to_thread(pipeline.process_source_page, pth, i, e.id, layout)
+                res = await asyncio.to_thread(pipeline.process_source_page, pth, i, e.id, layout, unprinted)
                 async with db.sessionmaker() as s:
                     b = await s.get(ScanBatch, batch_id)
                     s.add(_page_row(b, seq, res))
