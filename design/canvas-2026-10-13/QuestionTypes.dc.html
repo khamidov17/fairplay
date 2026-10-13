@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Question types</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Source+Serif+4:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+body{margin:0;font-family:'Manrope',system-ui,sans-serif;color:#1B2533;background:#F3F5F7}
+*{box-sizing:border-box}
+a{color:#2F4BD8;font-weight:700;text-decoration:none}
+button{font-family:inherit}
+.btn{font-weight:700;font-size:13px;border:1px solid #CBD2DC;background:#fff;color:#1B2533;border-radius:9px;padding:9px 14px;cursor:pointer;min-height:40px}
+.btn.p{background:#2F4BD8;border-color:#2F4BD8;color:#fff}
+.card{background:#fff;border:1px solid #DDE2E9;border-radius:14px}
+.sub{font-size:13px;color:#4F5B6B;line-height:1.5}
+.lbl{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#5B6676;margin-bottom:6px}
+.pill{display:inline-block;font-size:11px;font-weight:800;border-radius:99px;padding:3px 9px;background:#E8ECFC;color:#2339A8;white-space:nowrap}
+.pill.g{background:#E3F4EA;color:#1E6B45}
+.pill.a{background:#FFF1D6;color:#8A5200}
+.pill.n{background:#ECEFF3;color:#3A4658}
+.chip{border:1px solid #CBD2DC;background:#fff;border-radius:99px;padding:6px 12px;font-size:12px;font-weight:700;cursor:pointer;min-height:32px;color:#2B3647}
+.chip.on{background:#E8ECFC;border-color:#2F4BD8;color:#2339A8}
+.item{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;padding:9px 12px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:700;color:#2B3647;min-height:38px}
+.item:hover{background:#EDF0F4}
+.item.on{background:#E8ECFC;color:#2339A8}
+.serif{font-family:'Source Serif 4',Georgia,serif;font-size:17px;line-height:1.5}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+.box{border:1px solid #CBD2DC;border-radius:9px;padding:10px 12px;background:#fff;font-size:14px}
+.rad{display:flex;gap:10px;align-items:center;border:1px solid #CBD2DC;border-radius:10px;padding:10px 12px;font-family:'Source Serif 4',Georgia,serif;font-size:15px}
+.rad i{width:16px;height:16px;border-radius:99px;border:2px solid #AEB6C3;flex:0 0 16px}
+.rad.sel{border-color:#2F4BD8;background:#F5F7FF}
+.rad.sel i{border-color:#2F4BD8;background:#2F4BD8;box-shadow:inset 0 0 0 3px #fff}
+.paper{background:#fff;border:1px solid #DDE2E9;border-radius:6px;padding:26px 30px;box-shadow:0 1px 8px rgba(27,37,51,.06)}
+</style>
+</helmet>
+<div style="min-height:1100px;display:flex;flex-direction:column">
+
+<div style="background:#fff;border-bottom:1px solid #DDE2E9;padding:14px 28px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+  <div style="flex:1 1 300px"><div style="font-size:20px;font-weight:800;letter-spacing:-0.02em">Question types, by subject</div><div class="sub">What a professor of each subject sees when they start adding questions. Pick a subject.</div></div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap"><sc-for list="{{subjects}}" as="f" hint-placeholder-count="6"><button class="chip {{f.cls}}" onClick="{{f.pick}}">{{f.label}}</button></sc-for></div>
+</div>
+
+<div style="display:flex;flex-wrap:wrap;gap:20px;padding:22px 28px;align-items:flex-start;flex:1">
+
+  <!-- list -->
+  <div style="flex:0 0 310px;display:flex;flex-direction:column;gap:12px">
+    <div class="card" style="padding:10px;display:flex;flex-direction:column;gap:2px">
+      <div class="lbl" style="padding:10px 12px 2px;margin:0;color:#2339A8">Used most in {{subjName}} · {{firstCount}}</div>
+      <sc-for list="{{firstItems}}" as="t" hint-placeholder-count="5">
+        <button class="item {{t.cls}}" onClick="{{t.pick}}"><span style="flex:1">{{t.label}}</span><span class="pill {{t.tone}}">{{t.tag}}</span></button>
+      </sc-for>
+    </div>
+    <div class="card" style="padding:10px;display:flex;flex-direction:column;gap:2px">
+      <div class="lbl" style="padding:10px 12px 2px;margin:0">Also available · {{restCount}}</div>
+      <sc-for list="{{groups}}" as="g" hint-placeholder-count="4">
+        <div class="sub" style="padding:8px 12px 0;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em">{{g.name}}</div>
+        <sc-for list="{{g.items}}" as="t" hint-placeholder-count="4">
+          <button class="item {{t.cls}}" onClick="{{t.pick}}"><span style="flex:1">{{t.label}}</span><span class="pill {{t.tone}}">{{t.tag}}</span></button>
+        </sc-for>
+      </sc-for>
+    </div>
+    <div class="card" style="padding:14px 16px;background:#F7F8FA">
+      <div class="lbl">Not shown to {{subjName}} teachers</div>
+      <div class="sub">{{hiddenNote}}</div>
+    </div>
+  </div>
+
+  <!-- detail -->
+  <div style="flex:999 1 560px;min-width:0;display:flex;flex-direction:column;gap:16px">
+    <div class="card" style="padding:18px">
+      <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap"><div><div class="lbl">A typical {{subjName}} exam</div><div style="font-size:15px;font-weight:700">{{examLine}}</div></div><span class="pill n">Illustrative, to confirm with real professors</span></div>
+      <div style="display:flex;height:22px;border-radius:99px;overflow:hidden;margin-top:12px"><sc-for list="{{comp}}" as="c" hint-placeholder-count="4"><div style="{{c.st}}"></div></sc-for></div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px"><sc-for list="{{comp}}" as="c" hint-placeholder-count="4"><span class="sub" style="display:flex;gap:6px;align-items:center"><span style="{{c.dot}}"></span>{{c.label}} · {{c.n}}</span></sc-for></div>
+    </div>
+    <div class="card" style="padding:22px;display:flex;flex-direction:column;gap:6px">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><div style="font-size:26px;font-weight:800;letter-spacing:-0.02em">{{cur.label}}</div><span class="pill n">{{cur.group}}</span><span class="pill {{cur.tone}}">{{cur.status}}</span></div>
+      <div class="sub">{{cur.desc}}</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px">
+      <div class="card" style="padding:18px"><div class="lbl">Teacher fills in</div><div class="sub">{{cur.fields}}</div></div>
+      <div class="card" style="padding:18px"><div class="lbl">Grading</div><div class="sub">{{cur.grading}}</div></div>
+      <div class="card" style="padding:18px"><div class="lbl">Integrity signals it adds</div><div class="sub">{{cur.integrity}}</div></div>
+      <div class="card" style="padding:18px"><div class="lbl">Offline and runtime</div><div class="sub">{{cur.runtime}}</div></div>
+    </div>
+
+    <div class="card" style="padding:18px">
+      <div class="lbl">What the student sees (sketch)</div>
+      <div class="paper">
+        <div class="serif" style="margin-bottom:14px">{{cur.sample}}</div>
+
+        <sc-if value="{{pv.mcq}}" hint-placeholder-val="{{true}}">
+          <div style="display:flex;flex-direction:column;gap:8px"><sc-for list="{{sk.mcq}}" as="o" hint-placeholder-count="4"><div class="rad {{o.cls}}"><i></i>{{o.t}}</div></sc-for></div>
+        </sc-if>
+        <sc-if value="{{pv.tf}}" hint-placeholder-val="{{false}}">
+          <div style="display:flex;gap:10px"><div class="rad sel" style="flex:1;justify-content:center">True</div><div class="rad" style="flex:1;justify-content:center">False</div></div>
+        </sc-if>
+        <sc-if value="{{pv.fill}}" hint-placeholder-val="{{false}}">
+          <div class="serif">{{sk.fillB}} <span style="display:inline-block;border-bottom:2px solid #2F4BD8;min-width:110px;text-align:center;color:#2339A8">{{sk.fillA}}</span> {{sk.fillC}}</div>
+        </sc-if>
+        <sc-if value="{{pv.short}}" hint-placeholder-val="{{false}}">
+          <div class="box" style="color:#4F5B6B">{{sk.shortHint}}</div>
+        </sc-if>
+        <sc-if value="{{pv.essay}}" hint-placeholder-val="{{false}}">
+          <div class="box" style="min-height:120px;color:#4F5B6B">Start writing...</div>
+          <div class="sub" style="margin-top:6px;display:flex;justify-content:space-between"><span>Words: 0 of 300 to 600</span><span>Saved</span></div>
+        </sc-if>
+        <sc-if value="{{pv.math}}" hint-placeholder-val="{{false}}">
+          <div class="box mono" style="font-size:16px">{{sk.mathLine}}</div>
+          <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap"><sc-for list="{{sk.keys}}" as="k" hint-placeholder-count="5"><span class="pill n">{{k.t}}</span></sc-for></div>
+        </sc-if>
+        <sc-if value="{{pv.vComputer}}" hint-placeholder-val="{{false}}">
+          <svg viewBox="0 0 520 190" style="width:100%;max-width:520px;background:#F8F9FB;border:1px solid #DDE2E9;border-radius:8px" role="img" aria-label="Computer diagram with clickable parts"><rect x="30" y="40" width="130" height="110" rx="8" fill="#E8ECFC" stroke="#2F4BD8"/><rect x="200" y="40" width="130" height="110" rx="8" fill="#fff" stroke="#AEB6C3"/><rect x="370" y="40" width="130" height="110" rx="8" fill="#fff" stroke="#AEB6C3"/><circle cx="95" cy="95" r="9" fill="#2F4BD8"/><text x="95" y="30" text-anchor="middle" font-size="12" fill="#4F5B6B" font-family="Manrope">CPU</text><text x="265" y="30" text-anchor="middle" font-size="12" fill="#4F5B6B" font-family="Manrope">Memory</text><text x="435" y="30" text-anchor="middle" font-size="12" fill="#4F5B6B" font-family="Manrope">Disk</text></svg>
+        </sc-if>
+        <sc-if value="{{pv.vCell}}" hint-placeholder-val="{{false}}">
+          <svg viewBox="0 0 520 260" style="width:100%;max-width:520px;background:#fff;border:1px solid #DDE2E9;border-radius:8px" role="img" aria-label="Cell diagram with a selected nucleus"><ellipse cx="260" cy="130" rx="235" ry="115" fill="#FBF6EE" stroke="#C9A878" stroke-width="3"/><circle cx="200" cy="130" r="48" fill="#E3DCF5" stroke="#2F4BD8" stroke-width="4"/><circle cx="210" cy="125" r="14" fill="#8A78C2"/><ellipse cx="370" cy="100" rx="46" ry="22" fill="#FBD9C9" stroke="#D9825B" stroke-width="3"/><circle cx="320" cy="190" r="5" fill="#5B7FA6"/><circle cx="337" cy="200" r="5" fill="#5B7FA6"/><circle cx="352" cy="188" r="5" fill="#5B7FA6"/></svg>
+        </sc-if>
+        <sc-if value="{{pv.vGraph}}" hint-placeholder-val="{{false}}">
+          <svg viewBox="0 0 520 220" style="width:100%;max-width:520px;background:#fff;border:1px solid #DDE2E9;border-radius:8px" role="img" aria-label="Graph with a marked point"><line x1="50" y1="190" x2="490" y2="190" stroke="#AEB6C3"/><line x1="50" y1="20" x2="50" y2="190" stroke="#AEB6C3"/><path d="M50 170 C150 168 200 150 250 100 S350 40 490 36" fill="none" stroke="#2F4BD8" stroke-width="3"/><circle cx="250" cy="100" r="9" fill="#E8ECFC" stroke="#2F4BD8" stroke-width="3"/><text x="270" y="210" font-size="12" fill="#4F5B6B" font-family="Manrope">x</text><text x="28" y="30" font-size="12" fill="#4F5B6B" font-family="Manrope">y</text></svg>
+        </sc-if>
+        <sc-if value="{{pv.order}}" hint-placeholder-val="{{false}}">
+          <div style="display:flex;flex-direction:column;gap:8px"><sc-for list="{{sk.order}}" as="o" hint-placeholder-count="3"><div class="rad"><span style="color:#8A94A3">:::</span>{{o.t}}</div></sc-for></div>
+        </sc-if>
+        <sc-if value="{{pv.match}}" hint-placeholder-val="{{false}}">
+          <div style="display:grid;grid-template-columns:1fr 60px 1fr;gap:8px;align-items:center"><sc-for list="{{sk.match}}" as="m" hint-placeholder-count="3"><div class="rad">{{m.l}}</div><div style="text-align:center;color:#2F4BD8;font-weight:800">to</div><div class="rad sel">{{m.r}}</div></sc-for></div>
+        </sc-if>
+        <sc-if value="{{pv.code}}" hint-placeholder-val="{{false}}">
+          <div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:10px">
+            <div class="box mono" style="white-space:pre;background:#F8F9FB">def reverse(head):
+    prev = None
+    ...</div>
+            <div class="box mono" style="background:#F8F9FB">Run: 2 of 3 passed<br>test 3 expected [3,2,1]</div>
+          </div>
+          <div class="sub" style="margin-top:6px">Full layout is on the student workspace board (S2).</div>
+        </sc-if>
+        <sc-if value="{{pv.upload}}" hint-placeholder-val="{{false}}">
+          <div style="border:2px dashed #AEB9F0;background:#F5F7FF;border-radius:12px;padding:28px;text-align:center"><b>Choose a file</b><div class="sub">PDF, image or zip, up to 20 MB. Opened only inside the lock.</div></div>
+        </sc-if>
+        <sc-if value="{{pv.audio}}" hint-placeholder-val="{{false}}">
+          <div style="display:flex;align-items:center;gap:12px;border:1px solid #CBD2DC;border-radius:10px;padding:10px 14px"><span class="pill">Play</span><div style="flex:1;height:6px;background:#E6EAF0;border-radius:99px"><div style="width:35%;height:6px;background:#2F4BD8;border-radius:99px"></div></div><span class="sub">Plays left: 1 of 2</span></div>
+        </sc-if>
+        <sc-if value="{{pv.speak}}" hint-placeholder-val="{{false}}">
+          <div style="display:flex;align-items:center;gap:12px;border:1px solid #CBD2DC;border-radius:10px;padding:10px 14px"><span class="pill r" style="background:#FDE7E5;color:#A3231B">Record</span><div style="flex:1;height:6px;background:#E6EAF0;border-radius:99px"><div style="width:20%;height:6px;background:#D85A4F;border-radius:99px"></div></div><span class="sub">0:12 of 1:00</span></div>
+        </sc-if>
+        <sc-if value="{{pv.sheet}}" hint-placeholder-val="{{false}}">
+          <div style="display:grid;grid-template-columns:40px repeat(4,1fr);border:1px solid #CBD2DC;font-size:12px"><div class="box" style="border:0;background:#F3F5F7"></div><div class="box" style="border:0;background:#F3F5F7">A</div><div class="box" style="border:0;background:#F3F5F7">B</div><div class="box" style="border:0;background:#F3F5F7">C</div><div class="box" style="border:0;background:#F3F5F7">D</div><div class="box" style="border:0;background:#F3F5F7">1</div><div class="box" style="border:0">12</div><div class="box" style="border:0">30</div><div class="box" style="border:0">=A1+B1</div><div class="box" style="border:0"></div></div>
+        </sc-if>
+        <sc-if value="{{pv.composite}}" hint-placeholder-val="{{false}}">
+          <div class="box serif" style="background:#F8F9FB">Read the passage, then answer parts (a) to (c).</div>
+        </sc-if>
+      </div>
+    </div>
+
+    <div style="background:#E8ECFC;border:1px solid #C9D2F7;border-radius:12px;padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span class="pill">LAST CLICK</span><span style="font-size:13px;font-weight:600;flex:1 1 300px">{{note}}</span>
+      <button class="btn p" onClick="{{addToExam}}">Add to an exam</button>
+    </div>
+    <div class="card" style="padding:18px 20px">
+      <div style="font-weight:800;font-size:15px;margin-bottom:8px">Spec: T3</div>
+      <div class="sub">This is the catalogue behind the "+ Add question" picker in T2, shown the way each subject meets it. Pick a subject on top and the list becomes what a professor of that subject sees: first the types used most in their field, then the other types their packs allow, then a note on what is hidden (the superadmin chooses the packs; see A1, to be designed in more depth later). Each type lists what the teacher fills in, what the student sees (the sketch uses that subject's own example), how it is graded, which integrity signals it adds, and where it runs. A student's exam belongs to one course, so its questions come from one subject's list: a Biology exam never contains an editor, a Math exam never a listening clip. Status badges: <b>DKU OJ</b> means DKU OJ has an equivalent type; <b>Lib</b> means built in the standalone question library (not merged into the main app yet, not run on a Mac); <b>New</b> means not built anywhere. The "typical exam" bar is my illustration of how each field tends to mix types, to be checked with real professors. Add to an exam jumps to T2 with the type pre-chosen.</div>
+    </div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { subj: 'cs', sel: 'mcq', note: 'Pick a subject on top: the list on the left is what a professor of that subject sees when adding questions.' };
+  }
+  data() {
+    // key|label|group|dku|status|preview|desc|fields|grading|integrity|runtime|sample
+    return [
+      ['mcq', 'Single / multiple choice', 'Choice', 1, 'Main app (single)', 'mcq', 'One or several correct options out of a list.', 'Statement, options, which are correct, shuffle on or off, single or several answers.', 'Automatic. For several answers: partial credit per option, wrong picks subtract.', 'Answer-change count per question; very fast answers flagged on the timeline.', 'Works offline. Pure web view.', 'Which data structure gives average O(1) lookup by key?'],
+      ['true_false', 'True / False', 'Choice', 1, 'Main app', 'tf', 'Two options.', 'Statement and the correct side.', 'Automatic.', 'Same as choice.', 'Works offline.', 'A binary search tree always keeps its height at O(log n).'],
+      ['matching', 'Matching', 'Choice', 0, 'Library', 'match', 'Pair items from two columns.', 'Left items, right items, correct pairs, extra distractors.', 'Automatic, partial credit per pair.', 'Same as choice.', 'Works offline.', 'Match each structure to its rule.'],
+      ['ordering', 'Ordering', 'Choice', 0, 'Library', 'order', 'Drag items into the right order.', 'Items listed in the correct order.', 'Automatic. Full order or credit by adjacent pairs.', 'Same as choice. Drag needs a real-browser test.', 'Works offline.', 'Put the steps of merge sort in order.'],
+      ['fill_blank', 'Fill in the blank', 'Choice', 1, 'Library', 'fill', 'Type into gaps in a sentence.', 'Text with [[answer|alternative]] gaps.', 'Automatic. Ignore case and spaces optional.', 'Same as choice.', 'Works offline.', 'Complete the sentence.'],
+      ['short_answer', 'Short answer', 'Choice', 1, 'Main app', 'short', 'One word or short phrase.', 'Model answer and accepted variants.', 'Automatic on match; anything else enters your queue with an AI draft.', 'Paste and keystroke rhythm summary.', 'Works offline. AI draft needs network at grading time, not during the exam.', 'Name the structure used to implement a queue with O(1) enqueue.'],
+      ['numeric', 'Number', 'Choice', 0, 'Library', 'short', 'A number with tolerance and unit.', 'Value, tolerance, unit.', 'Automatic.', 'Same as short answer.', 'Works offline.', 'What is the value of the integral? Give 3 decimals.'],
+      ['hotspot', 'Hotspot', 'Visual', 0, 'Library', 'visual', 'Click the correct area of an image.', 'Image and the correct regions.', 'Automatic.', 'Pointer path telemetry (optional).', 'Works offline. Pointer behaviour not yet tested in a real browser.', 'Click the part that stores data permanently.'],
+      ['diagram_label', 'Diagram labels', 'Visual', 0, 'Library', 'visual', 'Label parts of a diagram.', 'Image, label positions, accepted answers.', 'Automatic.', 'Same as hotspot.', 'Works offline.', 'Label the three marked parts.'],
+      ['drawing', 'Drawing', 'Visual', 0, 'Library', 'visual', 'Draw with a pen on a canvas.', 'Prompt and optional background.', 'Manual in the workbench.', 'Stroke count and time.', 'Works offline. Pen and trackpad behaviour untested.', 'Sketch the free-body diagram.'],
+      ['curve_graph', 'Curve / graph', 'Visual', 0, 'Library', 'visual', 'Plot points or sketch a curve.', 'Axes, expected curve, tolerance.', 'Automatic by tolerance, else manual.', 'Same as drawing.', 'Works offline.', 'Sketch y = x^2 - 2 on the axes.'],
+      ['math_expression', 'Math expression', 'Math', 0, 'Library', 'math', 'Type a formula; checked by equivalence, not text.', 'Expected expression, allowed forms.', 'Automatic. Equivalence is probabilistic, so borderline cases go to you.', 'Same as short answer.', 'Check runs on our server (sympy); offline answers are graded after sync.', 'Differentiate x^2 sin x.'],
+      ['math_parametric', 'Math with variants', 'Math', 0, 'Library', 'math', 'Each student gets different numbers.', 'Template, variable ranges, formula for the answer.', 'Automatic.', 'Different numbers make copying useless.', 'Variants fixed at package time so it works offline.', 'Solve a x + b = c for the numbers shown.'],
+      ['chem_equation', 'Chemical equation', 'Math', 0, 'Library', 'math', 'Balance an equation.', 'Equation and coefficients.', 'Automatic.', 'Same as math.', 'Works offline.', 'Balance H2 + O2 to H2O.'],
+      ['math_steps', 'Math with steps', 'Math', 0, 'Library', 'math', 'Final answer plus working, with a calculator.', 'Final answer, step rubric.', 'Answer automatic, steps manual or AI draft.', 'Same as math.', 'Works offline.', 'Solve and show each step.'],
+      ['code_function', 'Code: write a function', 'Code', 1, 'Library, runner pending', 'code', 'Write code; visible tests run on the student Mac, hidden tests on our server.', 'Statement, languages, starter code, visible and hidden tests, limits, rules (autocomplete, paste, hide output, AI hint).', 'Tests give the score; partial credit per test; you can override and read the code.', 'Paste, typing rhythm, run count, time between edits and runs; timeline per student.', 'Python and JavaScript run in the browser Worker, offline. C, C++, Java need the server judge.', 'Write reverse(head) that reverses a linked list.'],
+      ['code_debug', 'Code: fix the bug', 'Code', 1, 'Library, runner pending', 'code', 'Repair broken code until tests pass.', 'Broken code, tests.', 'Tests.', 'Same as code function.', 'Same as code function.', 'This function should return the maximum but fails. Fix it.'],
+      ['sql_query', 'SQL query', 'Code', 1, 'Library, runner pending', 'code', 'Write a query against sample tables.', 'Schema, data, expected result, ordering rules.', 'Result comparison.', 'Same as code function.', 'Runs in the browser (SQLite in WebAssembly) offline.', 'List students with GPA above 3.5, highest first.'],
+      ['code_trace', 'Code: trace the output', 'Code', 0, 'Library', 'short', 'Predict what code prints.', 'Code and expected output.', 'Automatic.', 'Same as short answer.', 'Works offline.', 'What does this program print?'],
+      ['code_parsons', 'Code: arrange the lines', 'Code', 0, 'Library', 'order', 'Drag shuffled lines into a working program.', 'Lines in order, optional distractors.', 'Automatic.', 'Same as ordering.', 'Works offline.', 'Arrange the lines to reverse a list.'],
+      ['code_fill', 'Code: fill the gaps', 'Code', 0, 'Library', 'fill', 'Complete missing parts of code.', 'Code with [[gaps]].', 'Automatic.', 'Same as fill.', 'Works offline.', 'Fill in the two missing conditions.'],
+      ['essay', 'Essay', 'Writing', 0, 'Main app', 'essay', 'Long written answer with a rubric.', 'Prompt, length range, rubric criteria with points.', 'Manual in the workbench with an AI draft per criterion that you accept or change.', 'Keystroke rhythm, big pastes, similarity to classmates and sources.', 'Works offline. Spellcheck, autocorrect and Writing Tools off in the lock.', 'Compare arrays and linked lists. Argue your choice.'],
+      ['source_essay', 'Essay from sources', 'Writing', 0, 'Library', 'essay', 'Answer using supplied texts shown beside the writing box.', 'Sources, prompt, rubric.', 'Manual with rubric.', 'Same as essay.', 'Works offline.', 'Using sources A and B, discuss...'],
+      ['short_response', 'Short response', 'Writing', 1, 'Library', 'short', 'A few sentences.', 'Prompt and key points.', 'AI draft against key points, you confirm.', 'Same as essay.', 'Works offline.', 'Explain in two sentences why hashing is fast.'],
+      ['notebook', 'Notebook', 'Notebook', 0, 'Library, bundle untested', 'code', 'Cells with code and outputs, checked like nbgrader.', 'Starter notebook, check cells.', 'Automatic checks plus manual.', 'Same as code function.', 'Needs a JupyterLite bundle in the exam package. Python only.', 'Load the data and plot the histogram.'],
+      ['listening', 'Listening', 'Media', 0, 'Library', 'media', 'Audio then questions, with a play limit.', 'Audio file, plays allowed, questions.', 'Automatic or manual per question.', 'Play count.', 'Audio files in the offline package. Audio output needs checking on the Mac.', 'Listen, then answer questions 1 to 3.'],
+      ['speaking', 'Speaking', 'Media', 0, 'Library', 'media', 'Record an answer.', 'Prompt, time limit.', 'Manual.', 'Recording length.', 'Needs microphone permission inside the lock. Not yet tested.', 'Describe your daily routine for one minute.'],
+      ['dictation', 'Dictation', 'Media', 0, 'Library', 'media', 'Type what you hear.', 'Audio and expected text.', 'Automatic by similarity.', 'Play count.', 'Audio in package.', 'Type the sentence you hear.'],
+      ['translation', 'Translation', 'Media', 0, 'Library', 'short', 'Translate a passage.', 'Source text, reference translations.', 'AI draft, you confirm.', 'Same as essay.', 'Works offline.', 'Translate into English.'],
+      ['spreadsheet', 'Spreadsheet', 'Media', 0, 'Library', 'sheet', 'Work in cells with formulas.', 'Starter sheet, cell checks.', 'Automatic cell checks.', 'Same as short answer.', 'Works offline.', 'Total column D with a formula.'],
+      ['file_upload', 'File upload', 'Other', 1, 'New', 'upload', 'Hand in a file (report, photo of paper work).', 'Allowed types, size limit.', 'Manual.', 'Upload time; file hash.', 'Chooser limited to the exam folder inside the lock; file opened only by the teacher.', 'Upload your worked solution as a PDF.'],
+      ['composite', 'Composite (parts)', 'Other', 1, 'New in editor', 'composite', 'One item with a shared text and parts of any type.', 'Shared text, then parts, each with its own type and points.', 'Each part by its own type.', 'Each part adds its own.', 'Depends on parts.', 'Read the passage, then answer (a) to (c).']
+    ].map((r) => ({ key: r[0], label: r[1], group: r[2], dku: r[3], status: r[4], pv: r[5], desc: r[6], fields: r[7], grading: r[8], integrity: r[9], runtime: r[10], sample: r[11] }));
+  }
+  renderVals() {
+    const s = this.state;
+    const all = this.data();
+    const SUBJ = {
+      cs: { name: 'Computer Science', packs: ['core', 'code', 'data'], first: ['mcq', 'true_false', 'code_function', 'code_trace', 'short_answer', 'essay'], exam: '6 choice or true/false, 3 fill or trace, 2 code, 1 short essay.', comp: [['Choice, true/false', 6, '#2F4BD8'], ['Fill, trace', 3, '#1F9AA6'], ['Code', 2, '#E0A21C'], ['Essay', 1, '#8A78C2']] },
+      math: { name: 'Mathematics', packs: ['core', 'math', 'visual'], first: ['math_expression', 'math_steps', 'mcq', 'numeric', 'math_parametric', 'file_upload'], exam: '8 formula answers, 3 choice, 2 worked solutions, a photo of paper work.', comp: [['Formula', 8, '#2F4BD8'], ['Choice', 3, '#1F9AA6'], ['Worked steps', 2, '#E0A21C'], ['Upload', 1, '#8A78C2']] },
+      chem: { name: 'Chemistry', packs: ['core', 'math', 'visual'], first: ['chem_equation', 'numeric', 'curve_graph', 'mcq', 'short_answer', 'hotspot'], exam: 'Balance equations, calculations with units, two graph or diagram reads, one short explanation.', comp: [['Equations', 4, '#2F4BD8'], ['Calculations', 5, '#1F9AA6'], ['Graph, diagram', 2, '#E0A21C'], ['Short answer', 2, '#8A78C2']] },
+      bio: { name: 'Biology', packs: ['core', 'visual'], first: ['mcq', 'diagram_label', 'hotspot', 'short_answer', 'true_false', 'essay'], exam: '15 choice, 3 diagram questions, 3 short answers, 1 essay.', comp: [['Choice', 15, '#2F4BD8'], ['Diagram', 3, '#1F9AA6'], ['Short answer', 3, '#E0A21C'], ['Essay', 1, '#8A78C2']] },
+      lang: { name: 'Languages', packs: ['core', 'lang'], first: ['listening', 'dictation', 'speaking', 'translation', 'mcq', 'essay'], exam: 'A listening part with 5 questions, dictation, reading choice, one essay, a recorded speaking part.', comp: [['Listening', 5, '#2F4BD8'], ['Dictation', 2, '#1F9AA6'], ['Reading choice', 6, '#E0A21C'], ['Writing, speaking', 2, '#8A78C2']] },
+      econ: { name: 'Economics', packs: ['core', 'math', 'data'], first: ['mcq', 'numeric', 'spreadsheet', 'short_answer', 'essay', 'math_parametric'], exam: '10 choice, 4 calculations, a spreadsheet task, a short essay.', comp: [['Choice', 10, '#2F4BD8'], ['Calculations', 4, '#1F9AA6'], ['Spreadsheet', 1, '#E0A21C'], ['Essay', 1, '#8A78C2']] }
+    };
+    const SAMPLES = {
+      math: { mcq: 'What is the derivative of x^3?', true_false: 'A function continuous everywhere is differentiable everywhere.', fill_blank: 'Complete the sentence.', short_answer: 'State the power rule in words.', numeric: 'Evaluate the integral of x^2 from 0 to 1. Give 3 decimals.', essay: 'Explain why the derivative of a constant is zero.', math_expression: 'Differentiate x^2 sin x.', math_parametric: 'Solve a x + b = c for the numbers shown.', math_steps: 'Solve and show each step.', file_upload: 'Upload a photo of your worked solution.', matching: 'Match each function to its derivative.', ordering: 'Put the steps of finding a maximum in order.', hotspot: 'Click the point where the slope is zero.', curve_graph: 'Sketch y = x^2 - 2 on the axes.' },
+      chem: { mcq: 'Which reaction type is NaOH + HCl -> NaCl + H2O?', true_false: 'A catalyst is used up in the reaction.', short_answer: 'Name the gas released when zinc meets acid.', numeric: 'How many moles are in 36 g of water? Give 2 decimals.', chem_equation: 'Balance H2 + O2 -> H2O.', math_expression: 'Write the equilibrium constant expression.', math_parametric: 'Calculate the pH for the concentration shown.', math_steps: 'Calculate the yield and show each step.', curve_graph: 'Sketch the titration curve of a strong acid with a strong base.', hotspot: 'Click the equivalence point on the titration curve.', diagram_label: 'Label the parts of the apparatus.', matching: 'Match each compound to its bond type.', ordering: 'Put the steps of a titration in order.', essay: 'Explain Le Chatelier\'s principle with an example.' },
+      bio: { mcq: 'Which organelle makes most of the cell ATP?', true_false: 'All bacteria are harmful to humans.', fill_blank: 'Complete the sentence.', short_answer: 'Name the enzyme that unwinds DNA during replication.', numeric: 'Count the cells shown and give the total.', essay: 'Describe how natural selection changes a population.', hotspot: 'Click the nucleus in the diagram.', diagram_label: 'Label the three marked parts of the cell.', drawing: 'Sketch the stages of mitosis.', matching: 'Match each organelle to its job.', ordering: 'Put the phases of mitosis in order.' },
+      lang: { mcq: 'Choose the correct sentence.', true_false: 'The speaker agrees with the plan.', fill_blank: 'Complete the sentence.', short_answer: 'What is the speaker\'s main point?', essay: 'Write 200 words about a place you love.', listening: 'Listen to the dialogue, then answer questions 1 to 3.', dictation: 'Type the sentence you hear.', speaking: 'Describe your daily routine for one minute.', translation: 'Translate into English.', matching: 'Match each idiom to its meaning.', ordering: 'Put the sentences in a logical order.', source_essay: 'Using texts A and B, discuss the author\'s view.' },
+      econ: { mcq: 'What happens to quantity demanded when price rises?', true_false: 'Inflation always lowers real wages.', fill_blank: 'Complete the sentence.', short_answer: 'Define opportunity cost.', numeric: 'Compute the price elasticity of demand. Give 1 decimal.', essay: 'Discuss the effects of inflation on savers.', spreadsheet: 'Total column D with a formula.', math_parametric: 'Compute the equilibrium price for the numbers shown.', math_expression: 'Write the profit function.', matching: 'Match each term to its meaning.', ordering: 'Put the phases of the business cycle in order.', source_essay: 'Using the data table, discuss the trend.' }
+    };
+    const SK = {
+      cs: { mcq: [['Array', 0], ['Hash table', 1], ['Linked list', 0], ['Binary heap', 0]], fill: ['A', 'hash table', 'maps keys to values in constant average time.'], shortHint: 'Type your answer here', order: ['def reverse(head):', '    prev = None', '    while head:'], match: [['Stack', 'Last in, first out'], ['Queue', 'First in, first out'], ['Heap', 'Smallest item first']], mathLine: 'O(n log n)', keys: ['n^2', 'log', 'O( )'], vis: 'vComputer' },
+      math: { mcq: [['3x^2', 1], ['x^2', 0], ['3x', 0], ['x^4 / 4', 0]], fill: ['The derivative of x^2 is', '2x', '.'], shortHint: 'Type your answer here', order: ['Take the derivative', 'Set it equal to zero', 'Solve for x'], match: [['sin x', 'cos x'], ['e^x', 'e^x'], ['ln x', '1 / x']], mathLine: 'd/dx ( x^2 sin x ) = 2x sin x + x^2 cos x', keys: ['x^2', 'sqrt', 'sin', 'cos', 'pi', 'fraction'], vis: 'vGraph' },
+      chem: { mcq: [['Oxidation', 0], ['Reduction', 0], ['Neutralization', 1], ['Precipitation', 0]], fill: ['Water has the formula', 'H2O', '.'], shortHint: 'Type your answer here', order: ['Weigh the sample', 'Dissolve in water', 'Add indicator', 'Titrate to the end point'], match: [['NaCl', 'Ionic'], ['CH4', 'Covalent'], ['Fe', 'Metallic']], mathLine: '2 H2 + O2 -> 2 H2O', keys: ['subscript', 'arrow', '(aq)', '(s)', 'Calculator'], vis: 'vGraph' },
+      bio: { mcq: [['Nucleus', 0], ['Mitochondrion', 1], ['Ribosome', 0], ['Golgi apparatus', 0]], fill: ['Plants convert light energy into', 'chemical', 'energy.'], shortHint: 'Type your answer here', order: ['Prophase', 'Metaphase', 'Anaphase', 'Telophase'], match: [['Mitochondrion', 'ATP production'], ['Ribosome', 'Protein synthesis'], ['Nucleus', 'Holds DNA']], mathLine: '', keys: [], vis: 'vCell' },
+      lang: { mcq: [['She has been waiting.', 1], ['She waits since two hours.', 0], ['She is wait.', 0], ['She wait now.', 0]], fill: ['She has lived here', 'since', '2019.'], shortHint: 'Type your answer here', order: ['First, we met at the station.', 'Then, we took the train.', 'Finally, we arrived.'], match: [['Break the ice', 'Start a conversation'], ['Piece of cake', 'Very easy'], ['Hit the books', 'Study hard']], mathLine: '', keys: [], vis: 'vNone' },
+      econ: { mcq: [['Quantity demanded falls', 1], ['Quantity demanded rises', 0], ['Supply falls', 0], ['Nothing changes', 0]], fill: ['When price rises, quantity demanded', 'falls', '.'], shortHint: 'Type your answer here', order: ['Expansion', 'Peak', 'Contraction', 'Trough'], match: [['Inflation', 'Rise in prices'], ['GDP', 'Output of an economy'], ['Recession', 'Falling output']], mathLine: 'Elasticity = 2.5', keys: ['%', 'Calculator'], vis: 'vNone' }
+    };
+    const PN = { code: 'Code and IDE', math: 'Math and science', visual: 'Visual', lang: 'Language and media', data: 'Data and sheets' };
+    const subj = SUBJ[s.subj];
+    const sk0 = SK[s.subj];
+    const packOf = (t) => ({ spreadsheet: 'data', notebook: 'data' }[t.key]) || ({ Choice: 'core', Writing: 'core', Other: 'core', Code: 'code', Math: 'math', Visual: 'visual', Media: 'lang', Notebook: 'data' }[t.group]);
+    const okT = (t) => subj.packs.indexOf(packOf(t)) >= 0;
+    const vis = all.filter(okT);
+    const tag = (t) => (t.dku === 1 ? 'DKU' : (t.status.indexOf('New') === 0 ? 'New' : 'Lib'));
+    const ttone = (t) => (t.dku === 1 ? 'g' : (t.status.indexOf('New') === 0 ? 'a' : 'n'));
+    const firstKeys = subj.first.filter((k) => vis.some((t) => t.key === k));
+    const item = (t) => ({ label: t.label, tag: tag(t), tone: ttone(t), cls: t.key === s.sel ? 'on' : '', pick: () => this.setState({ sel: t.key, note: t.label + ' for ' + subj.name + ': ' + t.desc }) });
+    const firstItems = firstKeys.map((k) => item(vis.filter((t) => t.key === k)[0]));
+    const names = ['Choice', 'Code', 'Math', 'Visual', 'Writing', 'Notebook', 'Media', 'Other'];
+    const rest = vis.filter((t) => firstKeys.indexOf(t.key) < 0);
+    const groups = names.map((g) => ({ name: g, items: rest.filter((t) => t.group === g).map(item) })).filter((g) => g.items.length > 0);
+    const hiddenPacks = Object.keys(PN).filter((k) => subj.packs.indexOf(k) < 0);
+    const cur0 = vis.filter((t) => t.key === s.sel)[0] || vis[0];
+    const tone = (t) => (t.status.indexOf('Main') === 0 ? 'g' : (t.status === 'New' || t.status === 'New in editor' ? 'a' : ''));
+    const sample = (SAMPLES[s.subj] && SAMPLES[s.subj][cur0.key]) || (s.subj === 'cs' ? cur0.sample : 'Example question for ' + cur0.label.toLowerCase() + '.');
+    const p = cur0.pv;
+    const audioKeys = ['listening', 'dictation'];
+    const visKey = sk0.vis;
+    const total = subj.comp.reduce((a, c) => a + c[1], 0);
+    return {
+      subjects: Object.keys(SUBJ).map((k) => ({ label: SUBJ[k].name, cls: s.subj === k ? 'on' : '', pick: () => this.setState({ subj: k, sel: SUBJ[k].first[0], note: 'Now showing what a ' + SUBJ[k].name + ' professor sees. ' + (SUBJ[k].packs.length - 1) + ' extra pack' + (SUBJ[k].packs.length - 1 === 1 ? ' is' : 's are') + ' on.' }) })),
+      subjName: subj.name, firstCount: firstItems.length, restCount: rest.length,
+      firstItems: firstItems, groups: groups,
+      hiddenNote: (32 - vis.length) + ' of 32 types are hidden: ' + (hiddenPacks.length ? hiddenPacks.map((k) => PN[k]).join(', ') : 'none') + '. If a professor needs one, a button sends a request to the superadmin.',
+      examLine: subj.exam,
+      comp: subj.comp.map((c) => ({ label: c[0], n: c[1], st: 'height:100%;width:' + (c[1] / total * 100) + '%;background:' + c[2], dot: 'width:10px;height:10px;border-radius:99px;display:inline-block;background:' + c[2] })),
+      cur: { label: cur0.label, group: cur0.group, status: cur0.status, tone: tone(cur0), desc: cur0.desc, fields: cur0.fields, grading: cur0.grading, integrity: cur0.integrity, runtime: cur0.runtime, sample: sample },
+      sk: {
+        mcq: sk0.mcq.map((o) => ({ t: o[0], cls: o[1] ? 'sel' : '' })), fillB: sk0.fill[0], fillA: sk0.fill[1], fillC: sk0.fill[2], shortHint: sk0.shortHint,
+        mathLine: sk0.mathLine, keys: sk0.keys.map((k) => ({ t: k })), order: sk0.order.map((o) => ({ t: o })), match: sk0.match.map((m) => ({ l: m[0], r: m[1] }))
+      },
+      pv: { mcq: p === 'mcq', tf: p === 'tf', fill: p === 'fill', short: p === 'short', essay: p === 'essay', math: p === 'math', vComputer: p === 'visual' && visKey === 'vComputer', vCell: p === 'visual' && visKey === 'vCell', vGraph: p === 'visual' && visKey === 'vGraph', order: p === 'order', match: p === 'match', code: p === 'code', upload: p === 'upload', audio: p === 'media' && audioKeys.indexOf(cur0.key) >= 0, speak: p === 'media' && cur0.key === 'speaking', sheet: p === 'sheet', composite: p === 'composite' },
+      note: s.note,
+      addToExam: () => this.setState({ note: 'Add to an exam opens T2 with "' + cur0.label + '" added as a new expanded card at the bottom.' })
+    };
+  }
+}
+</script>
+</body>
+</html>

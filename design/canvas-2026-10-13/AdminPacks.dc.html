@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Superadmin feature packs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+body{margin:0;font-family:'Manrope',system-ui,sans-serif;color:#1B2533;background:#F3F5F7}
+*{box-sizing:border-box}
+a{color:#2F4BD8;font-weight:700;text-decoration:none}
+button{font-family:inherit}
+.btn{font-weight:700;font-size:13px;border:1px solid #CBD2DC;background:#fff;color:#1B2533;border-radius:9px;padding:8px 14px;cursor:pointer;min-height:38px}
+.btn:hover{background:#F3F5F7}
+.btn.p{background:#2F4BD8;border-color:#2F4BD8;color:#fff}
+.btn.s{min-height:30px;padding:4px 10px;font-size:12px}
+.card{background:#fff;border:1px solid #DDE2E9;border-radius:14px}
+.sub{font-size:13px;color:#4F5B6B;line-height:1.5}
+.lbl{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#5B6676;margin-bottom:6px}
+.pill{display:inline-block;font-size:11px;font-weight:800;border-radius:99px;padding:3px 9px;background:#E8ECFC;color:#2339A8;white-space:nowrap}
+.pill.g{background:#E3F4EA;color:#1E6B45}
+.pill.a{background:#FFF1D6;color:#8A5200}
+.pill.n{background:#ECEFF3;color:#3A4658}
+.chip{border:1px solid #CBD2DC;background:#fff;border-radius:99px;padding:5px 12px;font-size:12px;font-weight:700;cursor:pointer;min-height:32px;color:#2B3647}
+.chip.on{background:#E8ECFC;border-color:#2F4BD8;color:#2339A8}
+.chip.off{color:#8A94A3;background:#F7F8FA}
+.th{display:grid;grid-template-columns:minmax(150px,1.4fr) 64px 64px repeat(5,minmax(78px,1fr));gap:6px;align-items:center;padding:8px 14px;font-size:11px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:#5B6676}
+.tr{display:grid;grid-template-columns:minmax(150px,1.4fr) 64px 64px repeat(5,minmax(78px,1fr));gap:6px;align-items:center;padding:10px 14px;border-top:1px solid #E6EAF0;font-size:14px;min-height:56px}
+.tr:hover{background:#F7F8FA}
+.tr.sel{background:#F5F7FF;box-shadow:inset 3px 0 0 #2F4BD8}
+.namebtn{border:0;background:transparent;text-align:left;font-weight:800;font-size:14px;cursor:pointer;padding:8px 0;min-height:40px;color:#1B2533}
+.sw{width:40px;height:22px;border-radius:99px;background:#CBD2DC;position:relative;border:0;cursor:pointer;padding:0}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:16px;height:16px;border-radius:99px;background:#fff}
+.sw.on{background:#2F4BD8}
+.sw.on::after{left:21px}
+.sw.lock{background:#AEB6C3;cursor:default}
+.sw.lock::after{left:21px}
+</style>
+</helmet>
+<div style="min-height:1100px;display:flex;flex-direction:column;padding:28px;gap:18px">
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap">
+  <div>
+    <div style="font-size:26px;font-weight:800;letter-spacing:-0.02em">Superadmin: who sees what</div>
+    <div class="sub" style="max-width:760px;margin-top:4px">A Biology teacher should never meet a code editor, and a Math teacher should never scroll past "SQL query". The university picks, per subject, which feature packs its teachers and students get. Teachers can ask for more; the superadmin says yes or no. Sample numbers below are invented.</div>
+  </div>
+  <div style="display:flex;gap:8px;align-items:center"><span class="pill n">Superadmin view</span><span class="pill g">{{saveLabel}}</span></div>
+</div>
+
+<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+
+  <!-- subjects table -->
+  <div class="card" style="flex:1.7 1 700px;min-width:0;overflow:hidden">
+    <div style="padding:16px 18px 6px"><div style="font-weight:800;font-size:16px">Subjects and their packs</div><div class="sub">Click a row to see what that subject's teachers see. Click a switch to turn a pack on or off. Core is always on.</div></div>
+    <div class="th"><span>Subject</span><span>Teachers</span><span>Classes</span><span>Core</span><span>Code and IDE</span><span>Math and science</span><span>Visual</span><span>Language and media</span></div>
+    <sc-for list="{{rows}}" as="r" hint-placeholder-count="7">
+      <div class="tr {{r.cls}}">
+        <button class="namebtn" onClick="{{r.pick}}">{{r.name}}</button><span>{{r.teachers}}</span><span>{{r.classes}}</span>
+        <span><button class="sw lock" aria-label="Core is always on"></button></span>
+        <span><button class="sw {{r.code}}" onClick="{{r.flipCode}}" aria-label="Code and IDE"></button></span>
+        <span><button class="sw {{r.math}}" onClick="{{r.flipMath}}" aria-label="Math and science"></button></span>
+        <span><button class="sw {{r.visual}}" onClick="{{r.flipVisual}}" aria-label="Visual"></button></span>
+        <span><button class="sw {{r.lang}}" onClick="{{r.flipLang}}" aria-label="Language and media"></button></span>
+      </div>
+    </sc-for>
+    <div style="padding:12px 18px;border-top:1px solid #E6EAF0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <span class="sub">Data and sheets pack (notebook, spreadsheet) is set in the row panel on the right.</span>
+      <span style="flex:1"></span>
+      <button class="btn s" onClick="{{addSubject}}">Add a subject</button>
+    </div>
+  </div>
+
+  <!-- what the selected subject sees -->
+  <div class="card" style="flex:1 1 360px;min-width:320px;padding:18px;display:flex;flex-direction:column;gap:14px">
+    <div><div class="lbl">A {{selName}} teacher sees</div><div style="font-size:20px;font-weight:800">{{visibleCount}} of 32 question types</div></div>
+    <div>
+      <div class="lbl">Teacher menu</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip on">Home</span><span class="chip on">Courses</span><span class="chip on">Questions</span><span class="chip on">Exams</span><span class="chip on">Grading</span><span class="chip on">Reports</span></div>
+      <div class="sub" style="margin-top:6px">The menu is the same for everyone. Only the question types and tools behind it change.</div>
+    </div>
+    <div>
+      <div class="lbl">Can add</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><sc-for list="{{shownPacks}}" as="p" hint-placeholder-count="3"><span class="chip on">{{p.label}}</span></sc-for></div>
+    </div>
+    <sc-if value="{{hasHidden}}" hint-placeholder-val="{{true}}">
+      <div>
+        <div class="lbl">Hidden from them</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap"><sc-for list="{{hiddenPacks}}" as="p" hint-placeholder-count="3"><span class="chip off">{{p.label}}</span></sc-for></div>
+      </div>
+    </sc-if>
+    <div>
+      <div class="lbl">Data and sheets pack</div>
+      <button class="chip {{dataCls}}" onClick="{{flipData}}">{{dataLabel}}</button>
+    </div>
+    <div style="border-top:1px solid #E6EAF0;padding-top:12px">
+      <div class="lbl">Knock-on effects for {{selName}}</div>
+      <div style="display:flex;flex-direction:column;gap:6px"><sc-for list="{{effects}}" as="e" hint-placeholder-count="4"><div style="display:flex;gap:8px;font-size:13px;line-height:1.45"><span class="pill {{e.tone}}">{{e.tag}}</span><span>{{e.text}}</span></div></sc-for></div>
+    </div>
+  </div>
+</div>
+
+<div style="display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start">
+
+  <!-- requests -->
+  <div class="card" style="flex:1 1 420px;padding:18px;display:flex;flex-direction:column;gap:10px">
+    <div style="font-weight:800;font-size:16px">Requests from teachers <span class="pill a" style="margin-left:6px">{{reqCount}} waiting</span></div>
+    <div class="sub">A teacher who opens a hidden type sees one line: "Not enabled for Biology. Ask your administrator." and a button. The request lands here.</div>
+    <sc-if value="{{noReq}}" hint-placeholder-val="{{false}}"><div class="sub" style="padding:12px 0">No requests waiting.</div></sc-if>
+    <sc-for list="{{reqs}}" as="r" hint-placeholder-count="2">
+      <div style="border:1px solid #DDE2E9;border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;gap:8px">
+        <div style="font-size:14px"><b>{{r.who}}</b> ({{r.subject}}) asks for <b>{{r.pack}}</b></div>
+        <div class="sub">"{{r.why}}"</div>
+        <div style="display:flex;gap:8px"><button class="btn s p" onClick="{{r.approveSubject}}">Turn on for {{r.subject}}</button><button class="btn s" onClick="{{r.approveOne}}">Just for {{r.who}}</button><button class="btn s" onClick="{{r.deny}}">Decline</button></div>
+      </div>
+    </sc-for>
+  </div>
+
+  <!-- overrides + log -->
+  <div style="flex:1 1 420px;display:flex;flex-direction:column;gap:18px">
+    <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:10px">
+      <div style="font-weight:800;font-size:16px">Single-teacher exceptions</div>
+      <div class="sub">For a Math professor who also teaches Intro Programming. They get the pack in their own classes only.</div>
+      <sc-if value="{{noOv}}" hint-placeholder-val="{{false}}"><div class="sub">No exceptions.</div></sc-if>
+      <sc-for list="{{overrides}}" as="o" hint-placeholder-count="1"><div style="display:flex;gap:10px;align-items:center;border:1px solid #DDE2E9;border-radius:10px;padding:8px 12px"><span style="flex:1;font-size:14px"><b>{{o.who}}</b> · {{o.subject}} · + {{o.pack}}</span><button class="btn s" onClick="{{o.remove}}">Remove</button></div></sc-for>
+    </div>
+    <div class="card" style="padding:18px;display:flex;flex-direction:column;gap:8px">
+      <div style="font-weight:800;font-size:16px">Change log</div>
+      <sc-for list="{{log}}" as="l" hint-placeholder-count="3"><div style="display:flex;gap:10px;font-size:13px;border-top:1px solid #E6EAF0;padding-top:6px"><span class="sub" style="width:64px;flex:0 0 64px">{{l.t}}</span><span>{{l.text}}</span></div></sc-for>
+    </div>
+  </div>
+</div>
+
+<!-- packs explained -->
+<div class="card" style="padding:18px">
+  <div style="font-weight:800;font-size:16px;margin-bottom:10px">What is in each pack (32 types in total)</div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px">
+    <sc-for list="{{packInfo}}" as="p" hint-placeholder-count="6"><div style="border:1px solid #DDE2E9;border-radius:12px;padding:12px 14px"><div style="display:flex;justify-content:space-between;gap:8px"><b>{{p.name}}</b><span class="pill">{{p.n}} types</span></div><div class="sub" style="margin-top:6px">{{p.items}}</div><div class="sub" style="margin-top:6px;color:#2339A8">{{p.cost}}</div></div></sc-for>
+  </div>
+</div>
+
+<div style="background:#E8ECFC;border:1px solid #C9D2F7;border-radius:12px;padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+  <span class="pill">LAST CLICK</span><span style="font-size:13px;font-weight:600;flex:1 1 300px">{{note}}</span>
+</div>
+
+<div class="card" style="padding:18px 20px">
+  <div style="font-weight:800;font-size:15px;margin-bottom:8px">Spec: A1 (superadmin)</div>
+  <div class="sub">Idea: nobody should see features their subject cannot use. A pack is a named bundle of question types plus the tools they need. Core (choice, true/false, matching, ordering, fill-in, short answer, number, essays, file upload, composite: 12 types) is always on. The other packs are switched per subject; the class's subject decides what the exam editor shows. What a switch changes: (1) the type picker for teachers hides the pack's groups and says why if a teacher searches for them; (2) the question bank filters them out; (3) the exam bundle sent to student Macs leaves out the pack's tools (code editor, Python runtime, math keyboard, audio recorder), which should make the download smaller and the app start faster, still to be measured; (4) kind defaults that mention code (homework with a practice IDE) disappear. Requests are one click for a teacher and one click for the admin. Exceptions are per teacher and per class. Every change goes to the change log. Which subjects exist, their teachers and the counts here are sample data; in real life classes come from the Canvas import. A subject with no code pack still gets everything else: live room, grading, analytics and the integrity report are identical for all subjects.</div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      sel: 'bio', saved: 'All changes saved', note: 'Click a subject row, then a switch. Try approving a request.',
+      packs: {
+        cs: { code: true, math: false, visual: false, lang: false, data: true },
+        math: { code: false, math: true, visual: true, lang: false, data: false },
+        phys: { code: false, math: true, visual: true, lang: false, data: false },
+        chem: { code: false, math: true, visual: true, lang: false, data: false },
+        bio: { code: false, math: false, visual: true, lang: false, data: false },
+        lang: { code: false, math: false, visual: false, lang: true, data: false },
+        econ: { code: false, math: true, visual: false, lang: false, data: true }
+      },
+      reqs: [
+        { id: 1, who: 'Dr. Li', subject: 'Biology', sk: 'bio', pack: 'Data and sheets', pk: 'data', why: 'I want students to fill a lab data table in a spreadsheet question.' },
+        { id: 2, who: 'Prof. Chen', subject: 'Mathematics', sk: 'math', pack: 'Code and IDE', pk: 'code', why: 'I also teach Intro Programming and my classes need code questions.' }
+      ],
+      overrides: [],
+      log: [{ t: '10:02', text: 'Admin turned Visual on for Biology.' }, { t: '09:40', text: 'Admin turned Code and IDE off for Chemistry (was on by default).' }]
+    };
+    this.t = 10;
+  }
+  subjects() {
+    return [
+      { k: 'cs', name: 'Computer Science', teachers: 14, classes: 22 },
+      { k: 'math', name: 'Mathematics', teachers: 11, classes: 19 },
+      { k: 'phys', name: 'Physics', teachers: 8, classes: 12 },
+      { k: 'chem', name: 'Chemistry', teachers: 6, classes: 9 },
+      { k: 'bio', name: 'Biology', teachers: 7, classes: 10 },
+      { k: 'lang', name: 'Languages', teachers: 9, classes: 16 },
+      { k: 'econ', name: 'Economics and Business', teachers: 6, classes: 8 }
+    ];
+  }
+  packDefs() {
+    return [
+      { k: 'code', name: 'Code and IDE', n: 6, items: 'Write a function, fix the bug, SQL query, trace output, arrange lines, fill the gaps.', cost: 'Brings the code editor, the Python runtime on the Mac, and the server checker.' },
+      { k: 'math', name: 'Math and science', n: 4, items: 'Math expression, math with variants, chemical equation, math with steps.', cost: 'Brings the math keyboard and the equivalence checker.' },
+      { k: 'visual', name: 'Visual', n: 4, items: 'Hotspot, diagram labels, drawing, curve or graph.', cost: 'Brings the pen canvas and the image tools.' },
+      { k: 'lang', name: 'Language and media', n: 4, items: 'Listening, speaking, dictation, translation.', cost: 'Needs microphone and audio permission on the Mac.' },
+      { k: 'data', name: 'Data and sheets', n: 2, items: 'Notebook, spreadsheet.', cost: 'Brings the small sheet and the notebook runner.' }
+    ];
+  }
+  log(text) { const t = this.t; this.t = this.t + 1; return [{ t: '10:' + (t < 10 ? '0' + t : t), text: text }].concat(this.state.log).slice(0, 6); }
+  renderVals() {
+    const s = this.state;
+    const subs = this.subjects();
+    const defs = this.packDefs();
+    const cur = subs.filter((x) => x.k === s.sel)[0];
+    const sp = s.packs[s.sel];
+    const flip = (sk, pk) => {
+      const np = Object.assign({}, s.packs);
+      np[sk] = Object.assign({}, np[sk]);
+      np[sk][pk] = !np[sk][pk];
+      const sn = subs.filter((x) => x.k === sk)[0].name;
+      const pn = defs.filter((d) => d.k === pk)[0].name;
+      this.setState({ packs: np, sel: sk, saved: 'Saved just now', log: this.log('Admin turned ' + pn + (np[sk][pk] ? ' on' : ' off') + ' for ' + sn + '.'), note: pn + (np[sk][pk] ? ' ON' : ' OFF') + ' for ' + sn + '. Teachers there ' + (np[sk][pk] ? 'now see' : 'no longer see') + ' its ' + defs.filter((d) => d.k === pk)[0].n + ' types. Existing exams that use them stay intact and get a warning.' });
+    };
+    const rows = subs.map((x) => {
+      const p = s.packs[x.k];
+      const cl = (v) => (v ? 'on' : '');
+      return {
+        name: x.name, teachers: x.teachers, classes: x.classes, cls: s.sel === x.k ? 'sel' : '',
+        code: cl(p.code), math: cl(p.math), visual: cl(p.visual), lang: cl(p.lang),
+        pick: () => this.setState({ sel: x.k, note: 'Showing what a ' + x.name + ' teacher sees.' }),
+        flipCode: () => flip(x.k, 'code'),
+        flipMath: () => flip(x.k, 'math'),
+        flipVisual: () => flip(x.k, 'visual'),
+        flipLang: () => flip(x.k, 'lang')
+      };
+    });
+    const shown = [{ label: 'Core · 12 types' }].concat(defs.filter((d) => sp[d.k]).map((d) => ({ label: d.name + ' · ' + d.n })));
+    const hidden = defs.filter((d) => !sp[d.k]).map((d) => ({ label: d.name + ' · ' + d.n }));
+    const visibleCount = 12 + defs.filter((d) => sp[d.k]).reduce((a, d) => a + d.n, 0);
+    const effects = [];
+    effects.push(sp.code ? { tone: 'g', tag: 'ON', text: 'Teachers get code questions. Students get the editor and Run. Homework can offer a practice IDE.' } : { tone: 'n', tag: 'OFF', text: 'No code questions, no editor, no Python runtime on student Macs. Homework has no practice IDE.' });
+    effects.push(sp.math ? { tone: 'g', tag: 'ON', text: 'Math keyboard and formula checking are in the exam bundle.' } : { tone: 'n', tag: 'OFF', text: 'No math keyboard in the bundle.' });
+    effects.push(sp.lang ? { tone: 'a', tag: 'NOTE', text: 'Students must allow the microphone and audio before the lock starts. The checklist adds one step.' } : { tone: 'n', tag: 'OFF', text: 'No microphone or audio step in the student checklist.' });
+    effects.push({ tone: 'g', tag: 'SAME', text: 'Live room, grading, analytics, integrity report and Canvas export are identical for every subject.' });
+    const reqs = s.reqs.map((r) => ({
+      who: r.who, subject: r.subject, pack: r.pack, why: r.why,
+      approveSubject: () => { const np = Object.assign({}, s.packs); np[r.sk] = Object.assign({}, np[r.sk]); np[r.sk][r.pk] = true; this.setState({ packs: np, sel: r.sk, reqs: s.reqs.filter((x) => x.id !== r.id), saved: 'Saved just now', log: this.log('Admin approved ' + r.pack + ' for all of ' + r.subject + ' (request from ' + r.who + ').'), note: 'Approved for the whole subject. ' + r.who + ' gets a notification; the switch in the table changed.' }); },
+      approveOne: () => this.setState({ overrides: s.overrides.concat([{ id: r.id, who: r.who, subject: r.subject, pack: r.pack }]), reqs: s.reqs.filter((x) => x.id !== r.id), saved: 'Saved just now', log: this.log('Admin gave ' + r.who + ' ' + r.pack + ' only for their own classes.'), note: 'Approved for ' + r.who + ' only. The rest of ' + r.subject + ' is unchanged.' }),
+      deny: () => this.setState({ reqs: s.reqs.filter((x) => x.id !== r.id), log: this.log('Admin declined ' + r.pack + ' for ' + r.who + '.'), note: 'Declined. ' + r.who + ' sees "Not approved" with a reason line.' })
+    }));
+    return {
+      saveLabel: s.saved, note: s.note,
+      rows: rows, selName: cur.name, visibleCount: visibleCount,
+      shownPacks: shown, hiddenPacks: hidden, hasHidden: hidden.length > 0,
+      dataCls: sp.data ? 'on' : '', dataLabel: sp.data ? 'On: notebook and spreadsheet' : 'Off: notebook and spreadsheet hidden',
+      flipData: () => flip(s.sel, 'data'),
+      effects: effects,
+      addSubject: () => this.setState({ note: 'Add a subject: asks for a name and which packs to start with (the recommended default is Core only). Real subjects come from the Canvas course import.' }),
+      reqs: reqs, reqCount: s.reqs.length, noReq: s.reqs.length === 0,
+      overrides: s.overrides.map((o) => ({ who: o.who, subject: o.subject, pack: o.pack, remove: () => this.setState({ overrides: s.overrides.filter((x) => x.id !== o.id), log: this.log('Admin removed the exception for ' + o.who + '.'), note: 'Exception removed.' }) })),
+      noOv: s.overrides.length === 0,
+      log: s.log, packInfo: defs.map((d) => ({ name: d.name, n: d.n, items: d.items, cost: d.cost })).concat([{ name: 'Core (always on)', n: 12, items: 'Choice, true/false, matching, ordering, fill-in, short answer, number, essay, essay from sources, short response, file upload, composite.', cost: 'Light. Works everywhere.' }])
+    };
+  }
+}
+</script>
+</body>
+</html>

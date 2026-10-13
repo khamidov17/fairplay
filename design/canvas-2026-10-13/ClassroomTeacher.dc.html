@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Teacher classroom</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+body{margin:0;font-family:'Manrope',system-ui,sans-serif;color:#1B2533;background:#F3F5F7}
+*{box-sizing:border-box}
+a{color:#2F4BD8;font-weight:700;text-decoration:none}
+button{font-family:inherit}
+.btn{font-weight:700;font-size:13px;border:1px solid #CBD2DC;background:#fff;color:#1B2533;border-radius:9px;padding:8px 14px;cursor:pointer;min-height:38px}
+.btn:hover{background:#F3F5F7}
+.btn.p{background:#2F4BD8;border-color:#2F4BD8;color:#fff}
+.btn.p:hover{background:#2339A8}
+.btn.s{min-height:30px;padding:4px 10px;font-size:12px}
+.btn.ghost{border-color:transparent;background:transparent;color:#4F5B6B}
+.btn.ghost:hover{background:#EDF0F4}
+.card{background:#fff;border:1px solid #DDE2E9;border-radius:14px}
+.sub{font-size:13px;color:#4F5B6B;line-height:1.5}
+.lbl{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#5B6676;margin-bottom:6px}
+.pill{display:inline-block;font-size:11px;font-weight:800;border-radius:99px;padding:3px 9px;background:#E8ECFC;color:#2339A8;white-space:nowrap}
+.pill.g{background:#E3F4EA;color:#1E6B45}
+.pill.a{background:#FFF1D6;color:#8A5200}
+.pill.r{background:#FDE7E5;color:#A3231B}
+.pill.n{background:#ECEFF3;color:#3A4658}
+.chip{border:1px solid #CBD2DC;background:#fff;border-radius:99px;padding:5px 13px;font-size:12px;font-weight:700;cursor:pointer;min-height:32px;color:#2B3647}
+.chip:hover{background:#F3F5F7}
+.chip.on{background:#E8ECFC;border-color:#2F4BD8;color:#2339A8}
+.side{display:flex;align-items:center;gap:12px;width:100%;border:0;background:transparent;text-align:left;padding:10px 14px;border-radius:0 99px 99px 0;cursor:pointer;font-size:14px;font-weight:700;color:#2B3647;min-height:44px}
+.side:hover{background:#EDF0F4}
+.side.on{background:#E8ECFC;color:#2339A8}
+.ini{flex:0 0 28px;height:28px;border-radius:99px;color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center}
+.cc{border:1px solid #DDE2E9;border-radius:14px;background:#fff;overflow:hidden;display:flex;flex-direction:column;cursor:pointer;text-align:left;padding:0;font-family:inherit;transition:box-shadow .15s}
+.cc:hover{box-shadow:0 4px 18px rgba(27,37,51,.12)}
+.tab{border:0;background:transparent;font-weight:800;font-size:14px;padding:14px 20px;cursor:pointer;color:#4F5B6B;border-bottom:3px solid transparent;min-height:50px}
+.tab.on{color:#2339A8;border-bottom-color:#2F4BD8}
+.row{display:flex;align-items:center;gap:14px;width:100%;text-align:left;border:0;border-top:1px solid #E6EAF0;background:transparent;padding:12px 18px;cursor:pointer;font-size:14px;min-height:60px;font-family:inherit;color:#1B2533}
+.row:hover{background:#F7F8FA}
+.kic{flex:0 0 38px;height:38px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:#fff}
+.gt{display:grid;gap:0;align-items:center;font-size:13px}
+.gc{border:0;border-top:1px solid #E6EAF0;background:transparent;padding:10px 8px;text-align:center;cursor:pointer;font-size:13px;font-weight:700;min-height:42px;font-family:inherit;color:#1B2533}
+.gc:hover{background:#F3F5F7}
+.modal{position:absolute;inset:0;background:rgba(27,37,51,.30);display:flex;align-items:flex-start;justify-content:center;z-index:6;padding:100px 20px}
+.menu{position:absolute;top:44px;left:0;z-index:4;background:#fff;border:1px solid #DDE2E9;border-radius:12px;box-shadow:0 8px 28px rgba(27,37,51,.16);padding:6px;width:240px;display:flex;flex-direction:column}
+.mi{display:flex;gap:10px;align-items:center;border:0;background:transparent;text-align:left;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;color:#1B2533;min-height:42px;width:100%}
+.mi:hover{background:#F3F5F7}
+</style>
+</helmet>
+<div style="display:flex;flex-direction:column;min-height:1100px">
+
+<!-- prototype control -->
+<div style="padding:16px 24px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <span class="pill n">PROTOTYPE CONTROL, not in the app</span>
+  <span class="sub">Teachers see their own subject. View the same dashboard as a professor of:</span>
+  <sc-for list="{{subjChips}}" as="c" hint-placeholder-count="3"><button class="chip {{c.cls}}" onClick="{{c.pick}}">{{c.label}}</button></sc-for>
+</div>
+
+<div style="position:relative;margin:12px 24px 0;border:1px solid #CBD2DC;border-radius:16px;overflow:hidden;background:#F7F8FA;display:flex;flex-direction:column;min-height:900px;box-shadow:0 4px 24px rgba(27,37,51,.08)">
+
+  <!-- top bar -->
+  <div style="background:#fff;border-bottom:1px solid #E6EAF0;height:60px;flex:0 0 60px;display:flex;align-items:center;gap:14px;padding:0 20px">
+    <svg width="30" height="30" viewBox="0 0 44 44" role="img" aria-label="FairPlay"><rect width="44" height="44" rx="11" fill="#2F4BD8"/><path d="M11 17h11l4 4 8-8" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 29h22" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/></svg>
+    <b style="font-size:18px;letter-spacing:-0.02em">FairPlay</b>
+    <span class="sub" style="font-size:14px">{{crumb}}</span>
+    <div style="flex:1"></div>
+    <button class="btn s" onClick="{{openCreateCourse}}">+ Create course</button>
+    <button class="btn s ghost" onClick="{{bell}}" aria-label="Notifications">Notifications <span class="pill r">2</span></button>
+    <span class="ini" style="background:#2F4BD8;flex:0 0 34px;height:34px">{{teacherIni}}</span>
+  </div>
+
+  <div style="display:flex;flex:1;min-height:0">
+
+    <!-- sidebar -->
+    <div style="flex:0 0 250px;background:#fff;border-right:1px solid #E6EAF0;padding:14px 0;display:flex;flex-direction:column;gap:2px">
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="4"><button class="side {{n.cls}}" onClick="{{n.pick}}"><span style="flex:1">{{n.label}}</span><sc-if value="{{n.hasBadge}}" hint-placeholder-val="{{false}}"><span class="pill {{n.tone}}">{{n.badge}}</span></sc-if></button></sc-for>
+      <div style="border-top:1px solid #E6EAF0;margin:10px 0 6px"></div>
+      <div class="lbl" style="padding:0 18px;margin:0 0 4px">Teaching</div>
+      <sc-for list="{{sideCourses}}" as="c" hint-placeholder-count="3"><button class="side {{c.cls}}" onClick="{{c.pick}}"><span class="ini" style="{{c.bg}}">{{c.ini}}</span><span style="flex:1;line-height:1.25">{{c.name}}<span class="sub" style="display:block;font-size:12px">{{c.sec}}</span></span></button></sc-for>
+      <div style="border-top:1px solid #E6EAF0;margin:10px 0 6px"></div>
+      <button class="side" onClick="{{archived}}"><span>Archived classes</span></button>
+      <button class="side" onClick="{{settings}}"><span>Settings</span></button>
+    </div>
+
+    <!-- main -->
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;position:relative">
+
+      <!-- ========== COURSES ========== -->
+      <sc-if value="{{pCourses}}" hint-placeholder-val="{{true}}">
+        <div style="padding:26px 30px;display:flex;flex-direction:column;gap:22px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap">
+            <div><div style="font-size:26px;font-weight:800;letter-spacing:-0.02em">{{greeting}}</div><div class="sub" style="font-size:14px;margin-top:2px">{{todaySub}}</div></div>
+            <div style="display:flex;gap:8px"><button class="chip on" onClick="{{termTap}}">2026 Fall</button><button class="btn s" onClick="{{joinTap}}">Join a course with a code</button></div>
+          </div>
+          <div class="card" style="padding:14px 18px;display:flex;gap:18px;flex-wrap:wrap;align-items:center;background:#FBFCFF;border-color:#C9D2F7">
+            <span class="pill">NEEDS YOU</span>
+            <sc-for list="{{needs}}" as="n" hint-placeholder-count="2"><button class="btn s" onClick="{{n.pick}}">{{n.text}}</button></sc-for>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:18px">
+            <sc-for list="{{cards}}" as="c" hint-placeholder-count="3">
+              <div class="cc">
+               <div role="button" tabindex="0" onClick="{{c.open}}" style="cursor:pointer">
+                <div style="{{c.banner}};padding:18px 20px;height:112px;position:relative;color:#fff">
+                  <div style="font-size:22px;font-weight:800;letter-spacing:-0.01em;line-height:1.2">{{c.name}}</div>
+                  <div style="font-size:14px;opacity:.92">{{c.sec}} · {{c.term}}</div>
+                  <span class="ini" style="{{c.iniSt}}">{{c.teacherIni}}</span>
+                </div>
+                <div style="padding:20px 20px 12px;display:flex;flex-direction:column;gap:8px;min-height:116px">
+                  <div style="font-size:14px"><b>Next:</b> {{c.next}}</div>
+                  <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill n">{{c.students}} students</span><span class="pill {{c.rtone}}">{{c.review}}</span></div>
+                </div>
+               </div>
+                <div style="border-top:1px solid #E6EAF0;padding:8px 12px;display:flex;gap:6px;justify-content:flex-end">
+                  <button class="btn s ghost" onClick="{{c.grades}}">Grades</button><button class="btn s ghost" onClick="{{c.work}}">Classwork</button><button class="btn s ghost" onClick="{{c.more}}">More</button>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ========== CLASS ========== -->
+      <sc-if value="{{pClass}}" hint-placeholder-val="{{false}}">
+        <div style="{{cur.banner}};padding:22px 30px 0;color:#fff">
+          <div style="display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;align-items:flex-start">
+            <div><div style="font-size:28px;font-weight:800;letter-spacing:-0.02em">{{cur.name}}</div><div style="font-size:15px;opacity:.92">{{cur.sec}} · {{cur.term}} · {{cur.students}} students</div></div>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <span style="background:rgba(255,255,255,.18);border-radius:99px;padding:6px 14px;font-size:13px;font-weight:700">Join code <span style="font-family:'JetBrains Mono',monospace;letter-spacing:.1em">{{codeShown}}</span></span>
+              <button class="btn s" onClick="{{toggleCode}}">{{codeBtn}}</button>
+              <button class="btn s" onClick="{{openInvite}}">Invite students</button>
+            </div>
+          </div>
+          <div style="display:flex;gap:4px;margin-top:14px"><sc-for list="{{tabs}}" as="t" hint-placeholder-count="4"><button class="tab {{t.cls}}" style="{{t.st}}" onClick="{{t.pick}}">{{t.label}}</button></sc-for></div>
+        </div>
+
+        <!-- stream -->
+        <sc-if value="{{tStream}}" hint-placeholder-val="{{true}}">
+          <div style="padding:24px 30px;display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start">
+            <div style="flex:0 0 250px;display:flex;flex-direction:column;gap:14px">
+              <div class="card" style="padding:16px"><div class="lbl">Upcoming</div><sc-for list="{{upcoming}}" as="u" hint-placeholder-count="2"><button class="btn s ghost" style="display:block;width:100%;text-align:left;padding:8px 4px;height:auto" onClick="{{u.pick}}"><b style="font-size:13px">{{u.title}}</b><span class="sub" style="display:block;font-size:12px">{{u.when}}</span></button></sc-for></div>
+              <div class="card" style="padding:16px"><div class="lbl">Needs grading</div><div style="font-size:22px;font-weight:800">{{cur.review}}</div><button class="btn s" style="margin-top:8px" onClick="{{toReview}}">Open the queue</button></div>
+            </div>
+            <div style="flex:1 1 520px;min-width:0;display:flex;flex-direction:column;gap:14px">
+              <sc-if value="{{composerClosed}}" hint-placeholder-val="{{true}}">
+                <button class="card" style="padding:18px 20px;text-align:left;cursor:pointer;font-family:inherit;font-size:15px;color:#4F5B6B;display:flex;gap:14px;align-items:center" onClick="{{openComposer}}"><span class="ini" style="background:#2F4BD8;flex:0 0 38px;height:38px">{{teacherIni}}</span>Announce something to your class</button>
+              </sc-if>
+              <sc-if value="{{composerOpen}}" hint-placeholder-val="{{false}}">
+                <div class="card" style="padding:18px 20px;display:flex;flex-direction:column;gap:12px;border-color:#2F4BD8">
+                  <div style="border:1px solid #CBD2DC;border-radius:10px;padding:12px 14px;min-height:90px;font-size:15px;line-height:1.5">{{draftText}}</div>
+                  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><button class="btn s">Attach a file</button><button class="btn s">Add a question set</button><span style="flex:1"></span><button class="btn" onClick="{{cancelComposer}}">Cancel</button><button class="btn p" onClick="{{postIt}}">Post</button></div>
+                </div>
+              </sc-if>
+              <sc-for list="{{feed}}" as="f" hint-placeholder-count="3">
+                <div class="card" style="padding:16px 20px;display:flex;gap:14px;align-items:flex-start">
+                  <span class="ini" style="{{f.bg}};flex:0 0 38px;height:38px;font-size:13px">{{f.ini}}</span>
+                  <div style="flex:1;min-width:0"><div style="display:flex;justify-content:space-between;gap:8px"><b style="font-size:14px">{{f.who}}</b><span class="sub" style="font-size:12px">{{f.when}}</span></div><div style="font-size:14px;line-height:1.55;margin-top:2px">{{f.text}}</div>
+                    <div style="display:flex;gap:8px;margin-top:8px;align-items:center"><sc-if value="{{f.pinned}}" hint-placeholder-val="{{false}}"><span class="pill a">Pinned</span></sc-if><button class="btn s ghost" onClick="{{f.comment}}">{{f.comments}}</button><button class="btn s ghost" onClick="{{f.pin}}">{{f.pinLabel}}</button></div></div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- classwork -->
+        <sc-if value="{{tWork}}" hint-placeholder-val="{{false}}">
+          <div style="padding:24px 30px;display:flex;flex-direction:column;gap:16px;max-width:1000px;width:100%;margin:0 auto">
+            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+              <div style="position:relative">
+                <button class="btn p" onClick="{{toggleCreate}}">+ Create</button>
+                <sc-if value="{{createOpen}}" hint-placeholder-val="{{false}}">
+                  <div class="menu"><sc-for list="{{createItems}}" as="m" hint-placeholder-count="7"><button class="mi" onClick="{{m.pick}}"><span class="kic" style="{{m.bg}};flex:0 0 28px;height:28px;font-size:12px">{{m.ic}}</span>{{m.label}}</button></sc-for></div>
+                </sc-if>
+              </div>
+              <sc-for list="{{kindChips}}" as="k" hint-placeholder-count="5"><button class="chip {{k.cls}}" onClick="{{k.pick}}">{{k.label}}</button></sc-for>
+              <span style="flex:1"></span><span class="sub">Ordered by topic. Drag to reorder.</span>
+            </div>
+            <sc-for list="{{topics}}" as="tp" hint-placeholder-count="2">
+              <div class="card" style="overflow:hidden">
+                <div style="padding:16px 18px;display:flex;justify-content:space-between;align-items:center;gap:10px"><div style="font-size:20px;font-weight:800;color:#2339A8">{{tp.name}}</div><button class="btn s ghost" onClick="{{tp.more}}">More</button></div>
+                <sc-for list="{{tp.items}}" as="w" hint-placeholder-count="3">
+                  <button class="row" onClick="{{w.go}}"><span class="kic" style="{{w.bg}}">{{w.ic}}</span><span style="flex:1;min-width:0"><b>{{w.title}}</b><span class="sub" style="display:block">{{w.meta}}</span></span><span class="pill {{w.tone}}">{{w.status}}</span></button>
+                </sc-for>
+                <sc-if value="{{tp.empty}}" hint-placeholder-val="{{false}}"><div class="sub" style="padding:14px 18px;border-top:1px solid #E6EAF0">Nothing here with this filter.</div></sc-if>
+              </div>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <!-- people -->
+        <sc-if value="{{tPeople}}" hint-placeholder-val="{{false}}">
+          <div style="padding:24px 30px;display:flex;flex-direction:column;gap:22px;max-width:860px;width:100%;margin:0 auto">
+            <div><div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #2F4BD8;padding-bottom:10px"><div style="font-size:24px;font-weight:800;color:#2339A8">Teachers</div><button class="btn s" onClick="{{inviteTeacher}}">Invite a teacher or TA</button></div>
+              <sc-for list="{{teachers}}" as="p" hint-placeholder-count="2"><div class="row" style="cursor:default"><span class="ini" style="{{p.bg}};flex:0 0 38px;height:38px">{{p.ini}}</span><b style="flex:1">{{p.name}}</b><span class="pill n">{{p.role}}</span></div></sc-for></div>
+            <div><div style="display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #2F4BD8;padding-bottom:10px"><div style="font-size:24px;font-weight:800;color:#2339A8">Students <span class="sub" style="font-size:16px">{{cur.students}}</span></div><div style="display:flex;gap:8px"><button class="btn s" onClick="{{emailAll}}">Email all</button><button class="btn s" onClick="{{openInvite}}">Invite students</button></div></div>
+              <sc-for list="{{people}}" as="p" hint-placeholder-count="8"><div class="row" style="cursor:default"><span class="ini" style="{{p.bg}};flex:0 0 38px;height:38px;font-size:13px">{{p.ini}}</span><span style="flex:1"><b>{{p.name}}</b><span class="sub" style="display:block;font-size:12px">{{p.mail}}</span></span><span class="sub">{{p.seen}}</span><button class="btn s ghost" onClick="{{p.more}}">More</button></div></sc-for>
+              <div class="sub" style="padding:12px 18px;border-top:1px solid #E6EAF0">{{moreStudents}}</div></div>
+          </div>
+        </sc-if>
+
+        <!-- grades -->
+        <sc-if value="{{tGrades}}" hint-placeholder-val="{{false}}">
+          <div style="padding:24px 30px;display:flex;flex-direction:column;gap:14px">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center"><div><div style="font-size:22px;font-weight:800">Gradebook</div><div class="sub">Click a score to read the answers. Amber is below 60.</div></div><div style="display:flex;gap:8px"><button class="btn s" onClick="{{releaseGrades}}">Release grades</button><button class="btn s p" onClick="{{exportCanvas}}">Export to Canvas</button></div></div>
+            <div class="card" style="overflow:auto">
+              <div class="gt" style="grid-template-columns:minmax(170px,1.4fr) repeat({{gcols}},minmax(110px,1fr)) 90px">
+                <div class="lbl" style="padding:12px 18px;margin:0">Student</div><sc-for list="{{gHead}}" as="h" hint-placeholder-count="4"><div style="padding:8px;text-align:center"><b style="font-size:12px">{{h.title}}</b><div class="sub" style="font-size:11px">{{h.sub}}</div></div></sc-for><div class="lbl" style="padding:12px 8px;margin:0;text-align:center">Average</div>
+                <sc-for list="{{gRows}}" as="r" hint-placeholder-count="10">
+                  <div style="padding:10px 18px;border-top:1px solid #E6EAF0;font-weight:700;font-size:14px">{{r.name}}</div>
+                  <sc-for list="{{r.cells}}" as="c" hint-placeholder-count="4"><button class="gc" style="{{c.st}}" onClick="{{c.pick}}">{{c.v}}</button></sc-for>
+                  <div style="padding:10px 8px;border-top:1px solid #E6EAF0;text-align:center;font-weight:800">{{r.avg}}</div>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+      </sc-if>
+
+      <!-- ========== TO REVIEW ========== -->
+      <sc-if value="{{pReview}}" hint-placeholder-val="{{false}}">
+        <div style="padding:26px 30px;display:flex;flex-direction:column;gap:16px;max-width:980px;width:100%">
+          <div><div style="font-size:26px;font-weight:800;letter-spacing:-0.02em">To review</div><div class="sub" style="font-size:14px">Everything across your classes that waits for you: answers to read, flags to decide.</div></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><sc-for list="{{reviewChips}}" as="c" hint-placeholder-count="3"><button class="chip {{c.cls}}" onClick="{{c.pick}}">{{c.label}}</button></sc-for></div>
+          <div class="card" style="overflow:hidden">
+            <sc-for list="{{reviewRows}}" as="r" hint-placeholder-count="4"><div class="row" style="cursor:default"><span class="ini" style="{{r.bg}};flex:0 0 14px;height:14px"></span><span style="flex:1"><b>{{r.title}}</b><span class="sub" style="display:block">{{r.course}} · {{r.what}}</span></span><span class="pill {{r.tone}}">{{r.tag}}</span><button class="btn s p" onClick="{{r.go}}">{{r.cta}}</button></div></sc-for>
+            <sc-if value="{{noReview}}" hint-placeholder-val="{{false}}"><div class="sub" style="padding:24px">Nothing waits for you in this class.</div></sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ========== CALENDAR ========== -->
+      <sc-if value="{{pCalendar}}" hint-placeholder-val="{{false}}">
+        <div style="padding:26px 30px;display:flex;flex-direction:column;gap:16px">
+          <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px"><div><div style="font-size:26px;font-weight:800;letter-spacing:-0.02em">Calendar</div><div class="sub" style="font-size:14px">This week, all your classes. One colour per class.</div></div><div style="display:flex;gap:8px"><button class="btn s" onClick="{{subscribeIcal}}">Subscribe in your calendar app</button><button class="btn s p" onClick="{{scheduleTap}}">+ Schedule</button></div></div>
+          <div style="display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px">
+            <sc-for list="{{days}}" as="d" hint-placeholder-count="5">
+              <div class="card" style="padding:12px;min-height:300px;display:flex;flex-direction:column;gap:8px;{{d.st}}"><div style="display:flex;justify-content:space-between"><b>{{d.name}}</b><span class="sub">{{d.date}}</span></div>
+                <sc-for list="{{d.items}}" as="e" hint-placeholder-count="2"><button class="btn s" style="text-align:left;height:auto;padding:8px 10px;{{e.st}}" onClick="{{e.pick}}"><b style="font-size:12px;display:block">{{e.title}}</b><span style="font-size:11px;opacity:.9">{{e.when}}</span></button></sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- ========== LIBRARY ========== -->
+      <sc-if value="{{pLibrary}}" hint-placeholder-val="{{false}}">
+        <div style="padding:26px 30px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:10px"><div><div style="font-size:26px;font-weight:800;letter-spacing:-0.02em">Library</div><div class="sub" style="font-size:14px">Questions, exam templates, materials and more, kept once and reused in any class. {{libSubjectLine}}</div></div><button class="btn p" onClick="{{libNew}}">+ New</button></div>
+          <div style="display:flex;gap:4px;border-bottom:1px solid #DDE2E9;flex-wrap:wrap"><sc-for list="{{libTabs}}" as="t" hint-placeholder-count="5"><button class="tab {{t.cls}}" onClick="{{t.pick}}">{{t.label}}</button></sc-for></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><span class="lbl" style="margin:0">Whose</span><sc-for list="{{scopeChips}}" as="c" hint-placeholder-count="3"><button class="chip {{c.cls}}" onClick="{{c.pick}}">{{c.label}}</button></sc-for><span style="flex:1"></span><div style="border:1px solid #CBD2DC;border-radius:9px;padding:8px 12px;background:#fff;min-width:260px;color:#7A8494;font-size:13px">Search the library</div></div>
+          <div class="card" style="overflow:hidden">
+            <sc-for list="{{libRows}}" as="r" hint-placeholder-count="6">
+              <div class="row" style="cursor:default"><span class="pill n" style="min-width:76px;text-align:center">{{r.type}}</span><span style="flex:1;min-width:0"><b>{{r.title}}</b><span class="sub" style="display:block">{{r.meta}}</span></span><span class="pill {{r.stone}}">{{r.scope}}</span><button class="btn s p" onClick="{{r.use}}">{{r.useLabel}}</button><button class="btn s" onClick="{{r.copy}}">Copy to mine</button><button class="btn s ghost" onClick="{{r.share}}">Share</button></div>
+            </sc-for>
+            <sc-if value="{{noLib}}" hint-placeholder-val="{{false}}"><div class="sub" style="padding:24px">Nothing here yet for this filter.</div></sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <div style="flex:1"></div>
+
+      <!-- invite modal -->
+      <sc-if value="{{showInvite}}" hint-placeholder-val="{{false}}">
+        <div class="modal"><div class="card" style="width:560px;max-width:100%;padding:24px;display:flex;flex-direction:column;gap:14px">
+          <div style="font-size:19px;font-weight:800">Invite students to {{cur.name}}, {{cur.sec}}</div>
+          <sc-for list="{{inviteOpts}}" as="o" hint-placeholder-count="3"><button class="row" style="border:1px solid #DDE2E9;border-radius:12px;padding:14px 16px" onClick="{{o.pick}}"><span style="flex:1"><b>{{o.title}}</b><span class="sub" style="display:block">{{o.sub}}</span></span><span class="pill">{{o.tag}}</span></button></sc-for>
+          <div style="display:flex;justify-content:flex-end"><button class="btn" onClick="{{closeInvite}}">Close</button></div>
+        </div></div>
+      </sc-if>
+
+      <!-- use in exam modal -->
+      <sc-if value="{{showUse}}" hint-placeholder-val="{{false}}">
+        <div class="modal"><div class="card" style="width:560px;max-width:100%;padding:24px;display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:19px;font-weight:800">Use "{{useTitle}}" in which exam?</div>
+          <div class="sub">It is copied into the exam, so editing it there does not change the library.</div>
+          <sc-for list="{{useExams}}" as="e" hint-placeholder-count="3"><button class="row" style="border:1px solid #DDE2E9;border-radius:12px;padding:12px 16px;min-height:52px" onClick="{{e.pick}}"><span style="flex:1"><b>{{e.title}}</b><span class="sub" style="display:block">{{e.course}}</span></span><span class="pill {{e.tone}}">{{e.status}}</span></button></sc-for>
+          <div style="display:flex;justify-content:flex-end"><button class="btn" onClick="{{closeUse}}">Cancel</button></div>
+        </div></div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+
+<div style="padding:14px 24px 28px;display:flex;flex-direction:column;gap:12px">
+  <div style="background:#E8ECFC;border:1px solid #C9D2F7;border-radius:12px;padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="pill">LAST CLICK</span><span style="font-size:13px;font-weight:600;flex:1 1 300px">{{note}}</span><sc-if value="{{noteHref}}" hint-placeholder-val="{{false}}"><a href="{{noteHref}}" style="font-size:13px">Open that screen</a></sc-if></div>
+  <div class="card" style="padding:18px 20px">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px">Spec: T8 (classroom-style teacher dashboard and library)</div>
+    <div class="sub">The idea: a teacher who has used Google Classroom should feel at home in ten seconds, and find it better because exams, integrity and grading are built in. (1) <b>Courses</b>: one card per class with a coloured banner, the next exam, how many answers wait, and Grades and Classwork shortcuts. A strip at the top says what needs you today. (2) <b>A class</b> has four tabs: <b>Stream</b> (announce to the class, pinned notes, automatic posts when an exam is scheduled or results are released, an Upcoming box), <b>Classwork</b> (grouped by topic; Create adds a Quiz, Midterm, Final, Homework, Material, Question set or Topic; each row opens the right tool for its status: editor, live room, grading or results), <b>People</b> (teachers and TAs, students, invite by link, Canvas CSV or email) and <b>Grades</b> (gradebook, release, export to Canvas). (3) <b>To review</b> collects every class's waiting work. (4) <b>Calendar</b> shows the week, one colour per class, with an iCal link. (5) <b>Library</b> is the DKU OJ idea made reusable: Questions, Exam templates, Materials, Rubrics and one subject tab (Code starters for computer science, Formula sheets for mathematics, Diagrams for biology). Items belong to Mine, My department or University; "Use in exam" copies an item into an exam, "Copy to mine" copies it to your own, "Share" widens who sees it. What a teacher sees depends on their subject: switch the prototype control at the top. I read "library functions" in DKU OJ as shared reusable content; if it means something else (for example code helper functions), tell me and I will change the Library tabs. All names, classes and numbers are sample data.</div>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { view: 'cs', page: 'courses', course: 0, tab: 'Stream', kind: 'All', createOpen: false, composer: false, codeShown: false, libTab: 'Questions', scope: 'All', revFilter: 'All', showInvite: false, showUse: false, useItem: '', extraWork: [], extraPosts: [], pinned: {}, note: 'Click a course card, then the tabs. Use the control at the top to see another subject.', href: '' };
+  }
+  D() {
+    return {
+      cs: {
+        name: 'Computer Science', teacher: 'Prof. Chen', ini: 'PC',
+        courses: [['CS 101', 'Section A', '#2F4BD8', 38, 'Midterm · Thu 08:00', 12, 'x7k2m9'], ['CS 101', 'Section B', '#1F9AA6', 41, 'Midterm · Thu 10:30', 0, 'q4n8bt'], ['CS 230 Data Structures', 'Section A', '#8A78C2', 29, 'Quiz 3 · Mon 10:00', 4, 'h2w6zp']],
+        topics: ['Hashing', 'Trees'],
+        work: [[0, 'Material', 'Lecture 3 notes: hash functions', 'Posted', 'PDF · posted 2 days ago'], [0, 'Quiz', 'Quiz 1: Arrays and hashing', 'Graded', '38 of 38 handed in · average 68'], [0, 'Homework', 'Homework 1: Build a hash table', 'Open', 'Due Sun 23:59 · 31 of 38 handed in'], [1, 'Material', 'Binary trees: slides', 'Posted', 'Slides · posted last week'], [1, 'Quiz', 'Quiz 2: Trees', 'Draft', 'Not shared yet · 6 questions'], [1, 'Midterm', 'Midterm', 'Scheduled', 'Thu 08:00 · 90 min · lock on'], [1, 'Final', 'Final exam', 'Draft', 'Not scheduled']],
+        exam: 'Midterm', examWhen: 'Thursday at 08:00',
+        flags: '2 integrity flags in the Midterm room',
+        lib: {
+          Questions: [['Multiple choice', 'Which structure gives O(1) average lookup?', 'Hashing · used in 2 exams · you', 'Mine'], ['Code', 'Reverse a linked list', 'Lists · 4 tests ready · used in 3 exams · you', 'Mine'], ['Code', 'Two-sum with a hash map', 'Hashing · 5 tests ready · Prof. Zhang', 'My department'], ['True / False', 'Quicksort is stable', 'Sorting · used in 1 exam · you', 'Mine'], ['Trace', 'What does this recursion print?', 'Recursion · Prof. Zhang', 'My department'], ['Essay', 'Compare arrays and linked lists for a queue', 'Lists · rubric attached · DKU shared', 'University']],
+          Templates: [['Midterm', 'CS midterm, 90 minutes', '12 questions: 6 choice, 3 trace, 2 code, 1 essay · lock on', 'My department'], ['Quiz', 'Weekly 20-minute quiz', '6 questions · closed book · shuffled', 'Mine'], ['Homework', 'Coding homework with practice IDE', 'Open book · due date · hints on', 'University']],
+          Materials: [['PDF', 'Hash functions lecture notes', '2 pages · posted in CS 101 A', 'Mine'], ['Slides', 'Binary trees', '24 slides · Prof. Zhang', 'My department'], ['Link', 'Big-O cheat sheet', 'External link · DKU shared', 'University']],
+          Rubrics: [['Rubric', 'Essay: reasoning and clarity', '3 criteria · 10 points', 'Mine'], ['Rubric', 'Code quality', '4 criteria: correctness, style, tests, speed', 'University']],
+          'Code starters': [['Starter', 'Linked list node class', 'Python and Java · attach to a code question', 'Mine'], ['Starter', 'Binary tree class with printer', 'Python · used in 2 exams', 'My department'], ['Starter', 'Test helper: compare floats', 'Python · University', 'University']]
+        },
+        extraTab: 'Code starters', libLine: 'Computer science also has Code starters: ready-made classes and helper functions to attach to a code question.'
+      },
+      math: {
+        name: 'Mathematics', teacher: 'Prof. Li', ini: 'PL',
+        courses: [['MATH 201', 'Section A', '#2E9A63', 120, 'Quiz · Thu 10:00', 18, 'm3k8dd'], ['MATH 201', 'Section B', '#E0A21C', 96, 'Quiz · Thu 14:00', 0, 'p9v2rr'], ['MATH 150 Calculus', 'Section A', '#D85A4F', 64, 'Midterm · Mon', 6, 'c5t7ee']],
+        topics: ['Limits', 'Derivatives'],
+        work: [[0, 'Material', 'Limits: worked examples', 'Posted', 'PDF · posted 3 days ago'], [0, 'Quiz', 'Quiz 1: Limits', 'Graded', '118 of 120 handed in · average 71'], [0, 'Homework', 'Problem set 1', 'Open', 'Due Sun 23:59 · 94 of 120 · photo upload'], [1, 'Material', 'Derivative rules sheet', 'Posted', 'PDF · posted last week'], [1, 'Quiz', 'Quiz 2: Derivatives', 'Draft', 'Not shared yet · 8 questions'], [1, 'Midterm', 'Midterm', 'Scheduled', 'Thu 08:00 · 90 min · calculator allowed'], [1, 'Final', 'Final exam', 'Draft', 'Not scheduled']],
+        exam: 'Quiz', examWhen: 'Thursday at 10:00', flags: '1 integrity flag in Quiz 1',
+        lib: {
+          Questions: [['Formula', 'Differentiate x^2 sin x', 'Derivatives · used in 3 exams · you', 'Mine'], ['Multiple choice', 'Which function is continuous at x = 0?', 'Limits · used in 3 exams · you', 'Mine'], ['Variants', 'Solve a x + b = c (random numbers)', 'Algebra · Prof. Wu', 'My department'], ['Worked steps', 'Find the maximum of f on [0, 3]', 'Applications · rubric attached', 'My department'], ['True / False', 'Every differentiable function is continuous', 'Theory · you', 'Mine'], ['Upload', 'Show your working for the integral', 'Integration · DKU shared', 'University']],
+          Templates: [['Midterm', 'Calculus midterm, 90 minutes', '10 formula, 4 choice, 2 worked solutions · calculator on', 'Mine'], ['Quiz', 'Weekly 15-minute quiz', '6 formula questions · variants on', 'My department'], ['Homework', 'Problem set with photo upload', 'Open book · due date', 'University']],
+          Materials: [['PDF', 'Limits: worked examples', 'posted in MATH 201 A', 'Mine'], ['PDF', 'Derivative rules sheet', 'Prof. Wu', 'My department'], ['Link', 'Graphing tool', 'External link · DKU shared', 'University']],
+          Rubrics: [['Rubric', 'Worked solution: method and answer', '3 criteria · 6 points', 'Mine'], ['Rubric', 'Proof: logic and clarity', '4 criteria · 10 points', 'University']],
+          'Formula sheets': [['Sheet', 'Differentiation rules', 'Allowed in the exam window (read only)', 'Mine'], ['Sheet', 'Trig identities', 'One-page sheet · My department', 'My department'], ['Sheet', 'Integration table', 'University', 'University']]
+        },
+        extraTab: 'Formula sheets', libLine: 'Mathematics also has Formula sheets: one-page sheets you can allow inside the exam window.'
+      },
+      bio: {
+        name: 'Biology', teacher: 'Prof. Wang', ini: 'PW',
+        courses: [['BIO 110', 'Section A', '#1F9AA6', 88, 'Quiz 2 · Wed 09:00', 9, 'b2c4ll'], ['BIO 110', 'Section B', '#2E9A63', 74, 'Quiz 2 · Wed 11:00', 0, 'z8y1aa'], ['BIO 210 Genetics', 'Section A', '#8A78C2', 45, 'Midterm · Fri', 3, 'g6u3ss']],
+        topics: ['Cells', 'Genetics'],
+        work: [[0, 'Material', 'Cell structure: labelled diagrams', 'Posted', 'PDF · posted 4 days ago'], [0, 'Quiz', 'Quiz 1: Organelles', 'Graded', '86 of 88 handed in · average 74'], [0, 'Homework', 'Lab report 1', 'Open', 'Due Sun 23:59 · 60 of 88 · file upload'], [1, 'Material', 'Genetics: slides', 'Posted', 'Slides · posted last week'], [1, 'Quiz', 'Quiz 2: Inheritance', 'Draft', 'Not shared yet · 15 questions'], [1, 'Midterm', 'Midterm', 'Scheduled', 'Fri 09:00 · 90 min'], [1, 'Final', 'Final exam', 'Draft', 'Not scheduled']],
+        exam: 'Quiz 2', examWhen: 'Wednesday at 09:00', flags: 'No integrity flags this week',
+        lib: {
+          Questions: [['Multiple choice', 'Which organelle makes most of the ATP?', 'Cells · used in 4 exams · you', 'Mine'], ['Diagram', 'Label the parts of the animal cell', 'Cells · image attached · used in 3 exams', 'Mine'], ['Hotspot', 'Click the nucleus', 'Cells · image attached · Prof. Zhou', 'My department'], ['Short answer', 'Name the enzyme that unwinds DNA', 'Genetics · you', 'Mine'], ['Essay', 'Describe how natural selection changes a population', 'Evolution · rubric attached', 'University'], ['True / False', 'All bacteria are harmful', 'Microbes · Prof. Zhou', 'My department']],
+          Templates: [['Quiz', 'Weekly 20-minute quiz', '15 choice, 3 diagram · closed book', 'Mine'], ['Midterm', 'Biology midterm, 90 minutes', '30 choice, 6 diagram, 4 short, 1 essay', 'My department'], ['Homework', 'Lab report', 'File upload · due date', 'University']],
+          Materials: [['PDF', 'Cell structure: labelled diagrams', 'posted in BIO 110 A', 'Mine'], ['Slides', 'Genetics', '31 slides · Prof. Zhou', 'My department'], ['Link', 'Cell atlas (external)', 'DKU shared', 'University']],
+          Rubrics: [['Rubric', 'Essay: evidence and reasoning', '3 criteria · 10 points', 'Mine'], ['Rubric', 'Lab report', '5 criteria · 20 points', 'University']],
+          'Diagrams and images': [['Image', 'Animal cell, unlabelled', 'Use for diagram or hotspot questions', 'Mine'], ['Image', 'DNA replication fork', 'My department', 'My department'], ['Image', 'Mitosis stages', 'University', 'University']]
+        },
+        extraTab: 'Diagrams and images', libLine: 'Biology also has Diagrams and images: labelled and unlabelled figures for diagram and hotspot questions.'
+      }
+    };
+  }
+  hash(str) { let h = 7; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 9973; return h; }
+  renderVals() {
+    const s = this.state;
+    const D = this.D();
+    const d = D[s.view];
+    const say = (n, href) => this.setState({ note: n, href: href || '' });
+    const go = (page, note, extra) => this.setState(Object.assign({ page: page, createOpen: false, note: note, href: '' }, extra || {}));
+    const mk = (a) => ({ name: a[0], sec: a[1], color: a[2], students: a[3], next: a[4], review: a[5], code: a[6] });
+    const courses = d.courses.map(mk);
+    const cur = courses[s.course] || courses[0];
+    const banner = (c) => 'background:linear-gradient(135deg,' + c + ',' + c + 'cc)';
+    const initial = (nm) => nm.replace(/[^A-Z]/g, '').slice(0, 2) || nm.slice(0, 2);
+    const totalReview = courses.reduce((a, c) => a + c.review, 0);
+    const kindColor = { Quiz: '#2F4BD8', Midterm: '#8A78C2', Final: '#D85A4F', Homework: '#E0A21C', Material: '#5B6676', 'Question set': '#1F9AA6' };
+    const kindIc = { Quiz: 'Q', Midterm: 'M', Final: 'F', Homework: 'H', Material: 'P', 'Question set': 'S' };
+    const names = ['Aigerim K.', 'Bekzod T.', 'Chen Yu', 'Dilnoza R.', 'Elena V.', 'Farhod S.', 'Gulnara A.', 'Hao L.', 'Iroda M.', 'Jamshid N.'];
+    const pal = ['#2F4BD8', '#1F9AA6', '#8A78C2', '#2E9A63', '#D85A4F', '#E0A21C'];
+
+    /* nav */
+    const navDef = [['courses', 'Courses', 0], ['review', 'To review', totalReview], ['calendar', 'Calendar', 0], ['library', 'Library', 0]];
+    const nav = navDef.map((n) => ({ label: n[1], cls: s.page === n[0] ? 'on' : '', hasBadge: n[2] > 0, badge: n[2], tone: 'a', pick: () => go(n[0], n[1] + ' opened.') }));
+    const sideCourses = courses.map((c, i) => ({ name: c.name, sec: c.sec, ini: initial(c.name), bg: 'background:' + c.color, cls: s.page === 'class' && s.course === i ? 'on' : '', pick: () => go('class', c.name + ', ' + c.sec + ' opened on the Stream.', { course: i, tab: 'Stream' }) }));
+    const crumb = s.page === 'class' ? cur.name + ' · ' + cur.sec : ({ courses: 'Courses', review: 'To review', calendar: 'Calendar', library: 'Library' })[s.page];
+
+    /* courses page */
+    const cards = courses.map((c, i) => ({
+      name: c.name, sec: c.sec, term: '2026 Fall', students: c.students, next: c.next, review: c.review > 0 ? c.review + ' to grade' : 'Nothing to grade', rtone: c.review > 0 ? 'a' : 'g',
+      banner: banner(c.color), iniSt: 'position:absolute;right:18px;bottom:-14px;flex:none;width:44px;height:44px;border:3px solid #fff;font-size:16px;background:' + c.color, teacherIni: d.ini,
+      open: () => go('class', c.name + ', ' + c.sec + ' opened on the Stream tab.', { course: i, tab: 'Stream' }),
+      grades: (e) => { go('class', 'Gradebook of ' + c.name + ', ' + c.sec + '.', { course: i, tab: 'Grades' }); },
+      work: () => go('class', 'Classwork of ' + c.name + ', ' + c.sec + '.', { course: i, tab: 'Classwork' }),
+      more: () => say('More: Copy join code, Move up, Archive this class, Copy to a new term. Archiving keeps every result and flag.')
+    }));
+    const needs = [{ text: totalReview + ' answers to read in ' + courses.filter((c) => c.review > 0).length + ' classes', pick: () => go('review', 'To review opened: answers grouped by exam.') }, { text: d.flags, pick: () => say('Opens the live room or integrity report for that exam. A human decides each flag.', 'IntegrityReport.dc.html') }, { text: d.exam + ' ' + d.examWhen.toLowerCase(), pick: () => say('Opens the live room, where the start code is made at the window start.', 'LiveRoom.dc.html') }];
+
+    /* class page */
+    const tabsDef = ['Stream', 'Classwork', 'People', 'Grades'];
+    const tabs = tabsDef.map((t) => ({ label: t, cls: s.tab === t ? 'on' : '', st: 'color:#fff;opacity:' + (s.tab === t ? '1' : '.75') + ';border-bottom-color:' + (s.tab === t ? '#fff' : 'transparent'), pick: () => this.setState({ tab: t, createOpen: false, note: t + ' tab of ' + cur.name + '.', href: '' }) }));
+    const upcoming = [{ title: d.exam + ' · ' + cur.name, when: d.examWhen, pick: () => say('Opens the exam editor to check the exam.', 'ExamEditor.dc.html') }, { title: 'Homework 1', when: 'Due Sunday 23:59', pick: () => say('Opens the submissions list for this homework.') }];
+    const posts = [
+      { who: d.teacher, ini: d.ini, bg: 'background:#2F4BD8', text: d.exam + ' is on ' + d.examWhen.toLowerCase() + '. Open the FairPlay app 10 minutes before and bring your student ID.', when: 'Today 07:40', comments: 2, key: 'p1' },
+      { who: 'FairPlay', ini: 'FP', bg: 'background:#5B6676', text: 'New exam scheduled: ' + d.exam + ', ' + d.examWhen + '. Students were notified.', when: 'Yesterday', comments: 0, key: 'p2' },
+      { who: 'FairPlay', ini: 'FP', bg: 'background:#5B6676', text: 'Results released: Quiz 1. Students can read feedback in the app.', when: '3 days ago', comments: 0, key: 'p3' }
+    ];
+    const allPosts = s.extraPosts.map((t, i) => ({ who: d.teacher, ini: d.ini, bg: 'background:#2F4BD8', text: t, when: 'Just now', comments: 0, key: 'n' + i })).concat(posts);
+    const feed = allPosts.map((f) => ({ who: f.who, ini: f.ini, bg: f.bg, text: f.text, when: f.when, comments: f.comments ? f.comments + ' class comments' : 'Add a comment', pinned: !!s.pinned[f.key], pinLabel: s.pinned[f.key] ? 'Unpin' : 'Pin', comment: () => say('Comments open under the post. Students can comment unless you turn it off in class settings.'), pin: () => { const np = Object.assign({}, s.pinned); np[f.key] = !np[f.key]; this.setState({ pinned: np, note: np[f.key] ? 'Pinned to the top of the Stream.' : 'Unpinned.' }); } }));
+
+    /* classwork */
+    const kinds = ['All', 'Quiz', 'Midterm', 'Final', 'Homework', 'Material'];
+    const statusTone = { Draft: 'n', Scheduled: '', Open: 'a', Graded: 'g', Posted: 'n' };
+    const work = d.work.concat(s.extraWork.filter((w) => w.course === s.course).map((w) => [w.topic, w.kind, w.title, 'Draft', w.meta]));
+    const dest = (w) => {
+      if (w[3] === 'Draft' || w[3] === 'Scheduled') return ['Opens the exam editor with ' + w[1] + ' defaults already filled in.', 'ExamEditor.dc.html'];
+      if (w[3] === 'Open') return [w[1] === 'Homework' ? 'Opens the submissions for this homework.' : 'Opens the live room.', w[1] === 'Homework' ? '' : 'LiveRoom.dc.html'];
+      if (w[3] === 'Graded') return ['Opens results: scores, questions and students.', 'Analytics.dc.html'];
+      return ['Preview of the material as students see it.', ''];
+    };
+    const topics = d.topics.map((tn, ti) => {
+      const items = work.filter((w) => w[0] === ti && (s.kind === 'All' || w[1] === s.kind)).map((w) => ({ title: w[2], meta: w[4], status: w[3], tone: statusTone[w[3]], ic: kindIc[w[1]], bg: 'background:' + kindColor[w[1]], go: () => { const x = dest(w); say(x[0], x[1]); } }));
+      return { name: tn, items: items, empty: items.length === 0, more: () => say('Topic menu: Rename, Move up, Move down, Delete. Items inside are kept.') };
+    });
+    const createDefs = ['Quiz', 'Midterm', 'Final', 'Homework', 'Material', 'Question set'];
+    const createItems = createDefs.map((k) => ({ label: k, ic: kindIc[k], bg: 'background:' + kindColor[k], pick: () => { const w = { course: s.course, topic: 0, kind: k, title: 'Untitled ' + k.toLowerCase(), meta: 'Draft just now' }; this.setState({ extraWork: s.extraWork.concat([w]), createOpen: false, kind: 'All', note: k === 'Material' ? 'Material added to the first topic. Drag a file in or paste a link.' : k + ' added as a draft in "' + d.topics[0] + '" with ' + k.toLowerCase() + ' defaults. Press its row to open the editor.', href: k === 'Material' ? '' : 'ExamEditor.dc.html' }); } })).concat([{ label: 'Topic', ic: 'T', bg: 'background:#2339A8', pick: () => this.setState({ createOpen: false, note: 'New topic: asks for a name, then appears below the last topic. Items can be dragged between topics.', href: '' }) }]);
+
+    /* people */
+    const people = names.map((n, i) => ({ name: n, ini: initial(n.replace(/\./g, '').split(' ').map((x) => x[0]).join('')), bg: 'background:' + pal[i % 6], mail: n.split(' ')[0].toLowerCase() + '@dukekunshan.edu.cn', seen: i % 4 === 0 ? 'Seen today' : 'Seen ' + (i % 3 + 1) + ' days ago', more: () => say('More: Email, Reset setup link, Move to another section, Remove from class.') }));
+    const teachers = [{ name: d.teacher + ' (you)', ini: d.ini, bg: 'background:#2F4BD8', role: 'Teacher' }, { name: 'Li Wei', ini: 'LW', bg: 'background:#1F9AA6', role: 'Teaching assistant' }];
+
+    /* grades */
+    const gItems = work.filter((w) => w[1] !== 'Material' && (w[3] === 'Graded' || w[3] === 'Open' || w[3] === 'Scheduled')).slice(0, 4);
+    const gHead = gItems.map((w) => ({ title: w[2].split(':')[0], sub: w[3] === 'Graded' ? 'out of 100' : w[3] }));
+    const gRows = names.map((n) => {
+      const vals = gItems.map((w) => (w[3] === 'Graded' ? 45 + this.hash(n + w[2]) % 54 : null));
+      const got = vals.filter((v) => v !== null);
+      return { name: n, avg: got.length ? Math.round(got.reduce((a, b) => a + b, 0) / got.length) : '-', cells: vals.map((v, j) => ({ v: v === null ? '-' : v, st: v !== null && v < 60 ? 'background:#FFF1D6;color:#8A5200' : '', pick: () => say(v === null ? 'Not graded yet. ' + gItems[j][2] + ' is ' + gItems[j][3].toLowerCase() + '.' : n + ', ' + gItems[j][2] + ': ' + v + ' of 100. Opens their answers in grading.', v === null ? '' : 'GradingWorkbench.dc.html') })) };
+    });
+
+    /* review */
+    const allRev = [];
+    courses.forEach((c, i) => { if (c.review > 0) allRev.push({ ci: i, title: d.exam, course: c.name + ', ' + c.sec, what: c.review + ' answers to read, AI drafts ready', tag: 'Grade', tone: 'a', cta: 'Open grading', href: 'GradingWorkbench.dc.html' }); });
+    allRev.push({ ci: 0, title: 'Homework 1', course: courses[0].name + ', ' + courses[0].sec, what: '31 handed in, 0 graded', tag: 'Due Sun', tone: '', cta: 'Open submissions', href: '' });
+    if (d.flags.indexOf('No integrity') < 0) allRev.push({ ci: 0, title: d.exam, course: courses[0].name + ', ' + courses[0].sec, what: d.flags + '. A human decides.', tag: 'Flags', tone: 'r', cta: 'Review flags', href: 'IntegrityReport.dc.html' });
+    const revShown = allRev.filter((r) => s.revFilter === 'All' || r.ci === Number(s.revFilter));
+    const reviewChips = [{ k: 'All', label: 'All classes' }].concat(courses.map((c, i) => ({ k: String(i), label: c.name + ' ' + c.sec.replace('Section ', '') }))).map((c) => ({ label: c.label, cls: s.revFilter === c.k ? 'on' : '', pick: () => this.setState({ revFilter: c.k, note: 'Showing ' + c.label.toLowerCase() + '.' }) }));
+
+    /* calendar */
+    const daysDef = [['Mon', '12'], ['Tue', '13'], ['Wed', '14'], ['Thu', '15'], ['Fri', '16']];
+    const calItems = [[0, 2, 'Quiz 3', '10:00'], [1, 0, 'Office hours', '14:00'], [3, 0, d.exam, '08:00'], [3, 1, d.exam, '10:30'], [4, 2, 'Homework due', '23:59'], [2, 0, 'Quiz review', '16:00']];
+    const days = daysDef.map((x, i) => ({ name: x[0], date: x[1] + ' Oct', st: i === 1 ? 'border-color:#2F4BD8;box-shadow:0 0 0 2px #E8ECFC' : '', items: calItems.filter((e) => e[0] === i).map((e) => { const c = courses[e[1]] || courses[0]; return { title: e[2] + ' · ' + c.name + ' ' + c.sec.replace('Section ', ''), when: e[3], st: 'background:' + c.color + ';border-color:' + c.color + ';color:#fff', pick: () => say(e[2] + ' for ' + c.name + ', ' + c.sec + ' at ' + e[3] + '. Opens the exam or the class.') }; }) }));
+
+    /* library */
+    const L = d.lib;
+    const libKeys = ['Questions', 'Templates', 'Materials', 'Rubrics', d.extraTab];
+    const scopes = ['All', 'Mine', 'My department', 'University'];
+    const libRowsRaw = (L[s.libTab] || []).filter((r) => s.scope === 'All' || r[3] === s.scope);
+    const stone = { Mine: 'g', 'My department': '', University: 'a' };
+    const libRows = libRowsRaw.map((r) => ({ type: r[0], title: r[1], meta: r[2], scope: r[3], stone: stone[r[3]], useLabel: s.libTab === 'Questions' ? 'Use in exam' : (s.libTab === 'Templates' ? 'Start exam' : (s.libTab === 'Materials' ? 'Post to class' : 'Use')),
+      use: () => { if (s.libTab === 'Questions' || s.libTab === 'Templates') this.setState({ showUse: true, useItem: r[1], note: 'Pick the exam that gets a copy of "' + r[1] + '".' }); else say('"' + r[1] + '" is attached to the class or the question you choose next.'); },
+      copy: () => say('Copied "' + r[1] + '" to Mine. It is yours to edit; the original stays as it was.'),
+      share: () => say('Share "' + r[1] + '": Mine, My department or University. Shared items show the author and can be copied, never edited by others.') }));
+    const useExams = work.filter((w) => w[1] !== 'Material' && (w[3] === 'Draft' || w[3] === 'Scheduled')).map((w) => ({ title: w[2], course: cur.name + ', ' + cur.sec, status: w[3], tone: statusTone[w[3]], pick: () => this.setState({ showUse: false, note: 'Copied "' + s.useItem + '" into "' + w[2] + '" as the last question. Opens the editor with it expanded.', href: 'ExamEditor.dc.html' }) }));
+
+    return {
+      subjChips: ['cs', 'math', 'bio'].map((k) => ({ label: D[k].name, cls: s.view === k ? 'on' : '', pick: () => this.setState({ view: k, page: 'courses', course: 0, tab: 'Stream', libTab: 'Questions', scope: 'All', extraWork: [], extraPosts: [], note: 'Now a ' + D[k].name + ' professor: different classes, a different Library and the subject tab "' + D[k].extraTab + '".', href: '' }) })),
+      crumb: crumb, teacherIni: d.ini,
+      openCreateCourse: () => say('Create course: name, section, term, subject, colour. Sections can be imported from Canvas.'),
+      bell: () => say('Notifications: 2 new. "Midterm room opens in 42 minutes" and "2 new problem reports". Each opens the right screen.'),
+      nav: nav, sideCourses: sideCourses,
+      archived: () => say('Archived classes keep results and flags for 7 years (policy to be set by DKU).'),
+      settings: () => say('Settings: notifications, default exam kind settings, calendar link, language.'),
+      pCourses: s.page === 'courses', pClass: s.page === 'class', pReview: s.page === 'review', pCalendar: s.page === 'calendar', pLibrary: s.page === 'library',
+      greeting: 'Good morning, ' + d.teacher, todaySub: totalReview + ' answers wait in ' + courses.filter((c) => c.review > 0).length + ' classes. ' + d.exam + ' is ' + d.examWhen.toLowerCase() + '.',
+      termTap: () => say('Term switcher: 2026 Fall, 2026 Spring, earlier terms.'), joinTap: () => say('A teaching assistant joins a course by typing the 6-character teacher code.'),
+      needs: needs, cards: cards,
+      cur: { name: cur.name, sec: cur.sec, term: '2026 Fall', students: cur.students, review: cur.review, banner: banner(cur.color) },
+      codeShown: s.codeShown ? cur.code : '••••••', codeBtn: s.codeShown ? 'Hide' : 'Show', toggleCode: () => this.setState({ codeShown: !s.codeShown, note: s.codeShown ? 'Code hidden.' : 'Code shown: ' + cur.code + '. Students type it once in the app to join. You can reset or turn it off.' }),
+      openInvite: () => this.setState({ showInvite: true, note: 'Invite options opened.' }), closeInvite: () => this.setState({ showInvite: false, note: 'Closed.' }),
+      showInvite: s.showInvite,
+      inviteOpts: [{ title: 'Share the class link', sub: 'Anyone with a DKU account who opens it joins ' + cur.name + '.', tag: 'Fastest', pick: () => this.setState({ showInvite: false, note: 'Link copied. It stops working when you reset the class code.' }) }, { title: 'Import a Canvas CSV', sub: 'Three steps: choose file, match columns, review. Creates setup links.', tag: '38 students at once', pick: () => this.setState({ showInvite: false, note: 'Opens the Canvas CSV import (same flow as T1).', href: 'TeacherHome.dc.html' }) }, { title: 'Add by email', sub: 'Type or paste email addresses. Each gets a setup link.', tag: 'A few people', pick: () => this.setState({ showInvite: false, note: 'Emails sent with setup links.' }) }],
+      tabs: tabs, tStream: s.tab === 'Stream', tWork: s.tab === 'Classwork', tPeople: s.tab === 'People', tGrades: s.tab === 'Grades',
+      upcoming: upcoming, toReview: () => go('review', 'To review opened for ' + cur.name + '.', { revFilter: String(s.course) }),
+      composerClosed: !s.composer, composerOpen: s.composer, openComposer: () => this.setState({ composer: true, note: 'Announcement box opened. You can attach files or a question set, and choose which classes get it.' }), cancelComposer: () => this.setState({ composer: false, note: 'Cancelled.' }),
+      draftText: 'Reminder: bring your student ID on ' + d.examWhen.toLowerCase() + '. The lock opens at the start code.',
+      postIt: () => this.setState({ composer: false, extraPosts: s.extraPosts.concat(['Reminder: bring your student ID on ' + d.examWhen.toLowerCase() + '. The lock opens at the start code.']), note: 'Posted to the Stream. Students get a notification in their app and by email.' }),
+      feed: feed,
+      createOpen: s.createOpen, toggleCreate: () => this.setState({ createOpen: !s.createOpen, note: s.createOpen ? 'Create menu closed.' : 'Create menu: Quiz, Midterm, Final, Homework, Material, Question set, Topic.' }),
+      createItems: createItems,
+      kindChips: kinds.map((k) => ({ label: k === 'All' ? 'All' : k + 's', cls: s.kind === k ? 'on' : '', pick: () => this.setState({ kind: k, createOpen: false, note: k === 'All' ? 'Showing all classwork.' : 'Showing only ' + k.toLowerCase() + 's.' }) })),
+      topics: topics,
+      teachers: teachers, people: people, moreStudents: (cur.students - 10) + ' more students. Scroll or search to see them.',
+      inviteTeacher: () => say('Invite a teacher or TA: by email. TAs can grade but cannot delete the class.'), emailAll: () => say('Email all students: opens a message to everyone in this section.'),
+      gcols: gItems.length, gHead: gHead, gRows: gRows,
+      releaseGrades: () => say('Release grades: students see scores and feedback for all graded work. Asks to confirm.'), exportCanvas: () => say('Exports a CSV in Canvas gradebook format, matched by student ID.'),
+      reviewChips: reviewChips, reviewRows: revShown.map((r) => ({ title: r.title, course: r.course, what: r.what, tag: r.tag, tone: r.tone, cta: r.cta, bg: 'background:' + courses[r.ci].color, go: () => say(r.cta + ' opened.', r.href) })), noReview: revShown.length === 0,
+      days: days, subscribeIcal: () => say('One iCal link for all your classes; works in Google, Apple and Outlook calendars.'), scheduleTap: () => say('Schedule: pick a class and a kind; opens the exam editor with the date filled.'),
+      libSubjectLine: d.libLine, libNew: () => say('New: question (opens the type picker for ' + d.name + '), template, material or rubric.'),
+      libTabs: libKeys.map((k) => ({ label: k, cls: s.libTab === k ? 'on' : '', pick: () => this.setState({ libTab: k, note: k + ' in the library.' }) })),
+      scopeChips: scopes.map((k) => ({ label: k === 'All' ? 'Everyone\'s' : k, cls: s.scope === k ? 'on' : '', pick: () => this.setState({ scope: k, note: k === 'All' ? 'Showing Mine, My department and University together.' : 'Showing only ' + k + '.' }) })),
+      libRows: libRows, noLib: libRows.length === 0,
+      showUse: s.showUse, useTitle: s.useItem, useExams: useExams, closeUse: () => this.setState({ showUse: false, note: 'Cancelled.' }),
+      note: s.note, noteHref: s.href
+    };
+  }
+}
+</script>
+</body>
+</html>

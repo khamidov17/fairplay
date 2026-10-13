@@ -1,0 +1,392 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Student classroom</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+body{margin:0;font-family:'Manrope',system-ui,sans-serif;color:#1B2533;background:#F3F5F7}
+*{box-sizing:border-box}
+a{color:#2F4BD8;font-weight:700;text-decoration:none}
+button{font-family:inherit}
+.btn{font-weight:700;font-size:13px;border:1px solid #CBD2DC;background:#fff;color:#1B2533;border-radius:9px;padding:8px 14px;cursor:pointer;min-height:38px}
+.btn:hover{background:#F3F5F7}
+.btn.p{background:#2F4BD8;border-color:#2F4BD8;color:#fff}
+.btn.p:hover{background:#2339A8}
+.btn.s{min-height:30px;padding:4px 10px;font-size:12px}
+.btn.ghost{border-color:transparent;background:transparent;color:#4F5B6B}
+.btn.ghost:hover{background:#EDF0F4}
+.card{background:#fff;border:1px solid #DDE2E9;border-radius:14px}
+.sub{font-size:13px;color:#4F5B6B;line-height:1.5}
+.lbl{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#5B6676;margin-bottom:6px}
+.pill{display:inline-block;font-size:11px;font-weight:800;border-radius:99px;padding:3px 9px;background:#E8ECFC;color:#2339A8;white-space:nowrap}
+.pill.g{background:#E3F4EA;color:#1E6B45}
+.pill.a{background:#FFF1D6;color:#8A5200}
+.pill.r{background:#FDE7E5;color:#A3231B}
+.pill.n{background:#ECEFF3;color:#3A4658}
+.chip{border:1px solid #CBD2DC;background:#fff;border-radius:99px;padding:5px 13px;font-size:12px;font-weight:700;cursor:pointer;min-height:32px;color:#2B3647}
+.chip:hover{background:#F3F5F7}
+.chip.on{background:#E8ECFC;border-color:#2F4BD8;color:#2339A8}
+.side{display:flex;align-items:center;gap:12px;width:100%;border:0;background:transparent;text-align:left;padding:10px 14px;border-radius:0 99px 99px 0;cursor:pointer;font-size:14px;font-weight:700;color:#2B3647;min-height:44px}
+.side:hover{background:#EDF0F4}
+.side.on{background:#E8ECFC;color:#2339A8}
+.ini{flex:0 0 28px;height:28px;border-radius:99px;color:#fff;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center}
+.cc{border:1px solid #DDE2E9;border-radius:14px;background:#fff;overflow:hidden;display:flex;flex-direction:column;cursor:pointer;text-align:left;padding:0;font-family:inherit;transition:box-shadow .15s}
+.cc:hover{box-shadow:0 4px 18px rgba(27,37,51,.12)}
+.tab{border:0;background:transparent;font-weight:800;font-size:14px;padding:14px 20px;cursor:pointer;color:#4F5B6B;border-bottom:3px solid transparent;min-height:50px}
+.tab.on{color:#2339A8;border-bottom-color:#2F4BD8}
+.row{display:flex;align-items:center;gap:14px;width:100%;text-align:left;border:0;border-top:1px solid #E6EAF0;background:transparent;padding:12px 18px;cursor:pointer;font-size:14px;min-height:60px;font-family:inherit;color:#1B2533}
+.row:hover{background:#F7F8FA}
+.kic{flex:0 0 38px;height:38px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:#fff}
+.gt{display:grid;gap:0;align-items:center;font-size:13px}
+.gc{border:0;border-top:1px solid #E6EAF0;background:transparent;padding:10px 8px;text-align:center;cursor:pointer;font-size:13px;font-weight:700;min-height:42px;font-family:inherit;color:#1B2533}
+.gc:hover{background:#F3F5F7}
+.modal{position:absolute;inset:0;background:rgba(27,37,51,.30);display:flex;align-items:flex-start;justify-content:center;z-index:6;padding:100px 20px}
+.menu{position:absolute;top:44px;left:0;z-index:4;background:#fff;border:1px solid #DDE2E9;border-radius:12px;box-shadow:0 8px 28px rgba(27,37,51,.16);padding:6px;width:240px;display:flex;flex-direction:column}
+.mi{display:flex;gap:10px;align-items:center;border:0;background:transparent;text-align:left;padding:10px 12px;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;color:#1B2533;min-height:42px;width:100%}
+.mi:hover{background:#F3F5F7}
+</style>
+</helmet>
+<div style="display:flex;flex-direction:column;min-height:1100px">
+
+<div style="padding:16px 24px 0;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+  <span class="pill n">PROTOTYPE CONTROL, not in the app</span>
+  <span class="sub">One student, four courses of different subjects. Each exam belongs to one course. View as:</span>
+  <sc-for list="{{whoChips}}" as="c" hint-placeholder-count="2"><button class="chip {{c.cls}}" onClick="{{c.pick}}">{{c.label}}</button></sc-for>
+</div>
+
+<div style="position:relative;margin:12px 24px 0;border:1px solid #CBD2DC;border-radius:16px;overflow:hidden;background:#F7F8FA;display:flex;flex-direction:column;min-height:900px;box-shadow:0 4px 24px rgba(27,37,51,.08)">
+
+  <div style="background:#fff;border-bottom:1px solid #E6EAF0;height:60px;flex:0 0 60px;display:flex;align-items:center;gap:14px;padding:0 20px">
+    <svg width="30" height="30" viewBox="0 0 44 44" role="img" aria-label="FairPlay"><rect width="44" height="44" rx="11" fill="#2F4BD8"/><path d="M11 17h11l4 4 8-8" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <b style="font-size:18px;letter-spacing:-0.02em">FairPlay</b>
+    <span class="sub" style="font-size:14px">{{crumb}}</span>
+    <div style="flex:1"></div>
+    <button class="btn s" onClick="{{openJoin}}">+ Join a course</button>
+    <button class="btn s ghost" onClick="{{bell}}">Notifications <span class="pill r">1</span></button>
+    <span class="ini" style="background:#8A78C2;flex:0 0 34px;height:34px">{{me.ini}}</span>
+  </div>
+
+  <div style="display:flex;flex:1;min-height:0">
+    <div style="flex:0 0 250px;background:#fff;border-right:1px solid #E6EAF0;padding:14px 0;display:flex;flex-direction:column;gap:2px">
+      <sc-for list="{{nav}}" as="n" hint-placeholder-count="5"><button class="side {{n.cls}}" onClick="{{n.pick}}"><span style="flex:1">{{n.label}}</span><sc-if value="{{n.hasBadge}}" hint-placeholder-val="{{false}}"><span class="pill {{n.tone}}">{{n.badge}}</span></sc-if></button></sc-for>
+      <div style="border-top:1px solid #E6EAF0;margin:10px 0 6px"></div>
+      <div class="lbl" style="padding:0 18px;margin:0 0 4px">Enrolled</div>
+      <sc-for list="{{sideCourses}}" as="c" hint-placeholder-count="4"><button class="side {{c.cls}}" onClick="{{c.pick}}"><span class="ini" style="{{c.bg}}">{{c.ini}}</span><span style="flex:1;line-height:1.25">{{c.name}}<span class="sub" style="display:block;font-size:12px">{{c.sec}}</span></span></button></sc-for>
+      <div style="border-top:1px solid #E6EAF0;margin:10px 0 6px"></div>
+      <button class="side" onClick="{{settings}}"><span>Settings and device check</span></button>
+    </div>
+
+    <div style="flex:1;min-width:0;display:flex;flex-direction:column;position:relative">
+
+      <!-- HOME -->
+      <sc-if value="{{pHome}}" hint-placeholder-val="{{true}}">
+        <div style="padding:26px 30px;display:flex;flex-direction:column;gap:20px">
+          <div><div style="font-size:26px;font-weight:800;letter-spacing:-0.02em">{{greeting}}</div><div class="sub" style="font-size:14px;margin-top:2px">{{todaySub}}</div></div>
+
+          <div class="card" style="padding:20px 22px;border-color:#C9D2F7;background:#FBFCFF;display:flex;flex-direction:column;gap:14px">
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+              <span class="pill">NEXT EXAM</span>
+              <b style="font-size:19px">{{next.title}}</b>
+              <span class="sub" style="font-size:14px">{{next.when}} · {{next.len}}</span>
+              <div style="flex:1"></div>
+              <button class="btn p" onClick="{{next.start}}">{{next.cta}}</button>
+            </div>
+            <div class="sub" style="font-size:14px">{{next.rules}}</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <sc-for list="{{ready}}" as="r" hint-placeholder-count="4"><button class="chip {{r.cls}}" onClick="{{r.pick}}">{{r.label}}</button></sc-for>
+            </div>
+          </div>
+
+          <div style="display:flex;gap:12px;flex-wrap:wrap">
+            <sc-for list="{{todayCards}}" as="t" hint-placeholder-count="3"><button class="card" style="flex:1 1 200px;padding:14px 16px;text-align:left;cursor:pointer;font-family:inherit" onClick="{{t.pick}}"><div class="lbl">{{t.label}}</div><div style="font-size:26px;font-weight:800">{{t.num}}</div><div class="sub">{{t.sub}}</div></button></sc-for>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:18px">
+            <sc-for list="{{cards}}" as="c" hint-placeholder-count="4">
+              <div class="cc">
+                <div role="button" tabindex="0" onClick="{{c.open}}" style="cursor:pointer">
+                  <div style="{{c.banner}};padding:18px 20px;height:104px;position:relative;color:#fff">
+                    <div style="font-size:21px;font-weight:800;line-height:1.2">{{c.name}}</div>
+                    <div style="font-size:14px;opacity:.92">{{c.sec}} · {{c.teacher}}</div>
+                  </div>
+                  <div style="padding:16px 20px 12px;display:flex;flex-direction:column;gap:8px;min-height:104px">
+                    <div style="font-size:14px"><b>Next:</b> {{c.next}}</div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap"><span class="pill {{c.dueTone}}">{{c.due}}</span><span class="pill n">Average {{c.avg}}</span></div>
+                  </div>
+                </div>
+                <div style="border-top:1px solid #E6EAF0;padding:8px 12px;display:flex;gap:6px;justify-content:flex-end">
+                  <button class="btn s ghost" onClick="{{c.work}}">Classwork</button><button class="btn s ghost" onClick="{{c.grades}}">My grades</button>
+                </div>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- COURSE -->
+      <sc-if value="{{pCourse}}" hint-placeholder-val="{{false}}">
+        <div style="display:flex;flex-direction:column">
+          <div style="{{cur.banner}};padding:22px 30px 0;color:#fff">
+            <div style="font-size:28px;font-weight:800;letter-spacing:-0.02em">{{cur.name}}</div>
+            <div style="font-size:15px;opacity:.95">{{cur.sec}} · {{cur.teacher}} · 2026 Fall</div>
+            <div style="display:flex;gap:4px;margin-top:14px"><sc-for list="{{tabs}}" as="t" hint-placeholder-count="4"><button class="tab {{t.cls}}" style="{{t.st}}" onClick="{{t.pick}}">{{t.label}}</button></sc-for></div>
+          </div>
+
+          <sc-if value="{{tStream}}" hint-placeholder-val="{{true}}">
+            <div style="padding:22px 30px;display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap">
+              <div class="card" style="flex:0 0 230px;padding:16px">
+                <div class="lbl">Coming up</div>
+                <sc-for list="{{upcoming}}" as="u" hint-placeholder-count="2"><button class="btn ghost" style="display:block;text-align:left;width:100%;height:auto;padding:8px 6px" onClick="{{u.pick}}"><b style="font-size:13px">{{u.title}}</b><span class="sub" style="display:block">{{u.when}}</span></button></sc-for>
+                <button class="btn s ghost" onClick="{{viewAll}}">View all</button>
+              </div>
+              <div style="flex:1 1 400px;display:flex;flex-direction:column;gap:14px">
+                <sc-for list="{{feed}}" as="f" hint-placeholder-count="3">
+                  <div class="card" style="padding:16px 18px">
+                    <div style="display:flex;gap:12px;align-items:center"><span class="ini" style="{{f.bg}};flex:0 0 38px;height:38px;font-size:13px">{{f.ini}}</span><div style="flex:1"><b>{{f.who}}</b><div class="sub">{{f.when}}</div></div></div>
+                    <div style="margin-top:10px;font-size:14px;line-height:1.55">{{f.text}}</div>
+                    <div style="margin-top:8px"><button class="btn s ghost" onClick="{{f.comment}}">Add class comment</button></div>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{tWork}}" hint-placeholder-val="{{false}}">
+            <div style="padding:22px 30px;display:flex;flex-direction:column;gap:14px;max-width:920px">
+              <div style="display:flex;gap:8px;flex-wrap:wrap"><sc-for list="{{statusChips}}" as="k" hint-placeholder-count="5"><button class="chip {{k.cls}}" onClick="{{k.pick}}">{{k.label}}</button></sc-for></div>
+              <div class="card" style="overflow:hidden">
+                <sc-for list="{{courseWork}}" as="w" hint-placeholder-count="5">
+                  <div class="row" style="cursor:default"><span class="kic" style="{{w.bg}}">{{w.ic}}</span><span style="flex:1;min-width:0"><b>{{w.title}}</b><span class="sub" style="display:block">{{w.meta}}</span></span><span class="pill {{w.tone}}">{{w.status}}</span><button class="btn s {{w.btnCls}}" onClick="{{w.go}}">{{w.cta}}</button></div>
+                </sc-for>
+                <sc-if value="{{noWork}}" hint-placeholder-val="{{false}}"><div class="sub" style="padding:22px">Nothing here with this filter.</div></sc-if>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{tGrades}}" hint-placeholder-val="{{false}}">
+            <div style="padding:22px 30px;display:flex;flex-direction:column;gap:14px;max-width:920px">
+              <div class="card" style="padding:18px 20px;display:flex;gap:28px;flex-wrap:wrap;align-items:center">
+                <div><div class="lbl">Course average</div><div style="font-size:34px;font-weight:800">{{cur.avg}}</div></div>
+                <div class="sub" style="flex:1 1 260px">{{cur.gradeNote}}</div>
+              </div>
+              <div class="card" style="overflow:hidden">
+                <sc-for list="{{gradeRows}}" as="g" hint-placeholder-count="3">
+                  <button class="row" onClick="{{g.pick}}"><span style="flex:1"><b>{{g.title}}</b><span class="sub" style="display:block">{{g.sub}}</span></span><span style="flex:0 0 220px;height:10px;border-radius:99px;background:#ECEFF3;overflow:hidden"><span style="{{g.bar}}"></span></span><b style="flex:0 0 80px;text-align:right">{{g.score}}</b></button>
+                </sc-for>
+                <sc-if value="{{noGrades}}" hint-placeholder-val="{{false}}"><div class="sub" style="padding:22px">No grades released yet. Your teacher decides when results appear.</div></sc-if>
+              </div>
+            </div>
+          </sc-if>
+
+          <sc-if value="{{tPeople}}" hint-placeholder-val="{{false}}">
+            <div style="padding:22px 30px;max-width:760px;display:flex;flex-direction:column;gap:12px">
+              <div class="card" style="overflow:hidden">
+                <div style="padding:14px 18px;font-size:18px;font-weight:800">Teachers</div>
+                <sc-for list="{{teachers}}" as="p" hint-placeholder-count="2"><div class="row" style="cursor:default"><span class="ini" style="{{p.bg}};flex:0 0 38px;height:38px">{{p.ini}}</span><b style="flex:1">{{p.name}}</b><span class="sub">{{p.role}}</span><button class="btn s" onClick="{{p.mail}}">Email</button></div></sc-for>
+              </div>
+              <div class="sub">Classmates are not listed. You see your teachers only, so nobody can compare their work or marks.</div>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+
+      <!-- TODO -->
+      <sc-if value="{{pTodo}}" hint-placeholder-val="{{false}}">
+        <div style="padding:26px 30px;display:flex;flex-direction:column;gap:14px;max-width:920px">
+          <div style="font-size:24px;font-weight:800">To-do</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><sc-for list="{{todoChips}}" as="k" hint-placeholder-count="4"><button class="chip {{k.cls}}" onClick="{{k.pick}}">{{k.label}}</button></sc-for></div>
+          <div class="card" style="overflow:hidden">
+            <sc-for list="{{todoRows}}" as="w" hint-placeholder-count="4">
+              <div class="row" style="cursor:default"><span class="kic" style="{{w.bg}}">{{w.ic}}</span><span style="flex:1;min-width:0"><b>{{w.title}}</b><span class="sub" style="display:block">{{w.course}} · {{w.meta}}</span></span><span class="pill {{w.tone}}">{{w.status}}</span><button class="btn s {{w.btnCls}}" onClick="{{w.go}}">{{w.cta}}</button></div>
+            </sc-for>
+            <sc-if value="{{noTodo}}" hint-placeholder-val="{{false}}"><div class="sub" style="padding:22px">Nothing here. Enjoy it.</div></sc-if>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- CALENDAR -->
+      <sc-if value="{{pCalendar}}" hint-placeholder-val="{{false}}">
+        <div style="padding:26px 30px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:12px"><div style="font-size:24px;font-weight:800;flex:1">This week</div><button class="btn s" onClick="{{subscribeIcal}}">Add to my calendar</button></div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px">
+            <sc-for list="{{days}}" as="d" hint-placeholder-count="5">
+              <div class="card" style="padding:12px;min-height:280px;display:flex;flex-direction:column;gap:8px;{{d.st}}"><div style="display:flex;justify-content:space-between"><b>{{d.name}}</b><span class="sub">{{d.date}}</span></div>
+                <sc-for list="{{d.items}}" as="e" hint-placeholder-count="2"><button class="btn s" style="text-align:left;height:auto;padding:8px 10px;{{e.st}}" onClick="{{e.pick}}"><b style="font-size:12px;display:block">{{e.title}}</b><span style="font-size:11px">{{e.when}}</span></button></sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- GRADES OVERVIEW -->
+      <sc-if value="{{pGrades}}" hint-placeholder-val="{{false}}">
+        <div style="padding:26px 30px;display:flex;flex-direction:column;gap:14px;max-width:920px">
+          <div style="font-size:24px;font-weight:800">My grades</div>
+          <div class="sub">Only results your teachers have released. Exam marks, feedback and the questions you missed open from here.</div>
+          <div class="card" style="overflow:hidden">
+            <sc-for list="{{overview}}" as="g" hint-placeholder-count="4">
+              <button class="row" onClick="{{g.pick}}"><span class="ini" style="{{g.bg}}">{{g.ini}}</span><span style="flex:1"><b>{{g.name}}</b><span class="sub" style="display:block">{{g.sub}}</span></span><span style="flex:0 0 200px;height:10px;border-radius:99px;background:#ECEFF3;overflow:hidden"><span style="{{g.bar}}"></span></span><b style="flex:0 0 70px;text-align:right">{{g.avg}}</b></button>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <!-- PRACTICE -->
+      <sc-if value="{{pPractice}}" hint-placeholder-val="{{false}}">
+        <div style="padding:26px 30px;display:flex;flex-direction:column;gap:14px;max-width:920px">
+          <div style="font-size:24px;font-weight:800">Practice</div>
+          <div class="sub">Only courses with coding work show this. Practice runs in the same editor as the exam, with the same Run button, so the exam feels familiar. Nothing here is graded.</div>
+          <div class="card" style="overflow:hidden">
+            <sc-for list="{{practice}}" as="p" hint-placeholder-count="3"><div class="row" style="cursor:default"><span class="pill n" style="min-width:70px;text-align:center">{{p.lang}}</span><span style="flex:1"><b>{{p.title}}</b><span class="sub" style="display:block">{{p.meta}}</span></span><button class="btn s" onClick="{{p.go}}">Open editor</button></div></sc-for>
+          </div>
+        </div>
+      </sc-if>
+
+      <div style="flex:1"></div>
+
+      <sc-if value="{{showJoin}}" hint-placeholder-val="{{false}}">
+        <div class="modal"><div class="card" style="width:480px;max-width:100%;padding:24px;display:flex;flex-direction:column;gap:12px">
+          <div style="font-size:19px;font-weight:800">Join a course</div>
+          <div class="sub">Type the 6-character code from your teacher. You only do this once per course.</div>
+          <div class="card" style="padding:12px 14px;font-family:'JetBrains Mono',monospace;font-size:18px;letter-spacing:.2em">{{joinCode}}</div>
+          <div style="display:flex;gap:8px;justify-content:flex-end"><button class="btn" onClick="{{closeJoin}}">Cancel</button><button class="btn p" onClick="{{doJoin}}">Join</button></div>
+        </div></div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+
+<div style="padding:14px 24px 28px;display:flex;flex-direction:column;gap:12px">
+  <div style="background:#E8ECFC;border:1px solid #C9D2F7;border-radius:12px;padding:12px 16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap"><span class="pill">LAST CLICK</span><span style="font-size:13px;font-weight:600;flex:1 1 300px">{{note}}</span><sc-if value="{{noteHref}}" hint-placeholder-val="{{false}}"><a href="{{noteHref}}">Open that screen</a></sc-if></div>
+  <div class="card" style="padding:18px 20px">
+    <div style="font-weight:800;font-size:15px;margin-bottom:8px">Spec: S3 (student dashboard)</div>
+    <div class="sub">The idea: the student sees one place for everything, shaped like the Classroom they already know. (1) <b>Home</b>: a "Next exam" card with a get-ready checklist (app up to date, device check, charger, quiet room), three counters (due this week, missing, new grades), then one card per course. (2) <b>A course</b> has Stream, Classwork, My grades, People; exams sit inside the course that assigned them, so a student never sees a mixed exam. (3) <b>To-do</b> groups everything by This week, Later, Missing, Done. (4) <b>Calendar</b> shows exam windows and due dates in the course colour. (5) <b>My grades</b> shows only released marks. (6) <b>Practice</b> appears only for courses with coding work. (7) Press <b>Start exam</b> and the locked flow from S1 begins (start code, before lock, locked). Classmates are never listed. Sample data only; not tested in a real browser.</div>
+  </div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1100}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { who: 'aigerim', page: 'home', course: 0, tab: 'Stream', stat: 'All', todo: 'This week', showJoin: false, readyDone: {}, note: 'Click the Next exam card, a course card, or any item in the left list.', href: '' };
+  }
+  C() {
+    // name, sec, color, teacher, ini, practice, avg, next, stream, work
+    // work: [kind, title, status, meta, when, score, rank]  status: Open now | Upcoming | Assigned | Missing | Done | Graded
+    return [
+      { name: 'CS 101', sec: 'Section A', color: '#2F4BD8', teacher: 'Prof. Chen', ini: 'PC', practice: true, avg: 74, next: 'Midterm · Thu 08:00',
+        stream: ['Midterm is on Thursday at 08:00. Open the FairPlay app 10 minutes before and bring your student ID.', 'Homework 1 is due Sunday 23:59. Use the practice editor to test your hash table.', 'Results released: Quiz 1.'],
+        work: [['Midterm', 'Midterm', 'Upcoming', 'Thu 08:00 · 90 min · lock on · one attempt', 'Thu', '', 1], ['Homework', 'Homework 1: Build a hash table', 'Assigned', 'Due Sun 23:59 · practice editor open', 'Sun', '', 2], ['Quiz', 'Quiz 1: Arrays and hashing', 'Graded', 'Handed in Sep 24', 'Sep 24', 68, 9], ['Material', 'Lecture 3 notes: hash functions', 'Done', 'PDF · 2 pages', '', '', 8]] },
+      { name: 'MATH 201', sec: 'Section A', color: '#2E9A63', teacher: 'Prof. Li', ini: 'PL', practice: false, avg: 71, next: 'Quiz · Thu 10:00',
+        stream: ['Quiz 2 is Thursday at 10:00. A calculator is built into the exam; no outside one is needed.', 'Problem set 1: photo upload, due Sunday 23:59.'],
+        work: [['Quiz', 'Quiz 2: Derivatives', 'Upcoming', 'Thu 10:00 · 30 min · calculator built in', 'Thu', '', 3], ['Homework', 'Problem set 1', 'Missing', 'Was due Mon 23:59 · photo upload', 'Mon', '', 0], ['Quiz', 'Quiz 1: Limits', 'Graded', 'Handed in Sep 26', 'Sep 26', 71, 10], ['Material', 'Derivative rules sheet', 'Done', 'PDF', '', '', 8]] },
+      { name: 'BIO 110', sec: 'Section A', color: '#1F9AA6', teacher: 'Prof. Wang', ini: 'PW', practice: false, avg: 80, next: 'Quiz 2 · Wed 09:00',
+        stream: ['Quiz 2 is Wednesday at 09:00. Diagram questions use a mouse or trackpad; no pen needed.', 'Lab report 1 is due Sunday 23:59 as a PDF.'],
+        work: [['Quiz', 'Quiz 2: Inheritance', 'Upcoming', 'Wed 09:00 · 25 min · closed book', 'Wed', '', 4], ['Homework', 'Lab report 1', 'Assigned', 'Due Sun 23:59 · file upload', 'Sun', '', 5], ['Quiz', 'Quiz 1: Organelles', 'Graded', 'Handed in Sep 25', 'Sep 25', 80, 11]] },
+      { name: 'ENG 102', sec: 'Section B', color: '#D85A4F', teacher: 'Prof. Zhao', ini: 'PZ', practice: false, avg: 86, next: 'Essay · Fri 14:00',
+        stream: ['Essay exam on Friday at 14:00: you write on supplied texts. No notes.', 'Listening quiz marks are released.'],
+        work: [['Midterm', 'Essay exam', 'Upcoming', 'Fri 14:00 · 75 min · sources shown beside the writing box', 'Fri', '', 6], ['Quiz', 'Listening quiz', 'Graded', 'Handed in Sep 27', 'Sep 27', 86, 12]] }
+    ];
+  }
+  renderVals() {
+    const s = this.state;
+    const C = this.C();
+    const me = s.who === 'aigerim' ? { name: 'Aigerim', ini: 'AK' } : { name: 'Bekzod', ini: 'BT' };
+    const cur = C[s.course] || C[0];
+    const say = (n, href) => this.setState({ note: n, href: href || '' });
+    const go = (page, note, extra) => this.setState(Object.assign({ page: page, note: note, href: '' }, extra || {}));
+    const banner = (c) => 'background:linear-gradient(135deg,' + c + ',' + c + 'cc)';
+    const kindColor = { Quiz: '#2F4BD8', Midterm: '#8A78C2', Homework: '#E0A21C', Material: '#5B6676' };
+    const kindIc = { Quiz: 'Q', Midterm: 'M', Homework: 'H', Material: 'P' };
+    const tone = { 'Open now': 'a', Upcoming: '', Assigned: '', Missing: 'r', Done: 'g', Graded: 'g' };
+    const all = [];
+    C.forEach((c, ci) => c.work.forEach((w) => all.push({ ci: ci, c: c, kind: w[0], title: w[1], status: w[2], meta: w[3], when: w[4], score: w[5], rank: w[6] })));
+    const cta = (w) => w.status === 'Upcoming' && w.kind !== 'Homework' ? 'See rules' : (w.status === 'Missing' ? 'Hand in late' : (w.status === 'Graded' ? 'See feedback' : (w.status === 'Assigned' ? 'Open' : 'View')));
+    const act = (w) => () => {
+      if (w.status === 'Upcoming' && w.kind !== 'Homework') say(w.title + ' (' + w.c.name + '): window ' + w.meta + '. The Start button appears at the window start; the teacher gives a start code.', 'StudentHome.dc.html');
+      else if (w.status === 'Graded') say('Opens your answers, the score and the feedback for ' + w.title + ' (' + w.c.name + ').', 'StudentHome.dc.html');
+      else if (w.status === 'Missing') say('Late hand-in: the teacher allowed it until Wed 23:59. Your file is marked late.');
+      else say('Opens ' + w.title + '.');
+    };
+    const rowOf = (w) => ({ title: w.title, course: w.c.name + ' ' + w.c.sec.replace('Section ', ''), meta: w.meta, status: w.status === 'Graded' ? 'Graded ' + w.score : w.status, tone: tone[w.status], ic: kindIc[w.kind], bg: 'background:' + kindColor[w.kind], cta: cta(w), btnCls: w.status === 'Missing' ? 'p' : '', go: act(w) });
+
+    const missingCount = all.filter((w) => w.status === 'Missing').length;
+    const weekCount = all.filter((w) => w.status === 'Upcoming' || w.status === 'Assigned').length;
+    const gradedCount = all.filter((w) => w.status === 'Graded').length;
+    const nav = [['home', 'Home', 0, 'a'], ['todo', 'To-do', missingCount, 'r'], ['calendar', 'Calendar', 0, ''], ['grades', 'My grades', 0, '']].concat(C.some((c) => c.practice) ? [['practice', 'Practice', 0, '']] : []).map((n) => ({ label: n[1], hasBadge: n[2] > 0, badge: n[2], tone: n[3], cls: s.page === n[0] ? 'on' : '', pick: () => go(n[0], n[1] + ' opened.') }));
+    const sideCourses = C.map((c, i) => ({ name: c.name, sec: c.sec, ini: c.name.slice(0, 2), bg: 'background:' + c.color, cls: s.page === 'course' && s.course === i ? 'on' : '', pick: () => go('course', c.name + ' opened on the Stream.', { course: i, tab: 'Stream' }) }));
+    const crumb = s.page === 'course' ? cur.name + ' · ' + cur.sec : ({ home: 'Home', todo: 'To-do', calendar: 'Calendar', grades: 'My grades', practice: 'Practice' })[s.page];
+
+    /* home */
+    const nextEx = all.filter((w) => w.status === 'Upcoming' && w.kind !== 'Homework').sort((a, b) => a.rank - b.rank)[0];
+    const readyDefs = [['Application up to date', 'App is version 0.9 and current.'], ['Device check passed', 'Screen, sound, camera and network look fine.'], ['Charger plugged in', 'Plug in before you start; the lock keeps the screen awake.'], ['Quiet room', 'A teacher may ask you to show your desk. Nobody watches you otherwise.']];
+    const ready = readyDefs.map((r, i) => ({ label: (s.readyDone[i] ? 'Done · ' : '') + r[0], cls: s.readyDone[i] ? 'on' : '', pick: () => { const d = Object.assign({}, s.readyDone); d[i] = !d[i]; this.setState({ readyDone: d, note: r[1] }); } }));
+    const cards = C.map((c, i) => {
+      const missing = all.filter((w) => w.ci === i && w.status === 'Missing').length;
+      const due = all.filter((w) => w.ci === i && (w.status === 'Assigned' || w.status === 'Upcoming')).length;
+      return { name: c.name, sec: c.sec, teacher: c.teacher, banner: banner(c.color), next: c.next, avg: c.avg, due: missing ? missing + ' missing' : (due ? due + ' coming up' : 'All done'), dueTone: missing ? 'r' : (due ? 'a' : 'g'),
+        open: () => go('course', c.name + ' opened on the Stream.', { course: i, tab: 'Stream' }), work: () => go('course', 'Classwork of ' + c.name + '.', { course: i, tab: 'Classwork', stat: 'All' }), grades: () => go('course', 'Your grades in ' + c.name + '.', { course: i, tab: 'My grades' }) };
+    });
+    const todayCards = [{ label: 'Due this week', num: weekCount, sub: 'across ' + C.length + ' courses', pick: () => go('todo', 'To-do: this week.', { todo: 'This week' }) }, { label: 'Missing', num: missingCount, sub: missingCount ? 'hand in late if allowed' : 'nothing missing', pick: () => go('todo', 'To-do: missing.', { todo: 'Missing' }) }, { label: 'Graded', num: gradedCount, sub: 'released by your teachers', pick: () => go('grades', 'My grades opened.') }];
+
+    /* course */
+    const tabNames = ['Stream', 'Classwork', 'My grades', 'People'];
+    const tabs = tabNames.map((t) => ({ label: t, cls: s.tab === t ? 'on' : '', st: 'color:#fff;opacity:' + (s.tab === t ? '1' : '.75') + ';border-bottom-color:' + (s.tab === t ? '#fff' : 'transparent'), pick: () => this.setState({ tab: t, note: t + ' of ' + cur.name + '.', href: '' }) }));
+    const myWork = all.filter((w) => w.ci === s.course);
+    const upcoming = myWork.filter((w) => w.status === 'Upcoming' || w.status === 'Assigned').slice(0, 3).map((w) => ({ title: w.title, when: w.meta.split(' · ')[0], pick: act(w) }));
+    const feed = cur.stream.map((t, i) => ({ who: i === 2 ? 'FairPlay' : cur.teacher, ini: i === 2 ? 'FP' : cur.ini, bg: 'background:' + (i === 2 ? '#5B6676' : cur.color), text: t, when: ['Today 07:40', 'Yesterday', '3 days ago'][i] || 'Last week', comment: () => say('Class comments are visible to the teacher and the class. Use a private message for grade questions.') }));
+    const stats = ['All', 'Upcoming', 'Assigned', 'Missing', 'Graded', 'Done'];
+    const courseWork = myWork.filter((w) => s.stat === 'All' || w.status === s.stat).map(rowOf);
+    const statusChips = stats.map((k) => ({ label: k, cls: s.stat === k ? 'on' : '', pick: () => this.setState({ stat: k, note: k === 'All' ? 'All classwork.' : 'Only ' + k.toLowerCase() + ' items.' }) }));
+    const graded = myWork.filter((w) => w.status === 'Graded');
+    const gradeRows = graded.map((w) => ({ title: w.title, sub: w.meta, score: w.score + ' / 100', bar: 'display:block;height:10px;border-radius:99px;background:' + cur.color + ';width:' + w.score + '%', pick: () => say('Opens your answers and feedback for ' + w.title + '.', 'StudentHome.dc.html') }));
+    const teachers = [{ name: cur.teacher, ini: cur.ini, bg: 'background:' + cur.color, role: 'Teacher', mail: () => say('Opens an email to ' + cur.teacher + '.') }, { name: 'Li Wei', ini: 'LW', bg: 'background:#1F9AA6', role: 'Teaching assistant', mail: () => say('Opens an email to the teaching assistant.') }];
+
+    /* todo */
+    const buckets = { 'This week': (w) => w.status === 'Upcoming' || w.status === 'Assigned', Missing: (w) => w.status === 'Missing', Done: (w) => w.status === 'Done' || w.status === 'Graded' };
+    const todoRows = all.filter((w) => buckets[s.todo](w)).sort((a, b) => a.rank - b.rank).map(rowOf);
+    const todoChips = Object.keys(buckets).map((k) => ({ label: k, cls: s.todo === k ? 'on' : '', pick: () => this.setState({ todo: k, note: k + ' items.' }) }));
+
+    /* calendar */
+    const dd = [['Mon', '12'], ['Tue', '13'], ['Wed', '14'], ['Thu', '15'], ['Fri', '16']];
+    const calItems = [[1, 1, 'Problem set due', '23:59'], [2, 2, 'Quiz 2', '09:00'], [3, 0, 'Midterm', '08:00'], [3, 1, 'Quiz 2', '10:00'], [4, 3, 'Essay exam', '14:00'], [4, 0, 'Homework 1 due', '23:59']];
+    const days = dd.map((x, i) => ({ name: x[0], date: x[1] + ' Oct', st: i === 1 ? 'border-color:#2F4BD8;box-shadow:0 0 0 2px #E8ECFC' : '', items: calItems.filter((e) => e[0] === i).map((e) => ({ title: e[2] + ' · ' + C[e[1]].name, when: e[3], st: 'background:' + C[e[1]].color + ';border-color:' + C[e[1]].color + ';color:#fff', pick: () => say(e[2] + ' for ' + C[e[1]].name + ' at ' + e[3] + '. Exams show the rules and a Start button at the window start.') })) }));
+
+    /* grades overview */
+    const overview = C.map((c, i) => ({ name: c.name + ', ' + c.sec, sub: c.teacher + ' · ' + all.filter((w) => w.ci === i && w.status === 'Graded').length + ' graded', ini: c.name.slice(0, 2), bg: 'background:' + c.color, avg: c.avg + '', bar: 'display:block;height:10px;border-radius:99px;background:' + c.color + ';width:' + c.avg + '%', pick: () => go('course', 'Your grades in ' + c.name + '.', { course: i, tab: 'My grades' }) }));
+
+    /* practice: only for courses with coding work */
+    const practice = [['Python', 'Reverse a list', 'Warm-up · 3 tests'], ['Python', 'Hash table basics', 'For Homework 1 · 5 tests'], ['Java', 'Linked list node', 'Starter code ready']].map((p) => ({ lang: p[0], title: p[1], meta: p[2], go: () => say('Opens the same editor as the exam: Run, console, tests. Nothing is saved to your grade.', 'StudentWorkspace.dc.html') }));
+
+    const nx = nextEx || { title: 'Nothing scheduled', meta: '', c: C[0], ci: 0 };
+    return {
+      whoChips: [['aigerim', 'Aigerim (4 courses)'], ['bekzod', 'Bekzod (same courses)']].map((x) => ({ label: x[1], cls: s.who === x[0] ? 'on' : '', pick: () => this.setState({ who: x[0], note: 'Same courses; classmates never see each other.' }) })),
+      me: me, crumb: crumb, nav: nav, sideCourses: sideCourses,
+      openJoin: () => this.setState({ showJoin: true, note: 'Join a course: type the teacher code once.' }), bell: () => say('Notifications: "Midterm room opens Thursday 07:50".'), settings: () => say('Settings and device check: text size, theme, notifications, run the device check again.'),
+      pHome: s.page === 'home', pCourse: s.page === 'course', pTodo: s.page === 'todo', pCalendar: s.page === 'calendar', pGrades: s.page === 'grades', pPractice: s.page === 'practice',
+      greeting: 'Good morning, ' + me.name, todaySub: weekCount + ' things coming up across your courses. Each exam is for one course.',
+      next: { title: nx.title + ' · ' + nx.c.name + ' ' + nx.c.sec.replace('Section ', ''), when: nx.meta.split(' · ')[0] === 'Thu 08:00' ? 'Thursday at 08:00' : nx.meta.split(' · ')[0], len: nx.meta.split(' · ')[1] || '', rules: 'Rules: ' + (nx.meta.split(' · ').slice(2).join(', ') || 'see the exam page') + '. The Start button appears when the window opens.', cta: 'See rules and prepare', start: () => say('Opens the exam page: rules, device check, then the start code at the window start.', 'StudentHome.dc.html') },
+      ready: ready, todayCards: todayCards, cards: cards,
+      cur: { name: cur.name, sec: cur.sec, teacher: cur.teacher, banner: banner(cur.color), avg: cur.avg, gradeNote: graded.length ? 'Based on ' + graded.length + ' released result' + (graded.length > 1 ? 's' : '') + '. Upcoming exams do not count until graded.' : '' },
+      tabs: tabs, tStream: s.tab === 'Stream', tWork: s.tab === 'Classwork', tGrades: s.tab === 'My grades', tPeople: s.tab === 'People',
+      upcoming: upcoming, viewAll: () => this.setState({ tab: 'Classwork', note: 'Classwork opened.' }), feed: feed,
+      statusChips: statusChips, courseWork: courseWork, noWork: courseWork.length === 0,
+      gradeRows: gradeRows, noGrades: gradeRows.length === 0, teachers: teachers,
+      todoChips: todoChips, todoRows: todoRows, noTodo: todoRows.length === 0,
+      days: days, subscribeIcal: () => say('One link adds all exam windows and due dates to Google, Apple or Outlook calendar.'),
+      overview: overview, practice: practice,
+      showJoin: s.showJoin, joinCode: 'x 7 k 2 m 9', closeJoin: () => this.setState({ showJoin: false, note: 'Cancelled.' }), doJoin: () => this.setState({ showJoin: false, note: 'Joined. The new course appears in your list; its exams are assigned only to it.' }),
+      note: s.note, noteHref: s.href
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>FairPlay overview</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Source+Serif+4:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+body{margin:0;font-family:'Manrope',system-ui,sans-serif;color:#1B2533;background:#F3F5F7}
+*{box-sizing:border-box}
+a{color:#2F4BD8;text-decoration:none;font-weight:700}
+a:hover{text-decoration:underline}
+.card{background:#fff;border:1px solid #DDE2E9;border-radius:14px;padding:22px}
+.h2{margin:0 0 12px;font-size:20px;font-weight:800;letter-spacing:-0.01em}
+.small{font-size:13px;color:#4F5B6B;line-height:1.5}
+.pill{display:inline-block;font-size:12px;font-weight:700;border-radius:99px;padding:3px 10px;background:#E8ECFC;color:#2339A8}
+.pill.g{background:#E3F4EA;color:#1E6B45}
+.pill.a{background:#FFF1D6;color:#8A5200}
+.row{display:grid;grid-template-columns:200px 1fr 1fr;gap:12px;padding:10px 0;border-top:1px solid #E6EAF0;font-size:13px;line-height:1.45}
+.row:first-child{border-top:0}
+.nav{display:flex;gap:12px;align-items:flex-start;padding:12px 0;border-top:1px solid #E6EAF0}
+.nav:first-child{border-top:0}
+.num{flex:0 0 28px;height:28px;border-radius:8px;background:#E8ECFC;color:#2339A8;font-weight:800;font-size:12px;display:flex;align-items:center;justify-content:center}
+</style>
+</helmet>
+<div style="width:1440px;min-height:2160px;padding:48px 56px;display:flex;flex-direction:column;gap:28px">
+
+<div style="display:flex;align-items:center;gap:18px">
+  <svg width="56" height="56" viewBox="0 0 44 44" role="img" aria-label="FairPlay logo"><rect width="44" height="44" rx="11" fill="#2F4BD8"/><path d="M11 17h11l4 4 8-8" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M11 29h22" fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round"/></svg>
+  <div>
+    <div style="font-size:34px;font-weight:800;letter-spacing:-0.03em;line-height:1.1"><span>Fair</span><span style="color:#2F4BD8">Play</span> <span style="font-weight:600;color:#4F5B6B">product design, v2 draft</span></div>
+    <div class="small" style="margin-top:4px">Teacher dashboard and student app. Ten clickable prototypes below the overview: every button changes the screen and says what it did.</div>
+  </div>
+</div>
+
+<div class="card" style="background:#E8ECFC;border-color:#C9D2F7">
+  <div style="font-weight:800;font-size:15px;margin-bottom:6px">Read this first: what this is and is not</div>
+  <div class="small" style="color:#1B2533">A design draft for discussion, not shipped code. I reviewed DKU OJ in text mode only (no screenshots), so the IDE layout follows my notes: problem list left, tabs Description / AI Hints / Result / Editorial / Submissions, language picker, Input and Output panes, Run Code, Submit with a live score. It matches the structure, not the pixels. The speed numbers are design targets we must measure, not results. Question-type counts come from the DKU OJ review and the standalone question library; the library is not merged into the main app yet.</div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px">
+  <div class="card">
+    <h2 class="h2">Why a teacher moves to us</h2>
+    <div class="small">Not because the editor is nicer. Because one place gives them the lock, the IDE, the live room and an explainable integrity report. DKU OJ today leans on Safe Exam Browser with hand-pasted key hashes and shows the teacher nothing live.</div>
+  </div>
+  <div class="card">
+    <h2 class="h2">Teacher rule: DKU OJ's menu, by exam kind</h2>
+    <div class="small">The menu follows DKU OJ (Courses, Questions, Exams, Grading) so a DKU teacher is not lost. One Exams list holds quizzes, midterms, finals and homework; the <b>Kind</b> you pick fills in every default. Adding a question opens a picker of question types, filtered to what the subject uses.</div>
+  </div>
+  <div class="card">
+    <h2 class="h2">Student rule: three screens</h2>
+    <div class="small"><b>Enter code, take exam, done.</b> One Run button, one Submit button, no menus, no settings. Everything the lock needs (quit apps, permissions) is one checklist before the exam, not a surprise during it.</div>
+  </div>
+</div>
+
+<div class="card" style="background:#F2FAF5;border-color:#BFE3CD">
+  <h2 class="h2">How features reach each subject</h2>
+  <div class="small" style="color:#1B2533">The product is built once, but a teacher only meets what their subject uses. Features come in <b>packs</b>: Core (12 types, always on), Code and IDE (6), Math and science (4), Visual (4), Language and media (4), Data and sheets (2). The <b>superadmin</b> switches packs per subject (<a href="AdminPacks.dc.html">A1</a>). The class's subject then decides three things: what the type picker shows (Biology sees 16 of 32 types and no code editor), what the question bank offers, and what is bundled onto student Macs (no editor or Python runtime for a Biology exam). Teachers can ask for a hidden pack with one click and the admin answers in one click. The menu, live room, grading, analytics and integrity report are the same for everyone.</div>
+</div>
+
+<div class="card">
+  <h2 class="h2">Teacher menu, mapped from DKU OJ</h2>
+  <div class="row"><b>DKU OJ menu</b><b>FairPlay menu</b><b>What changes</b></div>
+  <div class="row"><span>Problems</span><span><b>Questions</b></span><span>The bank. Reused by copy, so editing in an exam never changes the bank.</span></div>
+  <div class="row"><span>Assignments (tag: homework / quiz / exam)</span><span><b>Exams</b>, with Kind tabs</span><span>Quiz, Midterm, Final, Homework in one list. Kind sets time, lock, shuffle and codes. List, by course and calendar layouts.</span></div>
+  <div class="row"><span>Courses</span><span><b>Courses</b></span><span>Course, then Class, then students. Canvas CSV import lives inside a class.</span></div>
+  <div class="row"><span>Submissions</span><span><b>Grading</b></span><span>Work queue per exam, with AI draft and teacher override.</span></div>
+  <div class="row"><span>Users</span><span>dropped</span><span>The roster is inside each class. No site-wide user list for teachers.</span></div>
+  <div class="row"><span>IDE</span><span>student practice</span><span>Becomes the student's practice IDE; teachers do not need a menu item.</span></div>
+  <div class="row"><span>About</span><span><b>Help and templates</b></span><span>Plus Home and Reports (Results charts and Integrity), which DKU OJ has no equivalent for.</span></div>
+</div>
+
+<div class="card" style="background:#FFF8E8;border-color:#F0DDA8">
+  <div style="font-weight:800;font-size:15px;margin-bottom:6px">Honest check: is this clearly better than DKU OJ?</div>
+  <div class="small" style="color:#1B2533">Not on the surface. The first version of this design was not, and the menu is now deliberately close to DKU OJ's. The real advantages are the lock, the live room and the integrity report, which DKU OJ does not have. The picker and the one-line setup are meant to be faster, but "a quiz in five minutes" is a target I have not measured. Next step: put two or three DKU professors in front of both, side by side, and time them.</div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+  <div class="card">
+    <h2 class="h2">Teacher screens</h2>
+    <div class="nav"><div class="num">T1</div><div><a href="TeacherHome.dc.html">Menu: Home, Courses, Questions, Exams, Grading, Reports</a><div class="small">Exams by kind (quiz, midterm, final, homework) as list, by course or calendar; kind chooser for a new exam; Course to Class; Canvas CSV roster import in three steps.</div></div></div>
+    <div class="nav"><div class="num">T2</div><div><a href="ExamEditor.dc.html">Exam editor: setup in one line, questions from the type picker</a><div class="small">+ Add question opens a picker of tiles by group, showing only the types enabled for the class's subject. Also paste several, AI draft, from bank; code tests; student preview; open or publish.</div></div></div>
+    <div class="nav"><div class="num">T3</div><div><a href="QuestionTypes.dc.html">Question types: all 32, what teacher fills, what student sees</a><div class="small">Pick a subject first (CS, Math, Chem, Biology, Languages, Economics) and see only the types that professor gets, with a sample question, what the student sees and how it is graded. Other types show as "not enabled for this subject".</div></div></div>
+    <div class="nav"><div class="num">T4</div><div><a href="LiveRoom.dc.html">Live room</a><div class="small">Seat grid, personal deadlines, flags, student drawer, release device, offline exit, problem reports.</div></div></div>
+    <div class="nav"><div class="num">T5</div><div><a href="GradingWorkbench.dc.html">Grading workbench and gradebook</a><div class="small">Queue, answer versions, AI feedback with teacher override, Release All, Finalize, Canvas export.</div></div></div>
+    <div class="nav"><div class="num">T6</div><div><a href="IntegrityReport.dc.html">Integrity report</a><div class="small">Anomaly percentile, class timeline, every flag linked to raw events. A human decides.</div></div></div>
+    <div class="nav"><div class="num">T7</div><div><a href="Analytics.dc.html">Results and analytics</a><div class="small">Score spread, section against section, every question's difficulty, each student's topics and trend, topic map. Charts you can click into.</div></div></div>
+    <div class="nav"><div class="num">T8</div><div><a href="ClassroomTeacher.dc.html">Classroom-style dashboard and Library</a><div class="small">Course cards, class page with Stream, Classwork, People, Grades; To review; Calendar; and a Library of questions, templates, materials and rubrics shared as Mine, My department, University. Switch between CS, Math and Biology to see each subject's own Library tab.</div></div></div>
+    <div class="nav"><div class="num">A1</div><div><a href="AdminPacks.dc.html">Superadmin: feature packs per subject</a><div class="small">Switch Code and IDE, Math, Visual, Language packs on or off per subject. Teachers can ask for more.</div></div></div>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:18px">
+    <div class="card">
+      <h2 class="h2">Student screens</h2>
+      <div class="nav"><div class="num">S1</div><div><a href="StudentHome.dc.html">Sign-in, home, join class, start code, pre-lock checklist, done, results</a><div class="small">Setup link or NetID sign-in, exam list, the checklist that replaces surprises, result and feedback view.</div></div></div>
+      <div class="nav"><div class="num">S2</div><div><a href="StudentWorkspace.dc.html">Exam workspace, rebuilt for comfort</a><div class="small">One question at a time, quiet top bar, dots to move around, review screen before hand-in. Five exams, each for one course: CS, Math, Chemistry, Biology, Languages. The code editor appears only in the CS exam.</div></div></div>
+      <div class="nav"><div class="num">S3</div><div><a href="StudentDashboard.dc.html">Student dashboard (Classroom-style)</a><div class="small">Next exam card with get-ready checklist, one card per course, course page with Stream, Classwork, My grades, People; To-do, Calendar, My grades, and Practice only for courses with coding. Each exam belongs to one course.</div></div></div>
+    </div>
+    <div class="card">
+      <h2 class="h2">How to read the prototypes</h2>
+      <div class="small">Press Play on a board (or open it full window). Click anything. A blue strip at the bottom of each board prints the outcome of your last click, so you can read the whole flow without guessing. Left column of each board is the page itself; the "Spec" card under it lists what every element does and the rules behind it.</div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <h2 class="h2">Question types: DKU OJ has 9, we cover all of them and add the library</h2>
+  <div class="row"><b>DKU OJ type</b><b>FairPlay type</b><b>Where it comes from</b></div>
+  <div class="row"><span>Programming</span><span>code_function, code_debug, sql_query</span><span><span class="pill a">library, merge pending</span> runner needed</span></div>
+  <div class="row"><span>Single choice / Multiple choice</span><span>mcq (single or multi switch)</span><span><span class="pill g">in main app today</span> single; multi in library</span></div>
+  <div class="row"><span>Fill-in-the-blank / True-False</span><span>fill_blank, true_false</span><span><span class="pill g">true/false today</span> fill_blank in library</span></div>
+  <div class="row"><span>Short answer / File upload</span><span>short_answer, short_response; upload (new)</span><span><span class="pill g">short today</span> upload is new work</span></div>
+  <div class="row"><span>Composite / Other</span><span>one exam item with sub-questions of any type</span><span><span class="pill a">new in editor</span> engine supports parts</span></div>
+  <div class="row"><span>Beyond DKU OJ</span><span>30 library types: matching, ordering, hotspot, diagram label, drawing, curve graph, math, chemistry, Parsons, code trace, notebook, listening, speaking, dictation, translation, spreadsheet, essay</span><span><span class="pill a">library, 968 tests, not run on a Mac</span></span></div>
+</div>
+
+<div style="display:grid;grid-template-columns:1.2fr 1fr;gap:18px">
+  <div class="card">
+    <h2 class="h2">IDE speed budget (design targets, to be measured)</h2>
+    <div class="small" style="margin-bottom:8px">I have not profiled DKU OJ's IDE. I assume each run is a round trip to a judge queue, which is the usual cause of "slow". Our design removes the round trip for the common case.</div>
+    <div class="row"><b>Action</b><b>Where it runs</b><b>Target</b></div>
+    <div class="row"><span>Open the workspace</span><span>Editor already in the exam bundle, cached</span><span>under 1 s on a lab Mac</span></div>
+    <div class="row"><span>Type a character</span><span>CodeMirror 6 in the web view</span><span>no visible lag</span></div>
+    <div class="row"><span>Run Python / JavaScript</span><span>On the student's Mac in a Web Worker (Pyodide for Python)</span><span>output starts under 300 ms after warm-up</span></div>
+    <div class="row"><span>Run C, C++, Java</span><span>Server judge (Judge0 or Piston, sandboxed)</span><span>queue shown honestly, under 3 s typical</span></div>
+    <div class="row"><span>Hidden tests on Submit</span><span>Server, answers never sent to the student</span><span>results stream in per test</span></div>
+    <div class="row"><span>Autosave</span><span>Local first, then diff to server</span><span>works offline, no spinner</span></div>
+  </div>
+  <div class="card">
+    <h2 class="h2">What ships when</h2>
+    <div class="nav"><div class="num">0</div><div><b>Phase 0 now</b><div class="small">Build and smoke-test the Mac app. This design work does not touch the lock.</div></div></div>
+    <div class="nav"><div class="num">1</div><div><b>Pilot room</b><div class="small">Screens T1, T2 (current 5 types), T4, T5 basics, S1, S2 without code. Canvas CSV import, classes.</div></div></div>
+    <div class="nav"><div class="num">2</div><div><b>Right after the gate</b><div class="small">Code question with Python via Pyodide, T6 integrity report, Canvas grade export.</div></div></div>
+    <div class="nav"><div class="num">3</div><div><b>Then</b><div class="small">The rest of the 30 library types, server judge for C/C++/Java, Excel import, Windows app.</div></div></div>
+  </div>
+</div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":2160}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>
