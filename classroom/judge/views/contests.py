@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import re
 from calendar import Calendar, SUNDAY
 from collections import defaultdict, namedtuple
@@ -2595,6 +2596,9 @@ class ContestGradeSave(ContestMixin, DetailView):
         try:
             submission_id = int(request.POST.get('submission'))
             score = float(request.POST.get('score') or 0)
+            if not math.isfinite(score):
+                # 'nan' / 'inf' pass float() and the clamp, then crash the DB write.
+                raise ValueError('non-finite score')
         except (TypeError, ValueError):
             return JsonResponse({'error': _('Invalid input.')}, status=400)
         try:

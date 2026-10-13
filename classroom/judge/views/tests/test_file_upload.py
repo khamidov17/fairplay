@@ -205,29 +205,36 @@ class FileUploadGradeDownloadTestCase(FileUploadBase):
         SubmissionFile.objects.create(
             submission=self.sub, file=_pdf(), original_name='report.pdf', size=14)
 
-    def test_grade_updates_points(self):
+    def test_legacy_grade_file_endpoint_removed(self):
+        # G-9: the old per-submission grade endpoint was authorized by problem
+        # ownership (not assignment editing rights) and wrote the score straight
+        # into the ranking, bypassing Release All. Nothing in the UI used it, so
+        # it is gone; grading goes through the Grade desk.
+        from django.urls import NoReverseMatch
+        with self.assertRaises(NoReverseMatch):
+            reverse('submission_file_grade', args=[self.sub.id])
         self.client.force_login(self.users['creator'])
-        response = self.client.post(reverse('submission_file_grade', args=[self.sub.id]),
-                                    {'points': '7', 'feedback': 'Nice work'})
-        self.assertEqual(response.status_code, 302)
-        self.sub.refresh_from_db()
-        self.assertEqual(self.sub.status, 'D')
-        self.assertEqual(self.sub.points, 7)
-        self.assertEqual(self.sub.error, 'Nice work')
-
-    def test_grade_clamps_to_max(self):
-        self.client.force_login(self.users['creator'])
-        self.client.post(reverse('submission_file_grade', args=[self.sub.id]), {'points': '999'})
-        self.sub.refresh_from_db()
-        self.assertEqual(self.sub.points, 10)
-        self.assertEqual(self.sub.result, 'AC')
-
-    def test_grade_requires_editor(self):
-        self.client.force_login(self.users['normal'])
-        response = self.client.post(reverse('submission_file_grade', args=[self.sub.id]), {'points': '5'})
-        self.assertEqual(response.status_code, 403)
+        response = self.client.post('/submission/%d/grade-file' % self.sub.id, {'points': '7'})
+        self.assertEqual(response.status_code, 404)
         self.sub.refresh_from_db()
         self.assertEqual(self.sub.status, 'QU')
+        self.assertIsNone(self.sub.points)
+
+    def test_status_page_view_does_not_abort_old_upload(self):
+        # G-8: a file upload waits at QU for a teacher by design. Opening its
+        # status page long after submission must not mark it Aborted / 0 points.
+        from datetime import timedelta
+        from django.utils import timezone
+        Submission.objects.filter(id=self.sub.id).update(
+            status='QU', date=timezone.now() - timedelta(hours=2))
+        for user in ('normal', 'creator'):
+            self.client.force_login(self.users[user])
+            response = self.client.get(reverse('submission_status', args=[self.sub.id]))
+            self.assertEqual(response.status_code, 200)
+        self.sub.refresh_from_db()
+        self.assertEqual(self.sub.status, 'QU')
+        self.assertIsNone(self.sub.result)
+        self.assertIsNone(self.sub.points)
 
     def test_download_allowed_for_owner_denied_for_other(self):
         self.client.force_login(self.users['normal'])            # the submitter
@@ -256,7 +263,6 @@ class FileUploadGradeDownloadTestCase(FileUploadBase):
         self.assertContains(response, reverse('submission_file_download', args=[self.sub.id]))
         self.assertContains(response, 'Awaiting grading')
         self.assertContains(response, reverse('practice_grade'))
-        self.assertNotContains(response, reverse('submission_file_grade', args=[self.sub.id]))
         self.assertNotContains(response, 'waiting for a suitable judge')
         self.assertNotContains(response, 'Abort')
 

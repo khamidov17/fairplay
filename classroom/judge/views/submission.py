@@ -345,6 +345,15 @@ class SubmissionStatus(SubmissionCommentMixin, SubmissionDetailBase):
         """
         if submission.status != 'QU' or submission.judged_date is not None:
             return
+        # Only bridge-judged (code) submissions can be stuck waiting for a judge.
+        # Manual types (file upload) sit at QU on purpose until a teacher grades
+        # them; viewing their status page must never change their state.
+        from judge.question_types import get_grader
+        try:
+            if not get_grader(submission.problem.submission_type).routes_to_bridge:
+                return
+        except NotImplementedError:
+            return
         cutoff = timezone.now() - timedelta(seconds=self.QU_TIMEOUT_SECONDS)
         if submission.date > cutoff:
             return
