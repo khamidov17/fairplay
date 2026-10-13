@@ -46,6 +46,12 @@ final class LockdownController {
     private var finderQuits = 0
     private let maxFinderQuits = 3
     private var lastSummary = ""
+    /// 2026-10-13: windowed apps noticed behind the exam this lock (names, for the beat).
+    private var backgroundApps: Set<String> = []
+    /// M-13: the process list could not be read this round ("proc=?" in the beat).
+    private var procListFailed = false
+    /// M-12: when this lock started; scripts started well before it are only reported.
+    private var lockedAt: Date?
 
     weak var surface: LockSurface?
     /// True while our own exit dialog's code field is open: macOS then reports "secure
@@ -70,6 +76,7 @@ final class LockdownController {
         DebugLog.log("lock", "locking")
         isLocked = true
         problems.removeAll(); reported.removeAll(); quitting.removeAll(); finderQuits = 0
+        backgroundApps.removeAll(); procListFailed = false; lockedAt = Date()
         OfflineExit.reset()
         EventLog.shared.record(.lockStarted)
         if IsSecureEventInputEnabled() { EventLog.shared.record(.secureInputOn) }
@@ -179,8 +186,11 @@ final class LockdownController {
             }
             guard denied || (app.activationPolicy == .regular && !Allowlist.permits(app)) else { return }
             EventLog.shared.record(.otherAppLaunched(app.localizedName ?? app.bundleIdentifier ?? "unknown"))
-            DebugLog.log("quit", "app opened during lock -> \(denied ? "force quit" : "quit"): \(DebugLog.describe(app))")
-            if denied { LockdownController.forceQuit(app) } else { app.terminate() }
+            // 2026-10-13: only apps that can show or control the screen from elsewhere (and
+            // AI overlays) are quit. Anything else may keep running behind the exam: it is
+            // reported, hidden, and the focus guard keeps it from coming in front.
+            DebugLog.log("quit", "app opened during lock -> \(denied ? "force quit" : "hidden, left running"): \(DebugLog.describe(app))")
+            if denied { LockdownController.forceQuit(app) } else { app.hide() }
             self.bringToFront()
         })
 
@@ -220,6 +230,7 @@ final class LockdownController {
         summary.append("mir=\(d.mirrored ? 1 : 0)")
         if d.online > 1 || NSScreen.screens.count > 1 || d.mirrored {
             found["display"] = "Only one screen is allowed.\nUnplug other displays and turn off mirroring, AirPlay and Sidecar."
+                + (d.names.isEmpty ? "" : "\nFound: " + d.names.joined(separator: ", "))
             if d.mirrored { report("mirror", .mirroredDisplay(d.online)) }
             else { report("display", .extraDisplay(max(d.online, NSScreen.screens.count))) }
         }
@@ -256,10 +267,12 @@ final class LockdownController {
 
         // Processes (#7)
         let procProblems = checkProcesses(atLock: atLock)
-        summary.append("proc=\(procProblems.count)")
+        summary.append(procListFailed ? "proc=?" : "proc=\(procProblems.count)")
+        summary.append("bg=\(backgroundApps.count)")
         if !procProblems.isEmpty {
-            found["proc"] = "These apps must be closed for the exam:\n" + procProblems.prefix(6).joined(separator: ", ")
-                + "\nFairPlay closes them in a few seconds, or press the button. Unsaved work in them is lost."
+            found["proc"] = "These can show or control your screen from somewhere else, so they must be closed:\n"
+                + procProblems.prefix(6).joined(separator: ", ")
+                + "\nFairPlay closes them in a few seconds, or press the button. Other apps can stay open."
                 + "\nRemote Login / Screen Sharing / Remote Management: turn them off in"
                 + " System Settings > General > Sharing (FairPlay is not allowed to)."
         }
@@ -291,34 +304,26 @@ final class LockdownController {
         let now = Date()
         let me = ProcessInfo.processInfo.processIdentifier
 
-        // Windowed apps already running before the exam (not only new launches).
+        // 2026-10-13: windowed apps (a VPN client, Dropbox, a half-written essay in Pages...)
+        // are NOT quit any more. They are noticed once per lock, reported to the teacher,
+        // hidden, and kept behind the exam by the focus guard. Only the denied list below
+        // (remote control / screen sharing / AI overlays) still has to go.
         for app in NSWorkspace.shared.runningApplications
         where app.processIdentifier != me && app.activationPolicy == .regular
             && !Allowlist.permits(app) && !app.isTerminated {
             let name = app.localizedName ?? app.bundleIdentifier ?? "app"
-            if app.bundleIdentifier == Allowlist.finder {
-                if finderQuits >= maxFinderQuits { continue }      // relaunch loop: leave it behind us
-                if quitting[app.processIdentifier] == nil {
-                    finderQuits += 1
-                    if finderQuits == maxFinderQuits {
-                        report("finder-relaunch", .processBlocked("Finder keeps relaunching; kept behind the exam"))
-                    }
-                }
+            let key = "bg:\(app.bundleIdentifier ?? name)"
+            if !reported.contains(key) {
+                report(key, .appInBackground(name))
+                backgroundApps.insert(name)
+                DebugLog.log("check", "left running behind the exam: \(DebugLog.describe(app))")
             }
-            if let asked = quitting[app.processIdentifier] {
-                // Asked politely 2 s ago and still here (e.g. a hidden "Save changes?" sheet).
-                if now.timeIntervalSince(asked) > 2, LockdownController.forceQuit(app) { continue }
-            } else {
-                quitting[app.processIdentifier] = now
-                report("app:\(app.bundleIdentifier ?? name)", .processBlocked("quit at lock: \(name)"))
-                let asked = app.terminate()
-                DebugLog.log("quit", "asked to quit (\(asked ? "sent" : "REFUSED")): \(DebugLog.describe(app))")
-                if !asked { if LockdownController.forceQuit(app) { continue } }
-            }
-            still.append(name)
+            if !app.isHidden { _ = app.hide() }
         }
+        _ = now
 
-        let f = SystemChecks.scanProcesses()
+        let f = SystemChecks.scanProcesses(lockedAt: lockedAt)
+        procListFailed = f.listFailed
         for app in f.deniedApps where !app.isTerminated {
             let name = app.localizedName ?? app.bundleIdentifier ?? "app"
             report("denied:\(app.bundleIdentifier ?? name)", .processBlocked(name))
@@ -360,7 +365,7 @@ final class LockdownController {
         if !SystemChecks.sessionIsOnConsole() {
             out.append("This Mac is being used remotely. The exam only works at the Mac itself.")
         }
-        let f = SystemChecks.scanProcesses()
+        let f = SystemChecks.scanProcesses(lockedAt: nil)
         let services = Set(f.deniedProcs.filter { $0.uid != getuid() }.map { LockdownController.friendlyName($0.name) })
         for name in services.sorted() {
             out.append("Turn off \(name) in System Settings > General > Sharing.")
@@ -377,12 +382,7 @@ final class LockdownController {
     func quitBlockedNow() {
         DebugLog.log("click", "\"Quit these apps now\" pressed")
         guard isLocked else { return }
-        let me = ProcessInfo.processInfo.processIdentifier
-        for app in NSWorkspace.shared.runningApplications
-        where app.processIdentifier != me && app.activationPolicy == .regular && !Allowlist.permits(app) {
-            LockdownController.forceQuit(app)
-        }
-        let f = SystemChecks.scanProcesses()
+        let f = SystemChecks.scanProcesses(lockedAt: lockedAt)
         for app in f.deniedApps { LockdownController.forceQuit(app) }
         let uid = getuid()
         for p in f.deniedProcs + f.orphanScripts where p.uid == uid {

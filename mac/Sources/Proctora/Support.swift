@@ -96,6 +96,8 @@ final class EventLog {
         case previousRunKilled
         case offlineExit
         case offlineExitRejected
+        /// 2026-10-13: a windowed app left running behind the exam (noticed, not quit).
+        case appInBackground(String)
 
         /// (type, detail) as sent to the server.
         var pair: (String, String) {
@@ -125,6 +127,7 @@ final class EventLog {
             // Own types: the server stores client "emergency_exit" as "client_emergency_exit" (audit S-06).
             case .offlineExit: return ("offline_exit", "offline invigilator code accepted")
             case .offlineExitRejected: return ("offline_exit_rejected", "wrong offline invigilator code")
+            case .appInBackground(let s): return ("app_in_background", s)
             }
         }
     }

@@ -153,3 +153,33 @@ import Carbon.HIToolbox
         #expect(tls == "if (location.origin === 'https://exam.dku.edu') { window.__fairplayNonce = 'xy'; }")
     }
 }
+
+// Open items M-07 / M-10 / M-12 / M-13 and "apps may stay in the background" (2026-10-13).
+@Suite struct OpenItemsTests {
+    @Test func hardwareDeviceIdIsStableAndSafe() {
+        let a = AppSession.hardwareDeviceId(uuid: "1234abcd-0000-1111-2222-333344445555", key: "k1")
+        let b = AppSession.hardwareDeviceId(uuid: "1234ABCD-0000-1111-2222-333344445555", key: "k1")
+        let other = AppSession.hardwareDeviceId(uuid: "1234abcd-0000-1111-2222-333344445555", key: "k2")
+        #expect(a == b)
+        #expect(a != other)
+        #expect(a.hasPrefix("hw-") && a.count == 35)
+        #expect(AppSession.isSafeToken(a, min: 8, max: 64))
+    }
+
+    @Test func processListIsReadable() {
+        let list = SystemChecks.processes()
+        #expect(list != nil)
+        #expect((list ?? []).contains { $0.pid == ProcessInfo.processInfo.processIdentifier })
+        let me = (list ?? []).first { $0.pid == ProcessInfo.processInfo.processIdentifier }
+        #expect((me?.started ?? .distantPast) > Date(timeIntervalSinceNow: -24 * 3600))
+    }
+
+    @Test func backgroundAppEventName() {
+        #expect(EventLog.Event.appInBackground("Cisco AnyConnect").pair == ("app_in_background", "Cisco AnyConnect"))
+    }
+
+    @Test func thisMacIsNotAVirtualMachine() {
+        // The test Mac is real hardware; a false positive here would block every exam.
+        #expect(!SystemChecks.isVirtualMachine())
+    }
+}

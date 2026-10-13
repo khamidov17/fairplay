@@ -2,6 +2,7 @@ import AppKit
 import Carbon
 import CoreGraphics
 import Darwin
+import IOKit
 
 /// Checks run at lock and every few seconds while locked (audit 2026-10-12 #7, #8, #9,
 /// tap-alive and input-source items). Each returns facts; LockdownController decides.
@@ -9,12 +10,45 @@ enum SystemChecks {
 
     // MARK: - Virtual machine (#8)
 
+    static let vmWords = ["virtual", "vmware", "parallels", "qemu", "vbox", "virtualbox", "utm", "apple virtual"]
+
+    /// Audit M-10: three independent signals, any one is enough. A VM that hides one of
+    /// them (patched hv_vmm_present, stock hw.model) still shows another.
     static func isVirtualMachine() -> Bool {
         var flag: Int32 = 0
         var size = MemoryLayout<Int32>.size
         if sysctlbyname("kern.hv_vmm_present", &flag, &size, nil, 0) == 0, flag == 1 { return true }
         let model = sysctlString("hw.model").lowercased()
-        return ["virtual", "vmware", "parallels", "qemu", "vbox"].contains { model.contains($0) }
+        if vmWords.contains(where: { model.contains($0) }) { return true }
+        // Intel: the CPU's "hypervisor present" bit.
+        if sysctlString("machdep.cpu.features").uppercased().split(separator: " ").contains("VMM") { return true }
+        return platformLooksVirtual()
+    }
+
+    /// IOKit platform entry: manufacturer / model strings of the machine itself.
+    static func platformLooksVirtual() -> Bool {
+        let entry = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        guard entry != 0 else { return false }
+        defer { IOObjectRelease(entry) }
+        var text = ""
+        for key in ["manufacturer", "model", "product-name"] {
+            if let v = IORegistryEntryCreateCFProperty(entry, key as CFString, kCFAllocatorDefault, 0)?
+                .takeRetainedValue() as? Data {
+                text += String(decoding: v.prefix(while: { $0 != 0 }), as: UTF8.self).lowercased() + " "
+            }
+        }
+        return vmWords.contains { text.contains($0) }
+    }
+
+    /// Audit M-07: the Mac's hardware UUID (same after reinstalling FairPlay or copying
+    /// its files to another Mac), or nil when IOKit does not give one.
+    static func hardwareUUID() -> String? {
+        let entry = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
+        guard entry != 0 else { return nil }
+        defer { IOObjectRelease(entry) }
+        let v = IORegistryEntryCreateCFProperty(entry, kIOPlatformUUIDKey as CFString, kCFAllocatorDefault, 0)?
+            .takeRetainedValue() as? String
+        return (v?.isEmpty ?? true) ? nil : v
     }
 
     static func sysctlString(_ name: String) -> String {
@@ -27,7 +61,12 @@ enum SystemChecks {
 
     // MARK: - Displays incl. mirroring / AirPlay / Sidecar (#9)
 
-    struct Displays { let online: Int; let mirrored: Bool }
+    struct Displays {
+        let online: Int
+        let mirrored: Bool
+        /// Audit M-10: which screens, so a phantom (DisplayLink, dock) can be named.
+        var names: [String] = []
+    }
 
     /// NSScreen.screens counts a mirror set as one screen; the online display list does not.
     static func displays() -> Displays {
@@ -41,7 +80,8 @@ enum SystemChecks {
         }
         let list = ids.prefix(Int(count))
         let mirrored = list.contains { CGDisplayIsInMirrorSet($0) != 0 }
-        return Displays(online: list.count, mirrored: mirrored)
+        let names = NSScreen.screens.map { $0.localizedName }
+        return Displays(online: list.count, mirrored: mirrored, names: names)
     }
 
     // MARK: - Remote session
@@ -59,24 +99,36 @@ enum SystemChecks {
         let ppid: pid_t
         let uid: uid_t
         let name: String
+        /// Audit M-12: when the process started.
+        var started: Date = .distantPast
     }
 
-    static func processes() -> [Proc] {
+    /// Audit M-13: nil when the list can't be read. Processes started between the size
+    /// query and the fetch make the fetch fail with ENOMEM: ask again with more room.
+    static func processes() -> [Proc]? {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
-        var size = 0
-        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [] }
         let stride = MemoryLayout<kinfo_proc>.stride
-        var list = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 32)
-        size = list.count * stride
-        guard sysctl(&mib, 4, &list, &size, nil, 0) == 0 else { return [] }
-        return list.prefix(size / stride).map { kp in
-            var comm = kp.kp_proc.p_comm
-            let name = withUnsafeBytes(of: &comm) { raw -> String in
-                String(decoding: raw.prefix(while: { $0 != 0 }), as: UTF8.self)
+        for attempt in 0..<4 {
+            var size = 0
+            guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+            var list = [kinfo_proc](repeating: kinfo_proc(), count: size / stride + 64 << attempt)
+            size = list.count * stride
+            if sysctl(&mib, 4, &list, &size, nil, 0) != 0 {
+                if errno == ENOMEM { continue }
+                return nil
             }
-            return Proc(pid: kp.kp_proc.p_pid, ppid: kp.kp_eproc.e_ppid,
-                        uid: kp.kp_eproc.e_ucred.cr_uid, name: name)
+            return list.prefix(size / stride).map { kp in
+                var comm = kp.kp_proc.p_comm
+                let name = withUnsafeBytes(of: &comm) { raw -> String in
+                    String(decoding: raw.prefix(while: { $0 != 0 }), as: UTF8.self)
+                }
+                let tv = kp.kp_proc.p_un.__p_starttime
+                let started = Date(timeIntervalSince1970: Double(tv.tv_sec) + Double(tv.tv_usec) / 1_000_000)
+                return Proc(pid: kp.kp_proc.p_pid, ppid: kp.kp_eproc.e_ppid,
+                            uid: kp.kp_eproc.e_ucred.cr_uid, name: name, started: started)
+            }
         }
+        return nil
     }
 
     /// Remote control, screen sharing, AI assistants/overlays and launchers. Lowercase
@@ -110,9 +162,15 @@ enum SystemChecks {
         var deniedProcs: [Proc] = []
         var orphanScripts: [Proc] = []
         var orphanReported: [Proc] = []
+        /// M-13: the process list could not be read ("proc=?" in the beat).
+        var listFailed = false
     }
 
-    static func scanProcesses() -> ProcessFindings {
+    /// Audit M-12: a leftover script is ended only if it started shortly before the lock
+    /// (or after it); older ones are someone's real background job and are only reported.
+    static let orphanWindow: TimeInterval = 10 * 60
+
+    static func scanProcesses(lockedAt: Date?) -> ProcessFindings {
         var f = ProcessFindings()
         let me = ProcessInfo.processInfo.processIdentifier
         for app in NSWorkspace.shared.runningApplications where app.processIdentifier != me {
@@ -122,13 +180,18 @@ enum SystemChecks {
         }
         let appPids = Set(f.deniedApps.map { $0.processIdentifier })
         let uid = getuid()
-        for p in processes() where p.pid != me && p.pid > 1 {
+        guard let procs = processes() else {
+            f.listFailed = true
+            return f
+        }
+        let since = (lockedAt ?? Date()).addingTimeInterval(-orphanWindow)
+        for p in procs where p.pid != me && p.pid > 1 {
             let lower = p.name.lowercased()
             if !appPids.contains(p.pid), deniedProcessNames.contains(where: { lower.contains($0) }) {
                 f.deniedProcs.append(p)
             } else if p.uid == uid && p.ppid == 1 {
-                if killableOrphans.contains(lower) { f.orphanScripts.append(p) }
-                else if reportedOrphans.contains(lower) { f.orphanReported.append(p) }
+                if killableOrphans.contains(lower) && p.started >= since { f.orphanScripts.append(p) }
+                else if killableOrphans.contains(lower) || reportedOrphans.contains(lower) { f.orphanReported.append(p) }
             }
         }
         return f

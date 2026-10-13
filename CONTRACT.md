@@ -534,7 +534,13 @@ Start codes have **6 digits**. Each live exam also has a 6-digit `invigilator_co
 
 `POST /api/student/attempts/{aid}/app-beat` every 5 s, sent by the **app** (not the page), with the student token and `X-FairPlay-Session`:
 `{"session","device_id","ts","locked","checks","signature"}`, `signature = hex(HMAC(app key, "beat|<aid>|<session>|<device_id>|<ts>|<0|1>|<checks>"))`, `ts` = client ms, strictly increasing.
-`checks` e.g. `vm=0,disp=1,mir=0,tap=1,inp=1,proc=0`. Response `{"ok","status","deadline_at","server_time"}`.
+`checks` e.g. `vm=0,disp=1,mir=0,tap=1,inp=1,proc=0,bg=2`: `proc` = apps that must still close (only remote control / screen sharing / AI overlays; `?` when the process list could not be read, audit M-13), `bg` = other windowed apps left running behind the exam. Response `{"ok","status","deadline_at","server_time"}`.
+
+**Apps during the lock (2026-10-13).** Only the denied list (remote control, screen sharing, AI assistants and overlays) is closed and blocks the exam. Every other app may keep running in the background (a VPN client such as AnyConnect, a sync tool, an open document): each is reported once per lock as `app_in_background` with its name, hidden, and kept behind the exam by the focus guard. Leftover shell scripts are ended only if they started within 10 minutes before the lock or later; older ones are reported (audit M-12). Same on Windows.
+
+**Device id (audit M-07).** The Mac sends `hw-` + 32 hex of SHA-256(`fairplay-device|<IOPlatformUUID>|<app key>`), so copying FairPlay's files to another Mac does not move the device; a random id in Application Support is the fallback only when IOKit has no UUID. The server flags `network_changed` (once per 5 min) when one app session's signed beats come from a new network address.
+
+**VM check (audit M-10).** Any of: `kern.hv_vmm_present`, a VM word in `hw.model`, the Intel `VMM` CPU flag, or a VM manufacturer/model on the IOKit platform entry. The one-screen message names the screens found.
 Server events: `app_gap` (> 20 s since the last beat), `unlocked_in_exam` (locked → unlocked while writing), `no_app_signal` (page heartbeats but no app beat for 45 s; max 1 per 5 min).
 `POST .../heartbeat` still updates "online"/current question; its `locked` is ignored.
 

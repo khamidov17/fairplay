@@ -56,12 +56,15 @@ CLIENT_EVENT_TYPES = frozenset({
     "mirrored_display", "remote_session", "tap_lost", "input_source_blocked",
     "synthetic_input", "tls_pin_mismatch", "previous_run_killed",
     "offline_exit", "offline_exit_rejected", "watchdog_app_killed",
+    # 2026-10-13: a windowed app left running behind the exam (noticed, not quit)
+    "app_in_background",
 })
 SERVER_EVENT_TYPES = frozenset({
     "second_device", "foreign_session", "re_entry", "app_gap", "no_app_signal",
     "unlocked_in_exam", "emergency_exit", "emergency_exit_rejected", "device_released",
     "device_bound", "late_submission", "offline_key_requested_twice",
     "offline_exit_code_issued", "event_limit_reached", "off_console", "secure_input_other_app",
+    "network_changed",
 })
 
 

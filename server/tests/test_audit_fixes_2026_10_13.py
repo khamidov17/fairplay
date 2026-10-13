@@ -324,3 +324,30 @@ def test_made_up_session_on_same_device_is_not_moved(app_client, exam):
     other = app_client.get(url, params={"nonce": "nonce-12345678", "device": "device-zzzz-9999"}, headers=fake)
     assert other.json()["status"] == "moved"
     assert app_client.get(url, params={"nonce": "nonce-12345678", "device": "a|b"}, headers=fake).status_code == 422
+
+
+def test_app_signal_from_new_network_is_flagged(app_client, exam):
+    """M-07 server half: one session's signed beats from two addresses -> one note."""
+    from app.store import get_store
+    from .test_app_session import beat
+    t = login(app_client, "teacher")
+    h = login(app_client, "alice")
+    a = start(app_client, h, exam).json()
+    aid, sess = a["attempt_id"], a["session"]
+    assert beat(app_client, h, aid, sess, 1).status_code == 200
+    assert beat(app_client, h, aid, sess, 2).status_code == 200      # same address: nothing
+
+    def types():
+        res = app_client.get(f"/api/exams/{exam['id']}/results", headers=t).json()
+        return [ev["type"] for x in res["attempts"] for ev in x.get("events", [])]
+    assert "network_changed" not in types()
+    # the session's last beat came from somewhere else
+    app_client.portal.call(get_store().set, f"abip:{aid}:{sess}", "10.9.9.9", 3600)
+    assert beat(app_client, h, aid, sess, 3).status_code == 200
+    assert beat(app_client, h, aid, sess, 4).status_code == 200
+    assert types().count("network_changed") == 1
+
+
+def test_background_app_event_is_a_client_type():
+    from app.app_client import client_event_type
+    assert client_event_type("app_in_background") == "app_in_background"

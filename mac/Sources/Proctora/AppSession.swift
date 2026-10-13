@@ -41,8 +41,25 @@ final class AppSession {
 
     // MARK: - Identity + signing
 
-    /// Random id per Mac user account, kept in Application Support/FairPlay/device-id.
+    /// Audit M-07: the Mac's hardware UUID, hashed with this build's key (the server
+    /// never sees the raw UUID), so copying FairPlay's files to another Mac does not carry
+    /// the device over. Falls back to a random id kept in Application Support only when
+    /// IOKit gives no UUID.
     private static func loadDeviceId() -> String {
+        if let hw = SystemChecks.hardwareUUID() {
+            return hardwareDeviceId(uuid: hw, key: Config.appKey)
+        }
+        return loadFileDeviceId()
+    }
+
+    /// "hw-" + 32 hex of SHA-256("fairplay-device|<uuid>|<key>"): a safe token (8...64).
+    static func hardwareDeviceId(uuid: String, key: String) -> String {
+        let digest = SHA256.hash(data: Data("fairplay-device|\(uuid.uppercased())|\(key)".utf8))
+        return "hw-" + digest.map { String(format: "%02x", $0) }.joined().prefix(32)
+    }
+
+    /// Random id per Mac user account, kept in Application Support/FairPlay/device-id.
+    private static func loadFileDeviceId() -> String {
         let fm = FileManager.default
         let base = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory
         let folder = base.appendingPathComponent("FairPlay", isDirectory: true)

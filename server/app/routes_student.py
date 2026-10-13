@@ -481,6 +481,18 @@ async def app_beat(aid: str, body: AppBeatIn, request: Request,
     if last and last.get("locked") and not locked and meta["status"] == "in_progress":
         await ac.add_event(session, store, aid, exam_id, "unlocked_in_exam",
                            "the app reports it is no longer locked")
+    # Audit M-07 (server half): one app session whose signal moves to another network
+    # address is flagged (a copied device id / session used from somewhere else shows up
+    # here; so does an honest Wi-Fi switch, which is why it is a note, not a block).
+    ip = request.client.host if request.client else ""
+    ip_key = f"abip:{aid}:{body.session}"
+    seen_ip = await store.get(ip_key)
+    if ip and seen_ip and seen_ip != ip and meta["status"] == "in_progress" \
+            and await ac.once_per(store, f"ipchg:{aid}", ac.FLAG_REPEAT_S):
+        await ac.add_event(session, store, aid, exam_id, "network_changed",
+                           "the app's signal now comes from another network address")
+    if ip and seen_ip != ip:
+        await store.set(ip_key, ip, LIVE_TTL)
     entry = {"t": now, "ts": body.ts, "locked": locked, "checks": body.checks,
              "session": body.session}
     await store.set(f"abt:{aid}", json.dumps(entry), LIVE_TTL)
