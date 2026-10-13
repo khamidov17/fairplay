@@ -458,6 +458,11 @@ class SubmissionAIGrade(LoginRequiredMixin, SubmissionMixin, DetailView):
         from judge.utils.contest_ai import ai_grade_context, run_ai_for_submission
 
         submission = self.get_object()
+        # Only someone who may see the submission at all (owner, its editors)
+        # can trigger AI scoring on it; ``ai_grade_context`` then scopes the
+        # teacher path to editors of that assignment/problem.
+        if not submission.can_see_detail(request.user):
+            return JsonResponse({'error': _('Permission denied.')}, status=403)
         ctx = ai_grade_context(request.user, submission)
         if not ctx['can_trigger']:
             if ctx.get('quota_disabled'):
