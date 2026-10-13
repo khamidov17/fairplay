@@ -732,7 +732,8 @@ class ProblemDetail(ProblemMixin, SolvedProblemMixin, CommentedDetailView):
         context['workspace_submission_type_label'] = str(workspace_grader.label)
         # Match problem-list redesign filters: one option per submission_type (MCQ = choice question).
         workspace_format_options = []
-        for grader in all_types():
+        from judge.subjects import filter_question_types
+        for grader in filter_question_types(user, all_types()):
             if grader.submission_type == ProblemSubmissionType.MCQ:
                 workspace_format_options.append({
                     'code': ProblemSubmissionType.MCQ, 'label': str(_('Choice question')),
@@ -1363,8 +1364,10 @@ class ProblemList(QueryStringSortMixin, TitleMixin, SolvedProblemMixin, ListView
         """
         from judge.models import ProblemSubmissionType
         from judge.question_types import all_types
+        from judge.subjects import filter_question_types
         options = []
-        for t in all_types():
+        # Subject registry: e.g. no "Programming" filter for users whose courses are all non-code subjects.
+        for t in filter_question_types(self.request.user, all_types()):
             if t.submission_type == ProblemSubmissionType.MCQ:
                 options.append((ProblemSubmissionType.MCQ, str(_('Choice question')),
                                 Q(submission_type=ProblemSubmissionType.MCQ)))
@@ -1566,7 +1569,9 @@ class ProblemList(QueryStringSortMixin, TitleMixin, SolvedProblemMixin, ListView
         )
 
         from judge.question_types import creatable_types
-        context['creatable_problem_types'] = creatable_types(self.request.user)
+        from judge.subjects import filter_question_types
+        context['creatable_problem_types'] = filter_question_types(
+            self.request.user, creatable_types(self.request.user))
         context['can_import_excel_problems'] = self.request.user.has_perm('judge.create_private_problem')
         context['ac_min'] = self.ac_min if self.ac_min is not None else ''
         context['ac_max'] = self.ac_max if self.ac_max is not None else ''

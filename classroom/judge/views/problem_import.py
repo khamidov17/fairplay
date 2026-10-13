@@ -30,6 +30,7 @@ from judge.models import Language, Problem, ProblemBlank, ProblemData, ProblemFi
     ProblemImportDraft, \
     ProblemImportImage, ProblemImportItem, ProblemMCQConfig, ProblemMCQOption, ProblemShortAnswerConfig, \
     ProblemSubmissionType, ProblemTestCase, ProblemType, Solution, problem_data_storage
+from judge.subjects import question_type_refusal
 from judge.utils.excel_embedded_documents import image_placeholder, read_xlsx_rows_with_embedded_files, \
     store_docx_image
 from judge.utils.problem_create import apply_simple_problem_defaults, default_problem_type, log_problem_admin_entry
@@ -746,6 +747,7 @@ class ProblemImportItemEditorView(ProblemCreateV2View):
             'edit_code': '',
             'edit_detail_url': '',
         })
+        self.apply_subject_context(request, context)
         return render(request, self.template_name, context)
 
     def post(self, request, draft, item, *args, **kwargs):
@@ -1742,6 +1744,10 @@ def _create_problem_records(request, item, description, created_data_directories
             grading_table=grading_table,
         )
     _apply_editor_configuration(request, item, problem)
+    # Subject registry: e.g. a programming problem cannot be imported into a Biology course.
+    refusal = question_type_refusal(request.user, item.submission_type, list(problem.organizations.all()))
+    if refusal:
+        raise ValueError(refusal)
     return problem
 
 

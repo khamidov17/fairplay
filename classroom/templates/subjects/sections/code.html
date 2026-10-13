@@ -1,0 +1,14 @@
+{#- Code pack: programming problems, judge and IDE. Rendered on the course page (course set) and once on
+    the teacher home (course is none). -#}
+<p class="muted">{{ _('Programming problems judged against test data, the IDE and Run tests, MOSS and rankings.') }}</p>
+<ul class="subject-links">
+    {% if has_feature('ide', course) %}
+        <li><a href="{{ url('ide') }}" data-menu-item="ide"><i class="fa fa-terminal"></i> {{ _('Open the IDE') }}</a></li>
+    {% endif %}
+    {% if is_teacher %}
+        <li><a href="{{ url('problem_list') }}?format=C{% if course %}&amp;course={{ course.id }}{% endif %}" data-menu-item="programming_problems"><i class="fa fa-code"></i> {{ _('Programming problems') }}</a></li>
+        {% if has_feature('language_stats', course) %}
+            <li><a href="{{ url('language_stats') }}" data-menu-item="language_stats"><i class="fa fa-bar-chart"></i> {{ _('Language statistics') }}</a></li>
+        {% endif %}
+    {% endif %}
+</ul>

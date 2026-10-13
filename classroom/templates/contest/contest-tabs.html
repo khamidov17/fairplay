@@ -11,17 +11,21 @@
     {% endif %}
 
     {% if contest.start_time <= now or perms.judge.see_private_contest %}
+        {# Rankings belong to the code pack (judge/subjects/); teachers always keep the scoreboard. #}
+        {% set show_rankings = can_edit or has_feature('rankings', contest) %}
         {% if contest.can_see_own_scoreboard(request.user) %}
-            {{ make_tab('ranking', 'fa-bar-chart', url('contest_ranking', contest.key), _('Rankings')) }}
+            {% if show_rankings %}
+                {{ make_tab('ranking', 'fa-bar-chart', url('contest_ranking', contest.key), _('Rankings')) }}
+            {% endif %}
             {% if request.user.is_authenticated %}
                 {{ make_tab('participation', 'fa-users', url('contest_participation_own', contest.key), _('Participation')) }}
             {% endif %}
-        {% else %}
+        {% elif show_rankings %}
             {{ make_tab('ranking', 'fa-bar-chart', None, _('Hidden Rankings')) }}
         {% endif %}
     {% endif %}
     {% if can_change %}
-        {% if perms.judge.moss_contest and has_moss_api_key %}
+        {% if perms.judge.moss_contest and has_moss_api_key and has_feature('moss', contest) %}
             {{ make_tab('moss', 'fa-gavel', url('contest_moss', contest.key), _('MOSS')) }}
         {% endif %}
         {{ make_tab('edit', 'fa-edit', url('contest_edit', contest.key), _('Edit')) }}

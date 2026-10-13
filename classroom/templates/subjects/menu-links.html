@@ -1,0 +1,9 @@
+{#- A pack's menu items as a link row. Context: course, is_teacher, pack (or none for every pack). -#}
+{% set items = subject_menu_items(course, is_teacher=is_teacher, pack=pack) %}
+{% if items %}
+    <ul class="subject-links">
+        {% for item, href in items %}
+            <li><a href="{{ href }}" data-menu-item="{{ item.key }}"><i class="fa {{ item.icon }}"></i> {{ item.label }}</a></li>
+        {% endfor %}
+    </ul>
+{% endif %}

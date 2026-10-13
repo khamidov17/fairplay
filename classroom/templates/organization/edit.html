@@ -55,6 +55,21 @@
             // the submit control click so the hidden textarea is filled in time.
             $('form.course-form').on('click', '[type=submit]', syncRichEditorSources);
             $('form.course-form').on('submit', syncRichEditorSources);
+            (function showDetectedSubject() {
+                var $hint = $('#subject-detected');
+                if (!$hint.length) return;
+                var prefixes = $hint.data('prefixes') || {};
+                var $code = $('#{{ form.short_name.id_for_label }}'), $subject = $('#{{ form.subject.id_for_label }}');
+                function update() {
+                    if ($subject.val()) { $hint.text(''); return; }
+                    var m = /^\s*([A-Za-z]+)/.exec($code.val() || '');
+                    var label = m ? prefixes[m[1].toUpperCase()] : null;
+                    $hint.text(label ? ' ' + {{ _('Detected:')|htmltojs }} + ' ' + label : '');
+                }
+                $code.on('input', update);
+                $subject.on('change', update);
+                update();
+            })();
         });
     </script>
 {% endblock %}
@@ -95,6 +110,15 @@
                         <label for="{{ form.name.id_for_label }}">{{ form.name.label }} <span aria-hidden="true">*</span></label>
                         {{ form.name }}
                         {{ form.name.errors }}
+                    </div>
+                    <div class="class-form-field full">
+                        <label for="{{ form.subject.id_for_label }}">{{ form.subject.label }}</label>
+                        {{ form.subject }}
+                        <div class="helptext">
+                            {{ form.subject.help_text }}
+                            {% if subject_prefixes %}<span id="subject-detected" data-prefixes="{{ subject_prefixes|json }}"></span>{% endif %}
+                        </div>
+                        {{ form.subject.errors }}
                     </div>
                     <div class="class-form-field full">
                         <label for="{{ form.about.id_for_label }}">{{ form.about.label }}</label>

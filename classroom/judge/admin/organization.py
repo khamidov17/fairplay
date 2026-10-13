@@ -1,12 +1,13 @@
 from django.contrib import admin
 from django.db.models import Q
-from django.forms import ModelForm
+from django.forms import ChoiceField, ModelForm
 from django.urls import reverse_lazy
 from django.utils.html import format_html
 from django.utils.translation import gettext, gettext_lazy as _
 from reversion.admin import VersionAdmin
 
 from judge.models import Organization
+from judge.subjects import subject_choices
 from judge.utils.organization_membership import sync_class_members_to_organization
 from judge.utils.user_search import apply_profile_choice_labels
 from judge.widgets import AdminHeavySelect2MultipleWidget, AdminMartorWidget
@@ -71,6 +72,10 @@ class ClassAdmin(VersionAdmin):
 
 
 class OrganizationForm(ModelForm):
+    # Choices come from the subject registry (judge/subjects/definitions.py), not from the model field.
+    subject = ChoiceField(choices=subject_choices, label=_('Subject'),
+                          help_text=_('Decides which question types and tools the course shows.'))
+
     class Meta:
         widgets = {
             'admins': AdminHeavySelect2MultipleWidget(data_view='profile_select2'),
@@ -84,9 +89,10 @@ class OrganizationForm(ModelForm):
 
 class OrganizationAdmin(VersionAdmin):
     readonly_fields = ('creation_date',)
-    fields = ('name', 'slug', 'short_name', 'is_open', 'class_required', 'about', 'instructor_names',
+    fields = ('name', 'slug', 'short_name', 'subject', 'is_open', 'class_required', 'about', 'instructor_names',
               'logo_override_image', 'slots', 'creation_date', 'admins')
-    list_display = ('name', 'short_name', 'is_open', 'slots', 'show_public')
+    list_display = ('name', 'short_name', 'subject', 'is_open', 'slots', 'show_public')
+    list_filter = ('subject',)
     prepopulated_fields = {'slug': ('name',)}
     actions_on_top = True
     actions_on_bottom = True

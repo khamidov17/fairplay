@@ -1,0 +1,29 @@
+{#- "Your courses" on the home page for teachers. Each card shows the course's subject and the menu items its
+    packs contribute; below, the 'teacher_home' sections of every pack the teacher's courses use (once each).
+    Context: teaching_courses (list of Organization). -#}
+{% if teaching_courses %}
+    {% include "subjects/styles.html" %}
+    <div class="blog-sidebox sidebox teacher-home">
+        <h3>{{ _('Your courses') }} <i class="fa fa-university"></i></h3>
+        <div class="sidebox-content">
+            <div class="teacher-home-courses">
+                {% for course in teaching_courses %}
+                    {% set subject = course_subject(course) %}
+                    <div class="teacher-home-course" data-course="{{ course.id }}" data-subject="{{ subject.key }}">
+                        <span class="subject-badge" style="--subject-color: {{ subject.color }}">{{ subject.label }}</span>
+                        <h4><a href="{{ course.get_absolute_url() }}">{{ course.short_name or course.name }}</a></h4>
+                        {% with is_teacher = true, pack = none %}{% include "subjects/menu-links.html" %}{% endwith %}
+                    </div>
+                {% endfor %}
+            </div>
+            {% set course = none %}
+            {% set is_teacher = true %}
+            {% for section in subject_sections('teacher_home', is_teacher=true) %}
+                <section class="subject-section" data-section="{{ section.key }}" style="margin-top: 0.75rem;">
+                    <h3>{{ section.title }}</h3>
+                    {% include section.template %}
+                </section>
+            {% endfor %}
+        </div>
+    </div>
+{% endif %}

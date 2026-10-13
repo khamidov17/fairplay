@@ -192,6 +192,8 @@
             <li class="home-nav-element"><span class="nav-divider"></span></li>
             <li class="home-menu-item"><a href="{{ url('home') }}" class="nav-home">{{ _('Home') }}</a></li>
             {% for node in mptt_tree(nav_bar) recursive %}
+                {# Entries tied to a feature pack (IDE, judge status, language stats, rankings) follow the subjects of the user's courses. #}
+                {% if nav_item_visible(node) %}
                 <li>
                     <a href="{% if request.in_contest and node.path.rstrip('/') == '/contests' %}{{ url('contest_view', request.participation.contest.key) }}{% else %}{{ node.path }}{% endif %}" class="nav-{{ node.key }}{% if node.key in nav_tab %} active{% endif %}">
                         {{ user_trans(node.label) }}
@@ -203,6 +205,7 @@
                         {% if children %}<ul>{{ loop(children) }}</ul>{% endif %}
                     {% endwith %}
                 </li>
+                {% endif %}
             {% endfor %}
         </ul>
 

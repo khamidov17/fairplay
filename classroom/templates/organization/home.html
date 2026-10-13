@@ -210,6 +210,10 @@ $(function () {
         </aside>
     </div>
 
+    {% if can_view_course %}
+        {% include "subjects/course-dashboard.html" %}
+    {% endif %}
+
     <div class="class-section">
         <h2>{{ _('Class') }}</h2>
         {% if not can_view_course %}
