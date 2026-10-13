@@ -4,7 +4,7 @@
     {{ form.media.css }}
     <style>
         .map-inset {
-            background: url('{{ TIMEZONE_MAP }}') 50% 50%
+            {% if TIMEZONE_MAP %}background: url('{{ TIMEZONE_MAP }}') 50% 50%{% else %}background: #cfe3f0{% endif %}
         }
 
         .map-wrap {

@@ -8,7 +8,7 @@
  * http://opensource.org/licenses/MIT
  *
  */
-@import url('https://fonts.googleapis.com/css?family=Lato:400,700,400italic,700italic&subset=latin');
+/* The Lato web font is not loaded from Google Fonts (blocked in mainland China); the site font is used. */
 
 /*******************************
          Site Overrides

@@ -66,7 +66,11 @@ bash classroom/scripts/dev-test.sh --parallel 2         # same, about 40% faster
 bash classroom/scripts/dev-test.sh judge.views.tests.test_contest_editor -v 2
 bash classroom/scripts/dev-server.sh                    # migrate + runserver on 127.0.0.1:8000
 bash classroom/scripts/dev-server.sh --celery           # also start a Celery worker
+bash classroom/scripts/dev-assets.sh                    # front-end build + Monaco/MathJax into resources/libs
+classroom/.venv/bin/python classroom/manage.py seed_dev_data   # demo course, users, assignments (DEBUG only)
 ```
+
+The code editor (Monaco) and math rendering (MathJax) are npm packages served from `resources/libs/`, never from a CDN. `dev-assets.sh` copies them there, as the Dockerfile does; without it the IDE and workspace editors and all math fail to load. `seed_dev_data` needs a freshly migrated database with `loaddata navbar language_small demo`; every seeded password is `fairplay-dev`.
 
 Both scripts start MariaDB and Redis if they are not running. They create the DB, the user and the grants, load the time-zone tables if they are empty, copy `local_settings.example.py` if `local_settings.py` is missing, and run `compilejsi18n` once. Logs go to `${TMPDIR:-/tmp}/classroom-dev/`. Arguments to `dev-test.sh` are passed through to `manage.py test`. Environment switches:
 

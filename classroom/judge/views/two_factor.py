@@ -18,7 +18,7 @@ from django.views.generic.base import ContextMixin
 from django.views.generic.detail import SingleObjectMixin
 
 from judge.forms import TOTPEnableForm, TOTPForm, TwoFactorLoginForm
-from judge.jinja2.gravatar import gravatar
+from judge.jinja2.gravatar import avatar_icon_url
 from judge.models import WebAuthnCredential
 from judge.utils.two_factor import WebAuthnJSONEncoder, webauthn_encode
 from judge.utils.views import TitleMixin
@@ -150,7 +150,7 @@ class WebAuthnAttestationView(WebAuthnView):
             username=request.user.username,
             display_name=request.user.username,
             user_verification='discouraged',
-            icon_url=gravatar(request.user.email),
+            icon_url=avatar_icon_url(request.user.email),
             attestation='none',
         ).registration_dict
         data['excludeCredentials'] = [{

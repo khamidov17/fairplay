@@ -32,7 +32,12 @@ def submission_layout(submission, profile_id, user, completed_problem_ids, edita
         can_view = True
     elif submission.problem_id in completed_problem_ids:
         can_view = submission.problem_id in tester_problem_ids
+        # Same rule as Submission.can_see_detail: "solved" visibility is for code only, and
+        # never while the problem's results are hidden in an exam (G-6). Otherwise the row
+        # offers a link that ends in "permission denied".
         if submission_source_visibility == SubmissionSourceAccess.SOLVED:
-            can_view = can_view or submission.problem.is_public
+            from judge.utils.result_visibility import solved_source_visibility_applies
+            can_view = can_view or (submission.problem.is_public and
+                                    solved_source_visibility_applies(submission.problem))
 
     return can_view, can_edit

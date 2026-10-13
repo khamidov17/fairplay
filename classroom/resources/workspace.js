@@ -629,7 +629,7 @@
     if (typeof window.dkuojShowAssignmentNotice !== 'function') return false;
     var opts = { kind: kind };
     if (kind === 'join') {
-      opts.title = window.DKUOJ_PREEXAM_TITLE || gettext('Pre-exam reminder');
+      opts.title = window.DKUOJ_PREEXAM_TITLE || gettext('Before you start');
       opts.warn = window.DKUOJ_MANUAL_SUBMIT_WARN;
     } else if (kind === '10pct') {
       opts.title = window.DKUOJ_TIME_WARN_TITLE || gettext('A kind reminder');

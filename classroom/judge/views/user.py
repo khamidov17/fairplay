@@ -149,11 +149,19 @@ class CustomLoginView(LoginView):
         return super().form_valid(form)
 
 
+def netid_auth_host():
+    """The NetID SSO host from ``AUTH_HOSTS['Duke-netid']``, or None when it is not configured."""
+    return (getattr(settings, 'AUTH_HOSTS', None) or {}).get('Duke-netid') or None
+
+
 class CustomNetidRedirectView(LoginView):
     def get(self, request):
         from django.shortcuts import redirect
-        from django.conf import settings
-        auth_host = settings.AUTH_HOSTS['Duke-netid']
+        auth_host = netid_auth_host()
+        if auth_host is None:
+            return generic_message(request, _('NetID sign-in is not available'),
+                                   _('NetID sign-in is not configured on this site. Sign in with your '
+                                     'username and password, or contact the site administrator.'), status=503)
         return redirect(f'{auth_host}/auth/redirect')
 
 
@@ -202,8 +210,9 @@ class CustomNetidLoginView(LoginView):
         def verify():
             try:
                 import requests
-                from django.conf import settings
-                auth_host = settings.AUTH_HOSTS['Duke-netid']
+                auth_host = netid_auth_host()
+                if auth_host is None:
+                    return 'Error: NetID sign-in is not configured'
                 # CA-7: TLS certificates are checked (NETID_SSO_VERIFY may name a CA
                 # bundle), and the token is sent as an encoded query parameter.
                 response = requests.get(

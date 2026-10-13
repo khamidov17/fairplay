@@ -57,3 +57,8 @@ submission_files_backup/
 
 # Host-only memory / bind-mount overrides. Never ship to git.
 docker-compose.override.yml
+
+# Copied from node_modules at build time (Dockerfile, scripts/dev-assets.sh)
+resources/libs/monaco/
+resources/libs/mathjax/
+resources/libs/ace/

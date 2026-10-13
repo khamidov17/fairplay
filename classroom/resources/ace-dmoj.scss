@@ -51,11 +51,20 @@
     float: right;
     padding: 5px;
 
-    background: url($path_to_root + '/ace/img/expand.png') no-repeat 5px 5px;
-    @include vars-img;
     display: block;
     height: 16px;
     width: 16px;
+    color: $color_primary66;
+    cursor: pointer;
+    text-decoration: none;
+
+    /* FontAwesome "expand" (the old ace/img/expand.png is not shipped). */
+    &::before {
+        font-family: FontAwesome;
+        content: "\f065";
+        font-size: 14px;
+        line-height: 16px;
+    }
 }
 
 .django-ace-editor {

@@ -66,6 +66,7 @@ from judge.models import (
     contest_problem_display_name,
     problem_data_storage,
 )
+from judge.utils.assets import ace_url
 from judge.utils.assignment_harvest import (
     assignment_harvest_enabled, participation_is_harvestable, user_bypasses_assignment_rules,
 )
@@ -964,7 +965,7 @@ class ProblemDetail(ProblemMixin, SolvedProblemMixin, CommentedDetailView):
                 if selected_language:
                     form.initial['source'] = templates.get(str(selected_language.id), '')
                 context['form'] = form
-                context['ACE_URL'] = settings.ACE_URL
+                context['ACE_URL'] = ace_url()
             else:
                 # Non-code (e.g. MCQ): render the type-specific answer form inline, not the Ace editor.
                 # The inline form posts to the dedicated submit page (submit_url).
@@ -2225,7 +2226,7 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
         if self.is_code:
             context['langs'] = Language.objects.all()
             context['no_judges'] = not context['form'].fields['language'].queryset
-            context['ACE_URL'] = settings.ACE_URL
+            context['ACE_URL'] = ace_url()
             context['default_lang'] = self.default_language
         return context
 

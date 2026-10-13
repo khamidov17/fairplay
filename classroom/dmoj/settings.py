@@ -54,9 +54,11 @@ DMOJ_PP_STEP = 0.95
 DMOJ_PP_ENTRIES = 100
 DMOJ_PP_BONUS_FUNCTION = lambda n: 300 * (1 - 0.997 ** n)  # noqa: E731
 
-ACE_URL = '//cdnjs.cloudflare.com/ajax/libs/ace/1.1.3'
-SELECT2_JS_URL = '//cdnjs.cloudflare.com/ajax/libs/select2/4.0.3/js/select2.min.js'
-SELECT2_CSS_URL = '//cdnjs.cloudflare.com/ajax/libs/select2/4.0.3/css/select2.min.css'
+# Front-end libraries are served from this site (resources/libs), never from a public CDN, which
+# may be blocked or slow (DKU is in mainland China). ACE_URL None means static('libs/ace').
+ACE_URL = None
+SELECT2_JS_URL = 'libs/select2/select2.js'
+SELECT2_CSS_URL = 'libs/select2/select2.css'
 
 DMOJ_CAMO_URL = None
 DMOJ_CAMO_KEY = None
@@ -152,6 +154,14 @@ DMOJ_EMAIL_CHANGE_LIMIT_COUNT = 10
 # Number of minutes before an email change request activation key expires
 DMOJ_EMAIL_CHANGE_EXPIRY_MINUTES = 60
 
+# NetID single sign-on host, e.g. {'Duke-netid': 'https://sso.example.edu'}. Set in local settings;
+# when it is empty the NetID button explains that NetID sign-in is not configured.
+AUTH_HOSTS = {}
+
+# Avatars are drawn locally (judge.jinja2.gravatar). Set True to load them from gravatar.com,
+# which is unreachable from mainland China.
+DMOJ_USE_GRAVATAR = False
+
 # At the bare minimum, dark and light theme CSS file locations must be declared
 DMOJ_THEME_CSS = {
     'light': 'style.css',
@@ -188,14 +198,16 @@ BAD_MAIL_PROVIDERS = ()
 BAD_MAIL_PROVIDER_REGEX = ()
 NOFOLLOW_EXCLUDED = set()
 
-TIMEZONE_MAP = 'https://static.dmoj.ca/assets/earth.jpg'
+# Background image of the timezone picker. None draws a plain background; the upstream image
+# (https://static.dmoj.ca/assets/earth.jpg) is on another site, unreachable from mainland China.
+TIMEZONE_MAP = None
 
 TERMS_OF_SERVICE_URL = None
 DEFAULT_USER_LANGUAGE = 'PY3'
 
 INLINE_JQUERY = True
 INLINE_FONTAWESOME = True
-JQUERY_JS = '//ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js'
+JQUERY_JS = '/static/libs/jquery-3.4.1.min.js'  # only used when INLINE_JQUERY is off
 FONTAWESOME_CSS = '//maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css'
 DMOJ_CANONICAL = ''
 

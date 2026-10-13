@@ -24,6 +24,7 @@ from django_ace import AceWidget
 from judge.highlight_code import highlight_code
 from judge.models import ContestProblem, Problem, ProblemData, ProblemHarness, ProblemTestCase, Submission, \
     problem_data_storage
+from judge.utils.assets import ace_url
 from judge.utils.problem_data import ProblemDataCompiler
 from judge.utils.safe_json import script_json
 from judge.utils.unicode import utf8text
@@ -265,7 +266,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         if 'harness_formset' not in context:
             context['harness_formset'] = self.get_harness_formset()
 
-        context['ACE_URL'] = settings.ACE_URL
+        context['ACE_URL'] = ace_url()
 
         # Add language ace modes for harness editor
         from judge.models import Language

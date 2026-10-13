@@ -550,13 +550,13 @@ class WebAuthnCredential(models.Model):
 
     @cached_property
     def webauthn_user(self):
-        from judge.jinja2.gravatar import gravatar
+        from judge.jinja2.gravatar import avatar_icon_url
 
         return webauthn.WebAuthnUser(
             user_id=self.user.webauthn_id,
             username=self.user.username,
             display_name=self.user.username,
-            icon_url=gravatar(self.user.user.email),
+            icon_url=avatar_icon_url(self.user.user.email),
             credential_id=webauthn_decode(self.cred_id),
             public_key=self.public_key,
             sign_count=self.counter,

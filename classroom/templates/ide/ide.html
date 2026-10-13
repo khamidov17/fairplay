@@ -117,6 +117,7 @@
 
                 // Load template from localStorage or AJAX
                 var langId = $(this).val();
+                if (!langId) return;  // no language available (e.g. no judge online)
                 var storageKey = 'ide_code:' + langId;
                 var cached = localStorage.getItem(storageKey);
 

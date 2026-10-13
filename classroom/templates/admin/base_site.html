@@ -5,7 +5,8 @@
         {% csrf_token %}
     </form>
     <script>
-        django.jQuery(function ($) {
+        // The admin login page does not load django.jQuery.
+        if (window.django && window.django.jQuery) django.jQuery(function ($) {
             $('.action-link').on('click', function () {
                 $('#empty-action-form').attr('action', this.href).trigger('submit');
                 return false;

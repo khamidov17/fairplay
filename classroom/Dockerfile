@@ -19,6 +19,8 @@ COPY make_style.sh ./
 RUN npm run build:editor
 RUN ./make_style.sh
 RUN mkdir -p resources/libs/monaco && cp -R node_modules/monaco-editor/min/vs resources/libs/monaco/vs
+RUN mkdir -p resources/libs/mathjax && cp -R node_modules/mathjax/es5 resources/libs/mathjax/es5
+RUN mkdir -p resources/libs/ace && cp -R node_modules/ace-builds/src-min-noconflict/. resources/libs/ace/
 
 # --- stage: wsevent (Node websocket daemon) ------------------------------
 FROM node:20-bookworm-slim AS wsevent

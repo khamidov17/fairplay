@@ -46,9 +46,14 @@
         this.each(function (i, obj) {
             var mainMartor   = $(obj);
             var field_name   = mainMartor.data('field-name');
-            var textareaId   = $('#id_' + field_name);
+            // Look the textarea and the editor div up inside this editor's own container, not by
+            // id: a form may give the textarea its own id (the comment edit form uses id_edit),
+            // and a page can hold two editors for the same field name (new comment + edit).
+            var textareaId   = mainMartor.find('textarea').first();
+            if (!textareaId.length) textareaId = $('#id_' + field_name);
             var editorId     = 'martor-' + field_name;
-            var editor       = ace.edit(editorId);
+            var editorEl     = mainMartor.find('.martor-field-' + field_name)[0] || document.getElementById(editorId);
+            var editor       = ace.edit(editorEl);
             var editorConfig = JSON.parse(textareaId.data('enable-configs').replace(/'/g, '"'));
 
             var setupTheme = function () {
@@ -78,7 +83,9 @@
             editor.setOptions({
                 enableBasicAutocompletion: true,
                 enableLiveAutocompletion: true,
-                enableMultiselect: false
+                enableMultiselect: false,
+                // Markdown needs no syntax-check worker; Ace's JavaScript worker is not shipped.
+                useWorker: false
             });
 
             if (editorConfig.living == 'true') {
@@ -161,7 +168,7 @@
             });
 
             // resize the editor using `resizable.min.js`
-            $('#' + editorId).resizable({
+            $(editorEl).resizable({
                 direction: 'bottom',
                 stop: function () {
                     editor.resize();
@@ -574,7 +581,7 @@
             // Markdown Image Uploader auto insert to editor.
             // with special insert, eg: ![avatar.png](i.imgur.com/DytfpTz.png)
             var markdownToUploadImage = function (editor, imageData) {
-                var firstForm = $('#' + editorId).closest('form').get(0);
+                var firstForm = $(editorEl).closest('form').get(0);
                 var field_name = editor.container.id.replace('martor-', '');
                 var form = new FormData(firstForm);
                 if (imageData) {

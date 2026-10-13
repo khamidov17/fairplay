@@ -2,7 +2,6 @@
 Django-ace originally from https://github.com/django-ace/django-ace.
 """
 
-from urllib.parse import urljoin
 
 from django import forms
 from django.conf import settings
@@ -23,7 +22,8 @@ class AceWidget(forms.Textarea):
 
     @property
     def media(self):
-        js = [urljoin(settings.ACE_URL, 'ace.js')] if self.ace_media else []
+        from judge.utils.assets import ace_url
+        js = [ace_url() + '/ace.js'] if self.ace_media else []
         js.append('django_ace/widget.js')
         return forms.Media(js=js)
 
