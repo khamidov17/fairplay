@@ -41,6 +41,7 @@ from judge.utils.mail import send_mail
 from judge.utils.problems import contest_completed_ids, user_completed_ids
 from judge.utils.pwned import PwnedPasswordsValidator
 from judge.utils.ranker import ranker
+from judge.utils.result_visibility import results_hidden_q
 from judge.utils.safe_json import script_json
 from judge.utils.subscription import Subscription
 from judge.utils.unicode import utf8text
@@ -164,7 +165,13 @@ def netid_may_bind_existing_user(user, eppn):
     verified (an active account; local registration stays inactive until the
     activation mail is clicked). Otherwise someone who registered the NetID as a
     local username first would own the student's account.
+
+    A social-auth sign-up (Google/GitHub/Facebook) also has no usable password, but its owner
+    keeps signing in through that provider, so it never counts as made for SSO.
     """
+    from social_django.models import UserSocialAuth
+    if UserSocialAuth.objects.filter(user=user).exists():
+        return False
     if not user.has_usable_password():
         return True
     email = (user.email or '').strip().lower()
@@ -348,6 +355,7 @@ class UserProblemsPage(UserPage):
         result = Submission.objects.filter(user=self.object, points__gt=0, problem__is_public=True,
                                            problem__is_organization_private=False) \
             .exclude(problem__in=self.get_completed_problems() if self.hide_solved else []) \
+            .exclude(results_hidden_q()) \
             .values('problem__id', 'problem__code', 'problem__name', 'problem__points', 'problem__group__full_name') \
             .distinct().annotate(points=Max('points')).order_by('problem__group__full_name', 'problem__code')
 

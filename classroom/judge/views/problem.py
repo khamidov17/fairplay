@@ -85,7 +85,8 @@ from judge.utils.problems import (
     user_editable_ids,
     user_tester_ids,
 )
-from judge.utils.result_visibility import problem_in_active_hidden_exam
+from judge.utils.result_visibility import (contest_problem_hides_results, problem_in_active_hidden_exam,
+                                           results_hidden_q)
 from judge.utils.strings import safe_float_or_none, safe_int_or_none
 from judge.utils.submission_create import create_submission
 from judge.utils.tickets import own_ticket_filter
@@ -1380,12 +1381,13 @@ class ProblemList(QueryStringSortMixin, TitleMixin, SolvedProblemMixin, ListView
         queryset = (Problem.objects.filter(filter).select_related('group', 'mcq_config')
                     .defer('description', 'summary'))
         if self.profile is not None and self.hide_solved:
+            # A hidden exam verdict must not decide whether the problem disappears (G-1).
             queryset = queryset.exclude(
                 id__in=Submission.objects.filter(
                     user=self.profile,
                     result='AC',
                     case_points__gte=F('case_total'),
-                ).values_list('problem_id', flat=True),
+                ).exclude(results_hidden_q()).values_list('problem_id', flat=True),
             )
         if self.profile is not None and self.problem_status:
             completed = self.get_completed_problems()
@@ -2100,9 +2102,13 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
                     _('This problem belongs to an assignment. Enter the assignment to submit a solution.'),
                 )
         # A problem used in a running or upcoming exam whose results are hidden must not be
-        # practice-submitted outside it (public or not): practice verdicts are shown at once,
-        # so it would work as an answer checker for the exam. Editors may still test it.
-        if self.contest_problem is None and not self.object.is_editable_by(self.request.user) \
+        # submitted anywhere its verdict is shown at once (public or not): not as practice, and
+        # not inside another assignment that shows results, e.g. a virtual join of last term's
+        # quiz or a homework running at the same time (G-7). It would work as an answer checker
+        # for the exam. Submits whose results are masked too (inside such an exam) are fine.
+        # Editors may still test it.
+        if not contest_problem_hides_results(self.contest_problem) \
+                and not self.object.is_editable_by(self.request.user) \
                 and problem_in_active_hidden_exam(self.object):
             title = _('Submissions are closed during the exam')
             message = _('This problem is used in an exam that is running or has not started yet. '

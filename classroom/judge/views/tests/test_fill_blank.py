@@ -101,6 +101,8 @@ class FillBlankAuthoringViewTestCase(CommonDataMixin, TestCase):
 
     def test_create_with_organization_is_org_private(self):
         org = self.organizations['open']
+        # AUTH-10: a teacher attaches a course they teach.
+        org.instructors.add(self.users['creator'].profile)
         self.client.force_login(self.users['creator'])
         data = blank_post_data([('', 'Paris')], name='Org quiz')
         data['organizations'] = [org.id]
@@ -120,6 +122,8 @@ class FillBlankAuthoringViewTestCase(CommonDataMixin, TestCase):
 
     def test_create_public_org_private_allowed_without_permission(self):
         org = self.organizations['open']
+        # AUTH-10: a teacher attaches a course they teach.
+        org.instructors.add(self.users['creator'].profile)
         self.client.force_login(self.users['creator'])
         data = blank_post_data([('', 'Paris')], name='Public org quiz', is_public=True)
         data['organizations'] = [org.id]

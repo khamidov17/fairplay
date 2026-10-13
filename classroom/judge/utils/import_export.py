@@ -447,7 +447,9 @@ def process_user_csv(csv_file, organization: Organization = None, target_class: 
     when no class is given). Any other existing account is only linked: a
     roster upload must never be able to rewrite another person's e-mail
     address (account takeover through password reset) or re-activate a
-    disabled account.
+    disabled account. Even for members, only SSO-only accounts are changed
+    (``import_may_change_login_fields``), because an earlier upload of the
+    same file makes any account a member.
     """
     result = UserImportResult()
 
@@ -547,6 +549,19 @@ def import_may_update_existing_user(user: User, organization: Organization = Non
     return True
 
 
+def import_may_change_login_fields(user: User) -> bool:
+    """May a roster import change this account's e-mail address or re-activate it?
+
+    Only for an SSO-only account: no usable local password (so a password reset cannot reach
+    it) and no social-auth login (``judge.social_auth.associate_by_email`` never links one either).
+    Names follow the same rule.
+    """
+    if user.has_usable_password():
+        return False
+    from social_django.models import UserSocialAuth
+    return not UserSocialAuth.objects.filter(user=user).exists()
+
+
 def _upsert_user(row: dict, update_existing: bool, activate: bool,
                  organization: Organization = None, target_class: Class = None) -> Tuple[str, Optional[User]]:
     username = row.get('username')
@@ -557,17 +572,23 @@ def _upsert_user(row: dict, update_existing: bool, activate: bool,
     try:
         user = User.objects.get(username=username)
         if update_existing and import_may_update_existing_user(user, organization, target_class):
+            # Membership is not enough: the upload itself links every row's account to the
+            # course, so a second upload of the same file would pass the check above for any
+            # account (CA-1). So the import only edits SSO-only accounts nobody can sign
+            # into with a password or a social login: e-mail and the active flag are what a
+            # takeover needs (password reset, re-enabling), and real names show in search.
+            sso_only = import_may_change_login_fields(user)
             updated_fields = []
-            if first_name and user.first_name != first_name:
+            if first_name and user.first_name != first_name and sso_only:
                 user.first_name = first_name
                 updated_fields.append('first_name')
-            if last_name and user.last_name != last_name:
+            if last_name and user.last_name != last_name and sso_only:
                 user.last_name = last_name
                 updated_fields.append('last_name')
-            if email and user.email != email:
+            if email and user.email != email and sso_only:
                 user.email = email
                 updated_fields.append('email')
-            if activate and not user.is_active:
+            if activate and not user.is_active and sso_only:
                 user.is_active = True
                 updated_fields.append('is_active')
 

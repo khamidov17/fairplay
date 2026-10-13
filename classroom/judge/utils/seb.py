@@ -186,15 +186,19 @@ def request_matches_seb(request, allowed_bek, allowed_cfg, require_bek=False):
 def seb_config_downloadable_by(contest, user):
     """Whether ``user`` may fetch ``contest``'s ``.seb`` file (download, launch link, launch token).
 
-    Editors always may. Anyone else must be on the contest's roster (see
-    ``Contest.seb_config_participant_to_be``), and the contest must be running or
-    start within ``DMOJ_SEB_CONFIG_DOWNLOAD_WINDOW_MINUTES``. The file holds what the
+    Editors may, unless the file is a preset shared with exams they do not edit (the site
+    default, SEB-1); then only preset managers may. Anyone else must be on the
+    contest's roster (see ``Contest.seb_config_participant_to_be``), and the contest must be
+    running or start within ``DMOJ_SEB_CONFIG_DOWNLOAD_WINDOW_MINUTES``. The file holds what the
     Config Key is derived from, so it must not circulate days ahead of the exam.
     """
     if not user.is_authenticated:
         return False
     if contest.is_editable_by(user):
-        return True
+        # An editor of a contest whose file is a shared preset (the site default) gets nothing
+        # here: any instructor can make such a contest, so passing them through the roster rule
+        # below would hand the shared file to anyone who can create a draft (SEB-1).
+        return not _contest_uses_shared_preset_for(contest, user)
     now = timezone.now()
     window = timedelta(minutes=getattr(settings, 'DMOJ_SEB_CONFIG_DOWNLOAD_WINDOW_MINUTES', 30))
     if now < contest.start_time - window or now >= contest.end_time:
@@ -202,18 +206,46 @@ def seb_config_downloadable_by(contest, user):
     return contest.seb_config_participant_to_be(user)
 
 
+def seb_preset_is_shared_for(preset, user):
+    """Whether ``preset`` is shared with exams ``user`` does not edit (SEB-1).
+
+    The site default always is: any instructor can link it to a draft of their own, and
+    every exam that uses it has the same Config Key. A shared preset's file must not go to
+    someone just for editing *a* contest that uses it.
+    """
+    if preset is None:
+        return False
+    if preset.is_default:
+        return True
+    return any(not contest.is_editable_by(user) for contest in preset.contests.all())
+
+
+def _contest_uses_shared_preset_for(contest, user):
+    """Whether ``contest``'s ``.seb`` is a preset's file that is shared beyond ``user``'s exams."""
+    if contest.seb_config_file or not contest.seb_preset_id:
+        return False
+    if user.has_perm('judge.change_sebconfigpreset'):
+        return False
+    return seb_preset_is_shared_for(contest.seb_preset, user)
+
+
 def seb_preset_downloadable_by(preset, user, contest_key=None):
     """Whether ``user`` may download a preset's ``.seb``.
 
-    Needs ``judge.contest_seb_requirement`` and editing a contest that uses this
-    preset (the one named by ``contest_key`` when given). Users who may change
-    presets in the admin (``judge.change_sebconfigpreset``) always may.
+    Users who may change presets in the admin (``judge.change_sebconfigpreset``) always
+    may. Anyone else needs ``judge.contest_seb_requirement``, must edit a contest that uses
+    this preset (the one named by ``contest_key`` when given), and the preset must not be
+    shared with exams they do not edit (``seb_preset_is_shared_for``). A shared preset reaches
+    non-managers only the way it reaches students: through a contest's ``.seb`` download, on
+    the roster and inside the download window (``seb_config_downloadable_by``).
     """
     if not user.is_authenticated:
         return False
     if user.has_perm('judge.change_sebconfigpreset'):
         return True
     if not user.has_perm('judge.contest_seb_requirement'):
+        return False
+    if seb_preset_is_shared_for(preset, user):
         return False
     contests = preset.contests.all()
     if contest_key:

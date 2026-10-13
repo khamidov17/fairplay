@@ -175,6 +175,11 @@ def _exam_lock_allows(request, contest):
     """Whether this request is inside the exam surface of ``contest``."""
     if _seb_block_exempt(request.path, contest):
         return True
+    # Site icons and the web manifest: plain redirects to static files. Locking them only made
+    # the browser fetch the assignment page as an icon on every page.
+    from dmoj.urls import favicon_paths
+    if request.method in ('GET', 'HEAD') and request.path_info.lstrip('/') in favicon_paths:
+        return True
     try:
         match = resolve(request.path_info, getattr(request, 'urlconf', None))
     except Resolver404:

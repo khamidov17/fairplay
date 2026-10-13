@@ -1,17 +1,25 @@
 from django.test import TestCase
 from django.urls import reverse
 
-from judge.models.tests.util import CommonDataMixin, create_user
+from judge.models.tests.util import CommonDataMixin, create_organization, create_user
 
 
 class MartorSearchUserTest(CommonDataMixin, TestCase):
-    """Rich-editor mention search matches name or username and returns both."""
+    """Rich-editor mention search matches name or username and returns both.
+
+    The search has the same scope as every user picker (CA-4): the searcher here administers a
+    course the others are in, so it finds them and sees their real names.
+    """
 
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
         cls.named = create_user(username='alice', first_name='张三', is_active=True)
         cls.inactive = create_user(username='oldalice', first_name='张三旧', is_active=False)
+        cls.spaced = create_user(username='carolnet', first_name='Carol', last_name='Chen')
+        cls.course = create_organization(name='martorcourse')
+        cls.course.members.add(cls.named.profile, cls.inactive.profile, cls.spaced.profile)
+        cls.course.admins.add(cls.users['normal'].profile)
 
     def test_requires_login(self):
         response = self.client.get(reverse('martor_search_user'), {'username': 'alice'})
@@ -34,7 +42,7 @@ class MartorSearchUserTest(CommonDataMixin, TestCase):
         self.assertNotIn('oldalice', usernames)
 
     def test_search_allows_spaces_in_name(self):
-        spaced = create_user(username='carolnet', first_name='Carol', last_name='Chen')
+        spaced = self.spaced
         self.client.force_login(self.users['normal'])
         data = self.client.get(reverse('martor_search_user'), {'username': 'Carol Chen'}).json()
         self.assertEqual(data['status'], 200)

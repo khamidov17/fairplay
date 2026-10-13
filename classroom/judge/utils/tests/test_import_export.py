@@ -76,6 +76,8 @@ class UserImportTestCase(TestCase):
         from judge.models.tests.util import create_organization
         org = create_organization(name='Carol Course')
         carol_user = create_user(username='carol')
+        carol_user.set_unusable_password()  # SSO-only: the import may fill in its e-mail (CA-1)
+        carol_user.save()
         org.members.add(carol_user.profile)
         result = self._import(['carol,Carol,New,carol@example.com'], organization=org)
         self.assertEqual(result.skipped, 1)
@@ -169,6 +171,8 @@ class UserImportExistingAccountGuardTest(TestCase):
 
     def test_plain_member_of_the_class_may_be_updated(self):
         member = create_user(username='guard_member', email='old@example.com')
+        member.set_unusable_password()  # SSO-only: the import may change its e-mail (CA-1)
+        member.save()
         self.org.members.add(member.profile)
         self.klass.members.add(member.profile)
         result = self._import(['guard_member,Mem,Ber,new@example.com'])

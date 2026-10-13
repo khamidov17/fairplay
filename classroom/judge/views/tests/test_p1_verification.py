@@ -1,12 +1,11 @@
 """Independent verification of the P1 fixes (docs/classroom/reports/P1-verification.md).
 
-Each test here shows a path that is still open after the P1 fixes. They are marked ``@gap``
-(``unittest.expectedFailure``) with a comment naming the finding, so the suite stays green; when a
-gap is closed the test starts to pass ("unexpected success") and the marker must be removed.
+Each test here showed a path that was still open after the P1 fixes. They were written as
+expected failures; all of them are closed now (docs/classroom/reports/P1-gaps.md) and they run as
+ordinary regression tests. The comment above each test names the finding.
 """
 import json
 import os
-import unittest
 from datetime import timedelta
 
 from django.urls import reverse
@@ -16,9 +15,6 @@ from judge.models import Contest, Submission
 from judge.models.tests.util import create_contest, create_contest_problem, create_user
 from judge.views.tests.test_hidden_results import HiddenResultsBase
 
-# P1_SHOW_GAPS=1 runs the gap tests as ordinary tests, to see how each one fails.
-gap = (lambda f: f) if os.environ.get('P1_SHOW_GAPS') else unittest.expectedFailure
-
 
 class G1RemainingPathsTestCase(HiddenResultsBase):
     """G-1: hidden exam verdicts must not be inferable from any query on the real result/points."""
@@ -27,7 +23,7 @@ class G1RemainingPathsTestCase(HiddenResultsBase):
         self.assertTrue(self.sub.contest_results_hidden)
         self.assertTrue(self.mcq.is_public)
 
-    @gap  # G-1: /user/<u>/solved lists hidden exam scores (public problems)
+    # Closed: G-1: /user/<u>/solved lists hidden exam scores (public problems)
     def test_user_solved_page_skips_hidden_exam_scores(self):
         # Anyone, even anonymous (or the student's own second, logged-out device), can open it.
         response = self.client.get(reverse('user_problems', args=[self.student.username]))
@@ -35,14 +31,14 @@ class G1RemainingPathsTestCase(HiddenResultsBase):
         codes = {p['code'] for group in response.context['best_submissions'] for p in group['problems']}
         self.assertNotIn(self.mcq.code, codes)
 
-    @gap  # G-1: the performance-points breakdown uses the raw points too
+    # Closed: G-1: the performance-points breakdown uses the raw points too
     def test_user_pp_breakdown_skips_hidden_exam_scores(self):
         response = self.client.get(reverse('user_problems', args=[self.student.username]))
         self.assertEqual(response.status_code, 200)
         codes = {entry.problem_code for entry in response.context['pp_breakdown']}
         self.assertNotIn(self.mcq.code, codes)
 
-    @gap  # G-1: /problems/?hide_solved=1 drops the problem on a hidden AC
+    # Closed: G-1: /problems/?hide_solved=1 drops the problem on a hidden AC
     def test_problem_list_hide_solved_ignores_hidden_verdict(self):
         # After the exam ends (lock off) but before Finalize, results are still hidden.
         Contest.objects.filter(id=self.contest.id).update(
@@ -55,7 +51,7 @@ class G1RemainingPathsTestCase(HiddenResultsBase):
         codes = {p.code for p in response.context['problems']}
         self.assertIn(self.mcq.code, codes)
 
-    @gap  # G-1 (low, noisy): global AC-per-language counter counts hidden verdicts
+    # Closed: G-1 (low, noisy): global AC-per-language counter counts hidden verdicts
     def test_language_ac_stats_skip_hidden(self):
         data = self.client.get(reverse('language_stats_data_ac')).json()
         self.assertEqual(sum(data['datasets'][0]['data']), 0)
@@ -64,7 +60,7 @@ class G1RemainingPathsTestCase(HiddenResultsBase):
 class G7RemainingPathsTestCase(HiddenResultsBase):
     """G-7: an exam problem must not work as an answer checker anywhere while the exam is open."""
 
-    @gap  # G-7: virtual participation in an older contest that reuses the problem
+    # Closed: G-7: virtual participation in an older contest that reuses the problem
     def test_virtual_participation_in_old_contest_with_same_problem(self):
         old = create_contest(key='hroldhw', format_name='default', is_visible=True, problems=(),
                              allow_virtual_participation=True,
@@ -85,7 +81,7 @@ class G7RemainingPathsTestCase(HiddenResultsBase):
 class G1UserDataExportTestCase(HiddenResultsBase):
     """G-1: the "download your data" archive (when DMOJ_USER_DATA_DOWNLOAD is on)."""
 
-    @gap  # G-1: prepare_user_data writes the real result/case_points of hidden exam answers
+    # Closed: G-1: prepare_user_data writes the real result/case_points of hidden exam answers
     def test_data_export_masks_hidden_exam_results(self):
         import tempfile
         import zipfile
@@ -107,7 +103,7 @@ class G1UserDataExportTestCase(HiddenResultsBase):
 class CA1TwoStepImportTestCase(HiddenResultsBase):
     """CA-1: a course admin's roster import must not rewrite another person's e-mail."""
 
-    @gap  # CA-1: the first upload links the account to the course, the second one then rewrites it
+    # Closed: CA-1: the first upload links the account to the course, the second one then rewrites it
     def test_second_upload_rewrites_email_of_an_outside_account(self):
         import io
         from judge.models.tests.util import create_organization
@@ -126,7 +122,7 @@ class CA1TwoStepImportTestCase(HiddenResultsBase):
 class CA4MentionSearchTestCase(HiddenResultsBase):
     """CA-4: user search must not list real names next to NetIDs to anyone logged in."""
 
-    @gap  # CA-4: /widgets/martor/search-user is unscoped (any student, 1 character, unlisted users)
+    # Closed: CA-4: /widgets/martor/search-user is unscoped (any student, 1 character, unlisted users)
     def test_martor_mention_search_is_scoped(self):
         hidden = create_user(username='ab123', first_name='Real', last_name='Name')
         hidden.profile.is_unlisted = True
@@ -141,12 +137,12 @@ class CA4MentionSearchTestCase(HiddenResultsBase):
 class CA7SocialSignupTestCase(HiddenResultsBase):
     """CA-7: nobody but the NetID owner may end up in the account an SSO login lands in."""
 
-    @gap  # CA-7: the social-auth sign-up form does not apply SSO_RESERVED_USERNAME_REGEX
+    # Closed: CA-7: the social-auth sign-up form does not apply SSO_RESERVED_USERNAME_REGEX
     def test_social_signup_cannot_pick_a_netid_shaped_username(self):
         from judge.social_auth import UsernameForm
         self.assertFalse(UsernameForm({'username': 'ab123'}).is_valid())
 
-    @gap  # CA-7: a social-auth account has no usable password, so SSO binds the NetID to it
+    # Closed: CA-7: a social-auth account has no usable password, so SSO binds the NetID to it
     def test_sso_does_not_bind_to_a_social_auth_account(self):
         from django.contrib.auth.models import User
         from social_django.models import UserSocialAuth
@@ -171,7 +167,7 @@ class AuthoringLegacyEditorTestCase(HiddenResultsBase):
         from judge.views.tests.test_mcq import option_post_data
         return option_post_data([('4', True), ('3', False)], **fields)
 
-    @gap  # AUTH-10: the legacy MCQ editor attaches any course (create_v2 and the Excel import are scoped)
+    # Closed: AUTH-10: the legacy MCQ editor attaches any course (create_v2 and the Excel import are scoped)
     def test_legacy_mcq_editor_cannot_attach_a_course_not_taught(self):
         from judge.models import Problem
         self.client.force_login(self.creator)
@@ -181,7 +177,7 @@ class AuthoringLegacyEditorTestCase(HiddenResultsBase):
         problem = Problem.objects.filter(name='Legacy foreign').first()
         self.assertTrue(problem is None or not problem.organizations.filter(id=self.foreign_course.id).exists())
 
-    @gap  # AUTH-05: the legacy MCQ editor rewrites a full-markup statement without problem_full_markup
+    # Closed: AUTH-05: the legacy MCQ editor rewrites a full-markup statement without problem_full_markup
     def test_legacy_mcq_editor_keeps_full_markup_description(self):
         from judge.models import ProblemMCQConfig, ProblemMCQOption
         from judge.models.tests.util import create_problem
@@ -201,7 +197,7 @@ class AuthoringLegacyEditorTestCase(HiddenResultsBase):
 class ExamLockLeaveTestCase(HiddenResultsBase):
     """Exam surface allowlist: the lock only holds while the student stays "in" the exam."""
 
-    @gap  # allowlist: Leave (allowed during the lock) switches it off; rejoining is allowed again
+    # Closed: allowlist: Leave (allowed during the lock) switches it off; rejoining is allowed again
     def test_leaving_a_running_locked_exam_keeps_the_site_locked(self):
         from judge.models import ContestParticipation
         self.assertTrue(self.contest.locks_site_during_participation)
@@ -225,7 +221,7 @@ class ExamLockLeaveTestCase(HiddenResultsBase):
 class SEB1PresetAdoptionTestCase(HiddenResultsBase):
     """SEB-1: any instructor (all hold contest_seb_requirement) still gets the site-default .seb."""
 
-    @gap  # SEB-1: adopting the preset on one's own draft assignment unlocks the preset download
+    # Closed: SEB-1: adopting the preset on one's own draft assignment unlocks the preset download
     def test_instructor_cannot_fetch_site_default_by_adopting_it(self):
         from judge.models import SEBConfigPreset
         from judge.utils.seb import seb_preset_downloadable_by

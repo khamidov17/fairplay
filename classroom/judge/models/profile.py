@@ -407,7 +407,10 @@ class Profile(models.Model):
 
     @cached_property
     def has_any_solves(self):
-        return self.submission_set.filter(result='AC', case_points__gte=F('case_total')).exists()
+        # A hidden exam verdict must not decide this: it gates commenting, which would reveal it (G-1).
+        from judge.utils.result_visibility import results_hidden_q
+        return self.submission_set.filter(result='AC', case_points__gte=F('case_total')) \
+            .exclude(results_hidden_q()).exists()
 
     @cached_property
     def resolved_ace_theme(self):

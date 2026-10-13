@@ -1,5 +1,4 @@
 # coding=utf-8
-import re
 
 from django import forms
 from django.conf import settings
@@ -16,6 +15,7 @@ from sortedm2m.forms import SortedMultipleChoiceField
 from judge.models import Language, Organization, Profile, TIMEZONE
 from judge.utils.mail import validate_email_domain
 from judge.utils.recaptcha import ReCaptchaField, ReCaptchaWidget
+from judge.utils.sso_usernames import SSO_RESERVED_USERNAME_MESSAGE, is_sso_reserved_username
 from judge.utils.subscription import Subscription, newsletter_id
 from judge.widgets import Select2MultipleWidget, Select2Widget
 
@@ -41,10 +41,8 @@ class CustomRegistrationForm(RegistrationForm):
     def clean_username(self):
         username = super().clean_username()
         # CA-7: SSO-shaped usernames are reserved for the identity provider.
-        pattern = getattr(settings, 'SSO_RESERVED_USERNAME_REGEX', '')
-        if pattern and re.match(pattern, username):
-            raise forms.ValidationError(gettext('This username is reserved for NetID sign-in. Use the NetID '
-                                                'login, or choose a different username.'))
+        if is_sso_reserved_username(username):
+            raise forms.ValidationError(gettext(SSO_RESERVED_USERNAME_MESSAGE))
         return username
 
     def clean_email(self):

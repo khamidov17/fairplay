@@ -13,8 +13,24 @@ PPBreakdown = namedtuple('PPBreakdown', 'points weight scaled_points problem_nam
                                         'sub_short_status sub_long_status sub_lang')
 
 
+def _hidden_submission_ids(user):
+    """Ids of ``user``'s submissions whose exam results are still hidden (G-1).
+
+    The breakdown is public, so like ``Profile.calculate_points`` it skips them for every
+    viewer. A student has few of these, so they are passed to the raw query as a list.
+    """
+    from judge.utils.result_visibility import results_hidden_q
+    return list(Submission.objects.filter(user_id=user.id).filter(results_hidden_q()).values_list('id', flat=True))
+
+
 def get_pp_breakdown(user, start=0, end=settings.DMOJ_PP_ENTRIES):
     join_type = 'STRAIGHT_JOIN' if connection.vendor == 'mysql' else 'INNER JOIN'
+    hidden_ids = _hidden_submission_ids(user)
+    if hidden_ids:
+        placeholders = ', '.join(['%s'] * len(hidden_ids))
+        hidden_sql = f'AND judge_submission.id NOT IN ({placeholders})'
+    else:
+        hidden_sql = ''
 
     with connection.cursor() as cursor:
         cursor.execute(f"""
@@ -38,7 +54,8 @@ def get_pp_breakdown(user, start=0, end=settings.DMOJ_PP_ENTRIES):
                 WHERE (judge_problem.is_public AND
                        NOT judge_problem.is_organization_private AND
                        judge_submission.points IS NOT NULL AND
-                       judge_submission.user_id = %s)
+                       judge_submission.user_id = %s
+                       {hidden_sql})
                 GROUP BY judge_problem.id
                 HAVING MAX(judge_submission.points) > 0.0
             ) AS max_points_table
@@ -46,12 +63,13 @@ def get_pp_breakdown(user, start=0, end=settings.DMOJ_PP_ENTRIES):
                 judge_submission.problem_id = max_points_table.problem_id AND
                 judge_submission.points = max_points_table.max_points AND
                 judge_submission.user_id = %s
+                {hidden_sql}
             )
             {join_type} judge_language ON (judge_submission.language_id = judge_language.id)
             GROUP BY max_points_table.problem_id
             ORDER BY max_points DESC, judge_submission.date DESC
             LIMIT %s OFFSET %s
-        """, (user.id, user.id, end - start + 1, start))
+        """, (user.id, *hidden_ids, user.id, *hidden_ids, end - start + 1, start))
         data = cursor.fetchall()
 
     breakdown = []

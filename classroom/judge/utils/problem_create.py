@@ -4,10 +4,12 @@ Mirrors the "simple preset" defaulting used by the admin's ``SimpleProblemCreati
 front-end authoring of non-code question types (e.g. multiple-choice) doesn't make teachers fill
 in time/memory limits, languages, or a problem code they don't care about.
 """
+from django import forms
 from django.conf import settings
 from django.contrib.admin.models import ADDITION, CHANGE, LogEntry
 from django.contrib.contenttypes.models import ContentType
 from django.core.exceptions import FieldDoesNotExist
+from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext as _
 
@@ -144,3 +146,48 @@ def log_problem_admin_entry(request, problem, *, created, changed_fields=None, m
         action_flag=ADDITION if created else CHANGE,
         change_message=change_message,
     )
+
+
+class ScopedProblemFormMixin:
+    """For the legacy front-end editors (``/problems/new/mcq``, ``fill-blank`` and their edit pages).
+
+    * AUTH-10: the course and class choices are the ones the editor may attach (the same rule as
+      create_v2 and the Excel import), plus any the problem is already in, so re-saving a
+      co-authored problem keeps them.
+    * AUTH-05: without ``problem_full_markup`` the statement of a full-markup problem is
+      read-only, because full markup is rendered without sanitizing (mirrors ProblemAdmin and
+      create_v2).
+
+    The form must set ``self.user`` before calling ``scope_problem_fields()``.
+    """
+
+    def scope_problem_fields(self):
+        from judge.models import Class
+        from judge.views.problem_create_v2 import assignable_organizations
+        user = self.user
+        problem = self.instance if self.instance is not None and self.instance.pk else None
+        if user is None:
+            return
+        if 'organizations' in self.fields:
+            self.fields['organizations'].queryset = assignable_organizations(user, problem)
+        if 'classes' in self.fields:
+            allowed = Q(id__in=Class.get_visible_classes(user).values('id'))
+            if problem is not None:
+                allowed |= Q(id__in=problem.classes.values('id'))
+            self.fields['classes'].queryset = Class.objects.filter(allowed)
+
+    def full_markup_locked(self):
+        problem = self.instance
+        return bool(problem is not None and problem.pk and problem.is_full_markup and
+                    not (self.user is not None and self.user.has_perm('judge.problem_full_markup')))
+
+    def clean_description(self):
+        description = self.cleaned_data.get('description')
+        if self.full_markup_locked():
+            def normalized(value):
+                return str(value or '').replace('\r\n', '\n').replace('\r', '\n').strip()
+            if normalized(description) != normalized(self.instance.description):
+                raise forms.ValidationError(_('You do not have permission to edit the statement of a full '
+                                              'markup problem.'))
+            return self.instance.description
+        return description

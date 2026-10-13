@@ -11,7 +11,11 @@ from judge.models import Language, Submission
 from judge.utils.stats import chart_colors, get_bar_chart, get_pie_chart, highlight_colors
 
 
-ac_count = Count(Value(1), filter=Q(submission__result='AC'))
+def _ac_count():
+    # Hidden exam verdicts (not finalized yet) are not counted: in a quiet window the site-wide
+    # AC count would answer "was my last answer right?" (G-1).
+    from judge.utils.result_visibility import results_hidden_q
+    return Count(Value(1), filter=Q(submission__result='AC') & ~results_hidden_q('submission__'))
 
 
 def language_data(request, language_count=Language.objects.annotate(count=Count('submission'))):
@@ -32,12 +36,14 @@ def language_data(request, language_count=Language.objects.annotate(count=Count(
 
 
 def ac_language_data(request):
-    return language_data(request, Language.objects.annotate(count=ac_count))
+    return language_data(request, Language.objects.annotate(count=_ac_count()))
 
 
 def status_data(request, statuses=None):
     if not statuses:
-        statuses = (Submission.objects.values('result').annotate(count=Count('result'))
+        # Hidden exam verdicts are not counted (G-1), as in the AC counts above.
+        from judge.utils.result_visibility import results_hidden_q
+        statuses = (Submission.objects.exclude(results_hidden_q()).values('result').annotate(count=Count('result'))
                     .values('result', 'count').order_by('-count'))
     data = []
     for status in statuses:
@@ -51,7 +57,7 @@ def status_data(request, statuses=None):
 
 
 def ac_rate(request):
-    rate = CombinedExpression(ac_count / Count('submission'), '*', Value(100.0), output_field=FloatField())
+    rate = CombinedExpression(_ac_count() / Count('submission'), '*', Value(100.0), output_field=FloatField())
     data = Language.objects.annotate(total=Count('submission'), ac_rate=rate).filter(total__gt=0) \
         .order_by('total').values_list('name', 'ac_rate')
     return JsonResponse(get_bar_chart(list(data)))

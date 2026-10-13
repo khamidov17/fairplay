@@ -1,5 +1,7 @@
 # P1 verification (independent review of the P1 fixes)
 
+> **Status 2026-10-13:** all INCOMPLETE findings below are closed, along with 5 more paths found in a second review. See `P1-gaps.md`. The 14 gap tests now run as ordinary tests.
+
 Branch `p1-verify-snapshot`. This reviewer did not write the fixes. Scope: every finding in
 `REVIEW.md` that the four P1 reports (`P1-accounts`, `P1-grading`, `P1-aiide`, `P1-authoring`)
 claim as fixed, plus the exam-surface allowlist and the course-teacher visibility change.

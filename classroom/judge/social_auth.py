@@ -17,6 +17,7 @@ from social_django.middleware import SocialAuthExceptionMiddleware as OldSocialA
 
 from judge.forms import ProfileForm
 from judge.models import Language, Profile
+from judge.utils.sso_usernames import SSO_RESERVED_USERNAME_MESSAGE, is_sso_reserved_username
 
 logger = logging.getLogger('judge.social_auth')
 
@@ -47,6 +48,23 @@ def slugify_username(username, renotword=re.compile(r'[^\w]')):
     return renotword.sub('', username.replace('-', '_'))
 
 
+def associate_by_email(backend, details, user=None, *args, **kwargs):
+    """``social_core``'s associate_by_email, but never into an SSO-only account (CA-1, CA-7).
+
+    An account with no usable password and no social login was made for NetID sign-in (by an SSO
+    login or a roster import). Its e-mail address may come from a roster upload, which nobody
+    verified, so matching a Google/GitHub/Facebook e-mail against it would hand the account to
+    whoever owns that address. Such accounts are only entered through NetID.
+    """
+    from social_core.pipeline.social_auth import associate_by_email as social_associate_by_email
+    result = social_associate_by_email(backend, details, user, *args, **kwargs)
+    found = (result or {}).get('user')
+    if found is not None and not found.has_usable_password() and \
+            not found.social_auth.exists():
+        return None
+    return result
+
+
 def verify_email(backend, details, *args, **kwargs):
     if not details['email']:
         raise InvalidEmail(backend)
@@ -57,9 +75,13 @@ class UsernameForm(forms.Form):
                                 error_messages={'invalid': 'A username must contain letters, numbers, or underscores.'})
 
     def clean_username(self):
-        if User.objects.filter(username=self.cleaned_data['username']).exists():
+        username = self.cleaned_data['username']
+        # CA-7: same rule as local registration. The suggestion for ab123@gmail.com is ab123.
+        if is_sso_reserved_username(username):
+            raise forms.ValidationError(SSO_RESERVED_USERNAME_MESSAGE)
+        if User.objects.filter(username=username).exists():
             raise forms.ValidationError('Sorry, the username is taken.')
-        return self.cleaned_data['username']
+        return username
 
 
 @partial

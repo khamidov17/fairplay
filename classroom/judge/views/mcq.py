@@ -23,12 +23,12 @@ from django.views.generic import View
 from judge.models import Class, Language, Organization, Problem, ProblemMCQConfig, ProblemMCQOption, \
     ProblemSubmissionType
 from judge.question_types.mcq import selected_option_ids
-from judge.utils.problem_create import apply_simple_problem_defaults, default_problem_type
+from judge.utils.problem_create import ScopedProblemFormMixin, apply_simple_problem_defaults, default_problem_type
 from judge.utils.simple_xlsx import build_xlsx_workbook, read_xlsx_rows
 from judge.widgets import HeavySelect2MultipleWidget, MartorWidget
 
 
-class ProblemMCQForm(forms.ModelForm):
+class ProblemMCQForm(ScopedProblemFormMixin, forms.ModelForm):
     class Meta:
         model = Problem
         fields = ['name', 'description', 'points', 'partial', 'is_public', 'organizations', 'classes']
@@ -52,6 +52,7 @@ class ProblemMCQForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['organizations'].required = False
         self.fields['classes'].required = False
+        self.scope_problem_fields()
 
     def clean(self):
         # Mirror admin ProblemForm.clean: classes must belong to the selected organizations.

@@ -47,9 +47,9 @@ Connector endpoints (Classroom side, all under `/api/fairplay/v1/`, service toke
 ## Phases (each ends with tests green and a commit)
 
 - **P0 Import and boot.** Done. See `BASELINE.md`.
-- **P1 Fix every review finding.** Done (1826 tests). Independent verification pending.
+- **P1 Fix every review finding.** Done. Independent verification found 9 incomplete findings (`reports/P1-verification.md`); all are closed, plus 5 paths found in a second review (`reports/P1-gaps.md`). Full suite: 1932 tests OK.
 - **P2 Subjects.** `subject` on courses + a feature-pack registry in ONE place (`judge/subjects/`), so a new subject = one registry entry + optional templates; CS = everything; other subjects = reduced; based on DKU's curriculum; documented in `docs/classroom/ADDING_A_SUBJECT.md` with a worked example.
-- **P3 Performance**: web server config (workers, DB driver vs gevent), AI and PDF calls off the request path (Celery), analytics caching, a load test of 300 students joining and submitting.
+- **P3 Performance** (deferred to the end, decided 2026-10-13): web server config (workers, DB driver vs gevent), AI and PDF calls off the request path (Celery), analytics caching, a load test of 300 students joining and submitting.
 - **P4 Independent verification** of every phase by a reviewer who did not write the code.
 
 ## Rules for every agent

@@ -158,6 +158,8 @@ class MCQAuthoringViewTestCase(CommonDataMixin, TestCase):
 
     def test_create_with_organization_is_org_private(self):
         org = self.organizations['open']
+        # AUTH-10: a teacher attaches a course they teach.
+        org.instructors.add(self.users['creator'].profile)
         self.client.force_login(self.users['creator'])
         data = option_post_data([('4', True), ('3', False)], name='Org quiz')
         data['organizations'] = [org.id]
@@ -180,6 +182,8 @@ class MCQAuthoringViewTestCase(CommonDataMixin, TestCase):
     def test_create_public_org_private_allowed_without_permission(self):
         # The guard is not over-broad: an org-private problem may still be public.
         org = self.organizations['open']
+        # AUTH-10: a teacher attaches a course they teach.
+        org.instructors.add(self.users['creator'].profile)
         self.client.force_login(self.users['creator'])
         data = option_post_data([('4', True), ('3', False)], name='Public org quiz', is_public=True)
         data['organizations'] = [org.id]

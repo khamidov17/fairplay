@@ -11,6 +11,7 @@ from django.utils.translation import gettext as _
 from judge.models import Comment, Problem, Submission
 from judge.utils.celery import Progress
 from judge.utils.raw_sql import use_straight_join
+from judge.utils.result_visibility import results_hidden_q
 from judge.utils.unicode import utf8bytes
 
 __all__ = ('prepare_user_data',)
@@ -24,7 +25,8 @@ def apply_submission_filter(queryset, options):
     use_straight_join(queryset)
 
     if options['submission_results']:
-        queryset = queryset.filter(result__in=options['submission_results'])
+        # A result filter must not select by a hidden exam verdict (G-1).
+        queryset = queryset.filter(result__in=options['submission_results']).exclude(results_hidden_q())
 
     # Compress wildcards to avoid exponential complexity on certain glob patterns before Python 3.9.
     # For details, see <https://bugs.python.org/issue40480>.
@@ -65,16 +67,19 @@ def prepare_user_data(self, profile_id, options):
                 prepared = 0
                 interval = max(submission_count // 10, 1)
                 for submission in submissions:
+                    # The archive is the student's own copy, but a hidden exam verdict stays
+                    # hidden in it until the results are released (G-1).
+                    hidden = submission.contest_results_hidden
                     submission_info[submission.id] = {
                         'problem': submission.problem.code,
                         'date': submission.date.isoformat(),
-                        'time': submission.time,
-                        'memory': submission.memory,
+                        'time': None if hidden else submission.time,
+                        'memory': None if hidden else submission.memory,
                         'language': submission.language.key,
                         'status': submission.status,
-                        'result': submission.result,
-                        'case_points': submission.case_points,
-                        'case_total': submission.case_total,
+                        'result': None if hidden else submission.result,
+                        'case_points': None if hidden else submission.case_points,
+                        'case_total': None if hidden else submission.case_total,
                     }
                     with data_file.open(
                         'submissions/%s.%s' % (submission.id, submission.language.extension),

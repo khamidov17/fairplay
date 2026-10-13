@@ -3156,7 +3156,7 @@
                                             {% if seb_shown_preset %}
                                             <div class="ac-help">
                                                 <strong>{{ seb_shown_preset.name }}</strong>{% if seb_shown_preset.description %} — {{ seb_shown_preset.description }}{% endif %}
-                                                {% if seb_linked_preset and contest %}<a href="{{ url('seb_preset_config', seb_linked_preset.id) }}?contest={{ contest.key|urlencode }}">{{ _('Preview .seb') }}</a>{% endif %}
+                                                {% if seb_linked_preset and contest and seb_linked_preset_downloadable %}<a href="{{ url('seb_preset_config', seb_linked_preset.id) }}?contest={{ contest.key|urlencode }}">{{ _('Preview .seb') }}</a>{% endif %}
                                             </div>
                                             {% if seb_linked_preset and seb_linked_preset != seb_default_preset %}
                                             <div class="ac-help">

@@ -1581,6 +1581,10 @@ class ContestCreate(LoginRequiredMixin, View):
             # What this contest already uses, so the card names the real
             # configuration rather than whichever one is default today.
             'seb_linked_preset': linked_preset,
+            # A shared preset (the site default) is not offered for download to editors (SEB-1).
+            'seb_linked_preset_downloadable': bool(
+                linked_preset is not None and contest is not None and
+                seb_preset_downloadable_by(linked_preset, self.request.user, contest.key)),
             'prefill': prefill,
         }
         ctx.update(self._library_filter_context())
@@ -2311,7 +2315,17 @@ class ContestLeave(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
                 harvest_participation(participation)
         except Exception:
             logger.exception('Auto-submit on leave failed for participation %d', participation.pk)
-        profile.remove_contest()
+        # Leave is also how a student hands in. While a running assignment locks the site, it
+        # does not take the student out of it: the lock is keyed on ``current_contest``, and
+        # rejoining the same LIVE participation is allowed, so leaving would switch the lock off
+        # and on at will. The student stays in until the window ends (then ``update_contest``
+        # removes it); under SEB they still go to the quit URL.
+        from judge.middleware import _exam_lock_applies
+        if not _exam_lock_applies(request, participation):
+            profile.remove_contest()
+        else:
+            messages.info(request, _('Your answers are saved. The rest of the site stays closed until this '
+                                     'assignment ends.'))
         if contest.seb_required and not was_spectating and not contest.user_bypasses_seb(request.user):
             return HttpResponseRedirect(contest.seb_effective_quit_url or reverse('seb_quit'))
         return HttpResponseRedirect(reverse('contest_view', args=(contest.key,)))

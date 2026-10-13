@@ -90,6 +90,17 @@ def _release(draft):
     AssignmentDraft.objects.filter(pk=draft.pk).update(harvested_at=None)
 
 
+def _answer_checker_for_open_exam(contest_problem, problem, participation):
+    """Whether handing in this draft would grade, with the verdict shown, a problem that an open
+    exam hides results for (G-7, see ``ProblemSubmit._submission_blocked_response``)."""
+    from judge.utils.result_visibility import contest_problem_hides_results, problem_in_active_hidden_exam
+    if contest_problem_hides_results(contest_problem):
+        return False
+    if not problem_in_active_hidden_exam(problem):
+        return False
+    return not problem.is_editable_by(participation.user.user)
+
+
 def harvest_participation(participation):
     """Submit every substantive draft ``participation`` still holds; return the submissions made."""
     if not participation_is_harvestable(participation):
@@ -126,6 +137,10 @@ def harvest_participation(participation):
             continue
         max_submissions = contest_problem.max_submissions
         if max_submissions and used.get(contest_problem.id, 0) >= max_submissions:
+            continue
+        if _answer_checker_for_open_exam(contest_problem, draft.problem, participation):
+            # G-7: same rule as a direct submit. The draft stays a draft; a later sweep (after
+            # the exam) can still hand it in.
             continue
 
         if not _claim(draft, now):

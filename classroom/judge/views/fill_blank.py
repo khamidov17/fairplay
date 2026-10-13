@@ -16,11 +16,11 @@ from django.utils.translation import gettext as _
 from django.views.generic import View
 
 from judge.models import Problem, ProblemBlank, ProblemFillBlankConfig, ProblemSubmissionType
-from judge.utils.problem_create import apply_simple_problem_defaults, default_problem_type
+from judge.utils.problem_create import ScopedProblemFormMixin, apply_simple_problem_defaults, default_problem_type
 from judge.widgets import HeavySelect2MultipleWidget, MartorWidget
 
 
-class ProblemFillBlankForm(forms.ModelForm):
+class ProblemFillBlankForm(ScopedProblemFormMixin, forms.ModelForm):
     class Meta:
         model = Problem
         fields = ['name', 'description', 'points', 'partial', 'is_public', 'organizations', 'classes']
@@ -44,6 +44,7 @@ class ProblemFillBlankForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['organizations'].required = False
         self.fields['classes'].required = False
+        self.scope_problem_fields()
 
     def clean(self):
         # Mirror admin ProblemForm.clean: classes must belong to the selected organizations.

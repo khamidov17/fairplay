@@ -2,6 +2,7 @@ import hashlib
 import shutil
 import tempfile
 import time
+from datetime import timedelta
 from unittest import mock
 
 from django.core.files.base import ContentFile
@@ -206,9 +207,11 @@ class ContestSEBEnforcementTestCase(CommonDataMixin, TestCase):
         path = reverse('contest_leave', args=('sebexam',))
         response = self.client.post(path, **bek_header(path))
         self.assertRedirects(response, reverse('seb_quit'))
+        # A running SEB exam locks the site, so Leave (hand in) keeps the student in it until it
+        # ends; otherwise leaving and rejoining would switch the lock off and on at will.
         profile = self.users['seb_participant'].profile
         profile.refresh_from_db()
-        self.assertIsNone(profile.current_contest)
+        self.assertIsNotNone(profile.current_contest)
 
     def test_leave_redirects_to_custom_quit_url(self):
         self.seb_contest.seb_quit_url = 'https://example.com/done'
@@ -541,12 +544,35 @@ class ContestSEBPresetTestCase(CommonDataMixin, TestCase):
         self.assertEqual(response.status_code, 403)
 
     def test_preset_preview_allowed_with_permission(self):
-        # Permission AND editing a contest that uses this preset.
+        # Permission AND editing a contest that uses this preset, which no other exam shares.
+        own = SEBConfigPreset(name='Own exam', config_keys=PRESET_CFG, is_default=False)
+        own.config_file.save('own.seb', ContentFile(PRESET_CONFIG_BYTES), save=False)
+        own.save()
+        create_contest(key='ownpresetexam', is_visible=True, seb_required=True, seb_preset=own,
+                       authors=('preset_staff',))
+        self.client.force_login(self.users['preset_staff'])
+        response = self.client.get(reverse('seb_preset_config', args=(own.id,)))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b''.join(response.streaming_content), PRESET_CONFIG_BYTES)
+
+    def test_site_default_preview_denied_to_editor(self):
+        # SEB-1: the site default is shared by every exam that uses it, so editing one of them
+        # (any instructor can tick "use default" on a draft) does not hand out its file.
         self.preset_contest.authors.add(self.users['preset_staff'].profile)
         self.client.force_login(self.users['preset_staff'])
         response = self.client.get(reverse('seb_preset_config', args=(self.preset.id,)))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(b''.join(response.streaming_content), PRESET_CONFIG_BYTES)
+        self.assertEqual(response.status_code, 403)
+        # Nor through the contest's own .seb download outside the student rule (here: weeks
+        # before the start, which is what a fresh draft looks like).
+        Contest.objects.filter(id=self.preset_contest.id).update(
+            start_time=timezone.now() + timedelta(days=30), end_time=timezone.now() + timedelta(days=31))
+        response = self.client.get(reverse('contest_seb_config', args=(self.preset_contest.key,)))
+        self.assertEqual(response.status_code, 403)
+        # Nor as "anyone on the roster" of their own running public draft (review follow-up).
+        Contest.objects.filter(id=self.preset_contest.id).update(
+            start_time=timezone.now() - timedelta(minutes=5), end_time=timezone.now() + timedelta(days=1))
+        response = self.client.get(reverse('contest_seb_config', args=(self.preset_contest.key,)))
+        self.assertEqual(response.status_code, 403)
 
 
 @override_settings(COMPRESS_ENABLED=False, MEDIA_ROOT=tempfile.mkdtemp(), DMOJ_SEB_CONFIG_DOWNLOAD_WINDOW_MINUTES=30)

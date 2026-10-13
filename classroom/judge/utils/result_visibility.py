@@ -16,7 +16,8 @@ Every helper takes a ``prefix`` so it can be used from a related model (e.g.
 """
 from django.db.models import Q
 
-__all__ = ['hidden_result_formats', 'hidden_result_types', 'problem_has_hidden_results',
+__all__ = ['contest_problem_hides_results', 'hidden_result_formats', 'hidden_result_types',
+           'problem_has_hidden_results',
            'problem_in_active_hidden_exam', 'results_hidden_q', 'results_visible_q', 'sees_all_results',
            'solved_source_visibility_applies', 'visible_results']
 
@@ -117,6 +118,21 @@ def problem_in_active_hidden_exam(problem):
     return _hidden_exam_problems(problem).filter(
         Q(contest__end_time__isnull=True) | Q(contest__end_time__gt=timezone.now()),
     ).exists()
+
+
+def contest_problem_hides_results(contest_problem):
+    """Whether a submission made through ``contest_problem`` gets its results masked right now.
+
+    Same rule as ``results_hidden_q`` / ``Submission.contest_results_hidden``, for one row.
+    """
+    if contest_problem is None:
+        return False
+    contest = contest_problem.contest
+    if contest.format_name not in hidden_result_formats() or contest.results_finalized:
+        return False
+    if contest_problem.hide_results is not None:
+        return bool(contest_problem.hide_results)
+    return contest_problem.problem.submission_type in hidden_result_types()
 
 
 def solved_source_visibility_applies(problem):
