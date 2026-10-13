@@ -22,6 +22,7 @@ from django.views.generic import View
 
 from judge.models import Class, Language, Organization, Problem, ProblemMCQConfig, ProblemMCQOption, \
     ProblemSubmissionType
+from judge.question_types.mcq import selected_option_ids
 from judge.utils.problem_create import apply_simple_problem_defaults, default_problem_type
 from judge.utils.simple_xlsx import build_xlsx_workbook, read_xlsx_rows
 from judge.widgets import HeavySelect2MultipleWidget, MartorWidget
@@ -525,6 +526,15 @@ class ProblemMCQEditView(LoginRequiredMixin, View):
         multiple = config_form.cleaned_data.get('multiple_select')
         if not multiple and len(correct) > 1:
             return _('Single-answer questions must have exactly one correct choice.')
+        deleted = [f.instance for f in formset.forms
+                   if f.instance.pk and f.cleaned_data and f.cleaned_data.get('DELETE')]
+        if deleted:
+            # Stored answers reference options by id; deleting a chosen one breaks them.
+            used = selected_option_ids(formset.instance)
+            blocked = [o for o in deleted if o.pk in used]
+            if blocked:
+                return _('Choice "%(text)s" was already selected in student submissions and cannot be '
+                         'deleted. Edit its text or correctness instead.') % {'text': blocked[0].text[:60]}
         return None
 
     def _save_options(self, formset, problem):

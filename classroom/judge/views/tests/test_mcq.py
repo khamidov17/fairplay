@@ -362,6 +362,39 @@ class MCQAuthoringViewTestCase(CommonDataMixin, TestCase):
         self.client.force_login(self.users['creator'])
         self.assertEqual(self.client.get(reverse('problem_mcq_edit', args=['editmcq'])).status_code, 200)
 
+    def test_edit_refuses_deleting_selected_option(self):
+        # G-3 (legacy editor): stored answers reference option ids; deleting a
+        # chosen option is refused with an error, nothing changes.
+        problem = create_problem(code='delmcq', submission_type='M', is_public=True, authors=('creator',))
+        ProblemMCQConfig.objects.create(problem=problem)
+        a = ProblemMCQOption.objects.create(problem=problem, order=0, text='a', is_correct=True)
+        b = ProblemMCQOption.objects.create(problem=problem, order=1, text='b')
+        c = ProblemMCQOption.objects.create(problem=problem, order=2, text='c')
+        sub = Submission.objects.create(
+            user=self.users['normal'].profile, problem=problem, language=Language.get_answer_language())
+        SubmissionSource.objects.create(submission=sub, source=json.dumps({'selected': [a.id]}))
+
+        def post(delete_option):
+            data = option_post_data([('a', True), ('b', False), ('c', False)], name=problem.name,
+                                    initial_forms=3)
+            for i, option in enumerate((a, b, c)):
+                data['options-%d-id' % i] = str(option.id)
+            index = (a, b, c).index(delete_option)
+            data['options-%d-DELETE' % index] = 'on'
+            if delete_option is a:
+                data['options-1-is_correct'] = 'on'
+            return self.client.post(reverse('problem_mcq_edit', args=['delmcq']), data)
+
+        self.client.force_login(self.users['creator'])
+        response = post(a)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'already selected')
+        self.assertEqual(problem.mcq_options.count(), 3)
+
+        response = post(c)                      # an unused option can still be deleted
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(ProblemMCQOption.objects.filter(id=c.id).exists())
+
 
 class MCQSubmitViewTestCase(CommonDataMixin, TestCase):
     @classmethod

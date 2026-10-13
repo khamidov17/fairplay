@@ -2429,7 +2429,7 @@
       }
       if (currentType === 'single' || currentType === 'multiple') {
         data.multiple = currentType === 'multiple';
-        data.options = [...document.querySelectorAll('#options .option-row')].map(op => ({ text: getOptionText(op).trim(), correct: op.querySelector('.option-marker input').checked }));
+        data.options = [...document.querySelectorAll('#options .option-row')].map(op => ({ id: op.dataset.optionId ? Number(op.dataset.optionId) : null, text: getOptionText(op).trim(), correct: op.querySelector('.option-marker input').checked }));
         if (currentType === 'multiple') {
           data.mcqScoring = (document.querySelector('input[name="mcq-scoring"]:checked') || {}).value || 'proportional';
           const under = document.getElementById('f-mcq-underselect-points');
@@ -2812,6 +2812,7 @@
           addOption(o.text || '');
           const rows = list.querySelectorAll('.option-row');
           rows[rows.length - 1].querySelector('.option-marker input').checked = !!o.correct;
+          if (o.id) rows[rows.length - 1].dataset.optionId = o.id;  // saved back so the option keeps its id
         });
         refreshOptionMarkers();
         if (d.type === 'multiple') {
