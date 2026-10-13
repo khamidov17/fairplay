@@ -13,3 +13,19 @@ server/data/
 .claude/
 e2e/shots/
 *.rdb
+
+# FairPlay Classroom (classroom/) local dev/test output
+classroom/.venv/
+classroom/node_modules/
+classroom/dmoj/local_settings.py
+classroom/dmoj/.dev_secret_key
+classroom/static/
+classroom/media/
+classroom/sass_processed/
+classroom/resources/vendor/
+classroom/resources/rich_editor.js
+classroom/test-reports/
+classroom/coverage.xml
+classroom/.coverage
+classroom/submission_files/
+classroom/submission_files_backup/
