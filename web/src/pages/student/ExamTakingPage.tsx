@@ -10,6 +10,7 @@ import { StuLoading } from "../../components/student/StudentLayout";
 import { ArrowLeftIcon, ArrowRightIcon, ChevronIcon, CloseIcon, FlagIcon, GridIcon } from "../../components/student/icons";
 import { AnswerQueue, type SyncStatus } from "../../lib/answerQueue";
 import * as bridge from "../../lib/bridge";
+import { clearAttemptSession, getAttemptSession } from "../../lib/appSession";
 import { clockOffset, remainingMs } from "../../lib/timer";
 import {
   cacheAttemptView,
@@ -20,7 +21,14 @@ import {
   isOfflineAttemptId,
   readOfflineRecord,
   saveOfflineRecord,
+  NeedStartCodeError,
+  forgetStartCode,
+  rememberStartCode,
+  rememberedStartCode,
 } from "../../lib/offline";
+import { ReenterExam, isSessionConflict } from "../../components/student/ReenterExam";
+import { PreflightProblems } from "../../components/student/Preflight";
+import { CODE_LENGTH, StartCodeBoxes, emptyCode } from "../../components/student/StartCodeBoxes";
 import { QuestionImages } from "../../components/QuestionImages";
 import "../../styles/student.css";
 
@@ -50,7 +58,7 @@ function writeMarks(aid: string, marks: Set<string>): void {
   }
 }
 
-type Phase = "loading" | "locking" | "lockFailed" | "exam" | "review" | "submitting" | "loadError";
+type Phase = "loading" | "locking" | "preflight" | "lockFailed" | "exam" | "review" | "submitting" | "loadError" | "reenter";
 
 export interface DoneState {
   receipt: string;
@@ -59,6 +67,8 @@ export interface DoneState {
   /** answered / total question counts at submit time (optional: unknown after a reload) */
   answered?: number;
   total?: number;
+  /** Audit W-05: why the page stopped (shown on the done page). */
+  notice?: string;
 }
 
 /** Remount per attempt id so no state leaks between attempts. */
@@ -107,6 +117,10 @@ function ExamTakingInner() {
   );
   const [connected, setConnected] = useState(!!realAidRef.current);
   const [offlineProblem, setOfflineProblem] = useState<string | null>(null);
+  // Audit W-03 / W-02: the start code is never stored. After a reload (or a new code from the
+  // teacher) the student types it again to send the offline answers.
+  const [needCode, setNeedCode] = useState<null | "reload" | "changed">(null);
+  const [preflightProblems, setPreflightProblems] = useState<string[]>([]);
   const reconnectRef = useRef<Promise<string> | null>(null);
 
   const ensureOnline = useCallback((): Promise<string> => {
@@ -114,21 +128,31 @@ function ExamTakingInner() {
     if (reconnectRef.current) return reconnectRef.current;
     const rec = readOfflineRecord(offlineExamId);
     if (!rec) return Promise.reject(new ApiError(404, "This exam attempt was not found."));
+    const code = rememberedStartCode(offlineExamId);
+    if (!code) {
+      setNeedCode((n) => n ?? "reload");
+      return Promise.reject(new NeedStartCodeError("reload"));
+    }
     const p = slice6Api
-      .startAfterOffline(offlineExamId, rec.start_code, rec.started_at)
+      .startAfterOffline(offlineExamId, code, rec.started_at)
       .then(
         (view) => {
           realAidRef.current = view.attempt_id;
           saveOfflineRecord({ ...rec, real_attempt_id: view.attempt_id });
-          // phase 1a: the Mac app can now check an invigilator exit code with the server
-          bridge.setExamSession({ attempt_id: view.attempt_id, token: getToken("student"), exit_check: view.exit_check ?? null });
           setConnected(true);
+          setNeedCode(null);
           setOfflineProblem(null);
           setDeadline(view.deadline_at);
           setOffset(clockOffset(view.server_time));
           return view.attempt_id;
         },
         (e) => {
+          if (e instanceof ApiError && e.status === 403 && /start code/i.test(e.detail)) {
+            // The teacher made a new start code (audit W-02): ask for it, keep the answers.
+            forgetStartCode(offlineExamId);
+            setNeedCode("changed");
+            throw new NeedStartCodeError("changed");
+          }
           if (e instanceof ApiError)
             setOfflineProblem(
               `${e.detail}. Your answers are kept on this computer — tell your teacher before closing this page.`,
@@ -170,6 +194,8 @@ function ExamTakingInner() {
         clearOfflineRecord(offlineExamId);
         clearAttemptView(doneAid);
       }
+      clearAttemptSession(doneAid);
+      // The app unlocks only after the server confirms the hand-in (audit #11).
       bridge.unlock();
       navigate(`/student/done/${encodeURIComponent(doneAid)}`, { replace: true, state: done ?? undefined });
     },
@@ -193,19 +219,30 @@ function ExamTakingInner() {
         const res = await call((aid) => studentApi.submit(aid, sent, seq));
         submittingRef.current = false;
         const total = attempt?.questions.length;
-        // what the server reports it holds (phase 1b), else what this computer sent
-        const answered =
-          res.answered ?? (attempt ? attempt.questions.filter((qq) => sent[qq.id] !== undefined).length : undefined);
+        const answered = attempt ? attempt.questions.filter((qq) => sent[qq.id] !== undefined).length : undefined;
         finish({ receipt: res.receipt, submitted_at: res.submitted_at, title: attempt?.title ?? "", answered, total });
       } catch (e) {
         submittingRef.current = false;
+        // Audit W-05: a 4xx the student can't fix by waiting is final. 409/404 (already
+        // handed in, moved to another computer, gone): leave the exam; the app checks with
+        // the server before it unlocks.
+        if (e instanceof ApiError && (e.status === 409 || e.status === 404)) {
+          finish({ receipt: "", submitted_at: "", title: attempt?.title ?? "", notice: e.detail });
+          return;
+        }
+        if (e instanceof NeedStartCodeError) {
+          setSubmitError("Type the start code again (above) to hand in. Your answers are saved on this computer.");
+          setPhase(phaseBeforeSubmit.current);
+          return;
+        }
+        const final = e instanceof ApiError && e.status >= 400 && e.status < 500 && e.status !== 429;
         const msg =
           e instanceof NetworkError
             ? "Cannot reach the server. Your answers are saved on this computer."
             : e instanceof ApiError
               ? e.detail
               : "Submitting failed.";
-        if (auto || e instanceof NetworkError) {
+        if (!final && (auto || e instanceof NetworkError)) {
           setSubmitError(`${msg} Trying again…`);
           submitRetryRef.current = setTimeout(() => void doSubmit(auto), SUBMIT_RETRY_MS);
         } else {
@@ -260,17 +297,20 @@ function ExamTakingInner() {
           setAnswers(queue.getAnswers());
         });
         queueRef.current = queue;
-        queue.init(a.answers, a.client_seq ?? -1);
+        queue.init(a.answers);
         setAnswers(queue.getAnswers());
         setAttempt(a);
         setDeadline(a.deadline_at);
         setOffset(clockOffset(a.server_time));
-        // phase 1a: before locking, tell the Mac app how to check the invigilator exit code
-        bridge.setExamSession({ attempt_id: realAidRef.current, token: getToken("student"), exit_check: a.exit_check ?? null });
         setPhase("locking");
       },
       (e) => {
         if (!alive) return;
+        if (e instanceof ApiError && isSessionConflict(e.status, e.detail)) {
+          setLoadError(e.detail);       // audit W-01: offer the start code instead of a dead end
+          setPhase("reenter");
+          return;
+        }
         setLoadError(
           e instanceof ApiError && e.status === 404
             ? "This exam attempt was not found."
@@ -295,12 +335,30 @@ function ExamTakingInner() {
     if (lockingRef.current) return;
     lockingRef.current = true;
     setPhase("locking");
-    const res = await bridge.requestLock();
+    // Audit M-11: problems the student must fix outside the lock come first.
+    const problems = await bridge.preflight();
+    if (problems.length > 0) {
+      lockingRef.current = false;
+      setPreflightProblems(problems);
+      setPhase("preflight");
+      return;
+    }
+    const aid = realAidRef.current;
+    const session = aid ? getAttemptSession(aid) : null;
+    const token = getToken("student");
+    const res = await bridge.requestLock(
+      10000,
+      aid && session && token ? { attempt_id: aid, token, session } : undefined,
+    );
     lockingRef.current = false;
     if (finishedRef.current) return;
     if (res.ok) {
       setLocked(bridge.isLocked());
       setPhase("exam");
+    } else if (res.reason === "bad_session") {
+      // Audit M-06: the app won't lock without a valid exam session: start code again.
+      setLoadError("This computer has no valid session for this exam.");
+      setPhase("reenter");
     } else {
       setLockReason(res.reason);
       setPhase("lockFailed");
@@ -312,6 +370,14 @@ function ExamTakingInner() {
     // only when we enter "locking" after load
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [attempt]);
+
+  // ----- the app's own signed beats need the attempt + session (audit #2, #6) -----
+  useEffect(() => {
+    const aid = realAidRef.current;
+    const session = aid ? getAttemptSession(aid) : null;
+    const token = getToken("student");
+    if (attempt && aid && session && token) bridge.setExamSession({ attempt_id: aid, token, session });
+  }, [attempt, connected]);
 
   // ----- native messages: lock state + integrity events -----
 
@@ -352,14 +418,6 @@ function ExamTakingInner() {
     };
   }, [flushEvents]);
 
-  // ----- network back: send waiting answers at once (not after the retry backoff) -----
-
-  useEffect(() => {
-    const onOnline = () => queueRef.current?.nudge();
-    window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
-  }, []);
-
   // ----- heartbeat every 5 s -----
 
   useEffect(() => {
@@ -369,7 +427,6 @@ function ExamTakingInner() {
       try {
         const res = await call((aid) => studentApi.heartbeat(aid, currentRef.current, bridge.isLocked()));
         setOffset(clockOffset(res.server_time));
-        queueRef.current?.nudge(); // the server is reachable: send waiting answers now
         if (res.deadline_at) setDeadline(res.deadline_at);
         if (res.status === "submitted") {
           // closed by the teacher (or submitted elsewhere): finish and unlock
@@ -397,7 +454,7 @@ function ExamTakingInner() {
   const remaining = deadline ? remainingMs(deadline, offset, now) : Infinity;
   useEffect(() => {
     if (!attempt || !deadline) return;
-    if (remaining <= 0 && (phase === "exam" || phase === "review" || phase === "lockFailed")) {
+    if (remaining <= 0 && (phase === "exam" || phase === "review" || phase === "lockFailed" || phase === "preflight")) {
       void doSubmit(true);
     }
   }, [remaining, phase, attempt, deadline, doSubmit]);
@@ -490,6 +547,7 @@ function ExamTakingInner() {
         </div>
       </div>
     );
+  if (phase === "reenter") return <ReenterExam attemptId={attemptId} detail={loadError} />;
   if (phase === "loadError")
     return (
       <div className="stu stu-exam">
@@ -532,11 +590,21 @@ function ExamTakingInner() {
         sync={sync}
         remaining={remaining}
       />
-      {offline && (offlineProblem || !connected) && (
+      {offline && (offlineProblem || !connected) && !needCode && (
         <div className="stu-alert warn fp-offline-note" role="status" data-testid="offline-banner">
           {offlineProblem ??
             "Working offline. Your answers are kept on this computer and sent when the connection is back."}
         </div>
+      )}
+      {offline && needCode && (
+        <ReconnectCode
+          reason={needCode}
+          onCode={(code) => {
+            rememberStartCode(offlineExamId, code);
+            setNeedCode(null);
+            void ensureOnline().catch(() => undefined);
+          }}
+        />
       )}
 
       {phase === "locking" && (
@@ -544,6 +612,8 @@ function ExamTakingInner() {
           <StuLoading label="Locking this computer for the exam…" />
         </div>
       )}
+
+      {phase === "preflight" && <PreflightProblems problems={preflightProblems} onRetry={() => void lock()} />}
 
       {phase === "lockFailed" && (
         <main className="stu-center">
@@ -733,5 +803,38 @@ function ExamTakingInner() {
         </div>
       )}
     </div>
+  );
+}
+
+
+/** Audit W-03 / W-02: ask for the start code again so offline answers can be sent. */
+function ReconnectCode({ reason, onCode }: { reason: "reload" | "changed"; onCode: (code: string) => void }) {
+  const [digits, setDigits] = useState<string[]>(emptyCode);
+  const code = digits.join("");
+  const complete = code.length === CODE_LENGTH && /^\d+$/.test(code);
+  return (
+    <form
+      className="stu-alert warn fp-offline-note"
+      role="region"
+      aria-label="Start code to reconnect"
+      data-testid="reconnect-code"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (complete) onCode(code);
+      }}
+      style={{ display: "flex", flexDirection: "column", gap: 10 }}
+    >
+      <span>
+        {reason === "changed"
+          ? "Your teacher changed the start code. Type the new one to send your answers."
+          : "Type the start code again to send your answers. They are kept on this computer."}
+      </span>
+      <StartCodeBoxes idPrefix="reconnect" value={digits} onChange={setDigits} legend="Start code" />
+      <div>
+        <button type="submit" className="stu-btn primary" disabled={!complete}>
+          Send my answers
+        </button>
+      </div>
+    </form>
   );
 }

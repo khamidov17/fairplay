@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <OutputType>Exe</OutputType>
+  </PropertyGroup>
+
+  <!-- Self-contained micro test runner (no NuGet): this container has no package access.
+       On CI, xUnit can be swapped in; for now Program.cs runs the asserts and returns an
+       exit code. -->
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/FairPlay.Core/FairPlay.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -2,44 +2,29 @@
 import { Navigate, Route, Routes } from "react-router-dom";
 import { RequireAuth } from "../../components/RequireAuth";
 import { TeacherLayout } from "../../components/teacher/TeacherLayout";
+import { FeatureGate } from "../../components/FeatureGate";
 import LoginPage from "../LoginPage";
 import TeacherHome from "./TeacherHome";
 import ExamsPage from "./ExamsPage";
 import ExamSetupPage from "./ExamSetupPage";
 import TeacherExamPage from "./TeacherExamPage";
 import GradingPage from "./GradingPage";
-import GradingListPage from "./GradingListPage";
 import GradebookPage from "./GradebookPage";
 import LmsPage from "./LmsPage";
 import SubmissionReviewPage from "./SubmissionReviewPage";
 import InsightsPage from "./InsightsPage";
 import StudentsPage from "./StudentsPage";
+import ClassesPage from "./ClassesPage";
+import ClassPage from "./ClassPage";
 import StudentProfilePage from "./StudentProfilePage";
 import PracticePage from "./PracticePage";
 import ScanOverviewPage from "./scan/ScanOverviewPage";
 import ScanExamPage from "./scan/ScanExamPage";
-import SessionTimelinePage from "./SessionTimelinePage";
-import ClassesPage from "./classes/ClassesPage";
-import ClassPage from "./classes/ClassPage";
-import QualityPage from "./quality/QualityPage";
-import ExamQualityPage from "./quality/ExamQualityPage";
-import BenchmarksPage from "./quality/BenchmarksPage";
-import BenchmarkSetPage from "./quality/BenchmarkSetPage";
-import BenchmarkRunPage from "./quality/BenchmarkRunPage";
-import SecondMarkingQueuePage from "./quality/SecondMarkingQueuePage";
-import CapturePage from "./scan/CapturePage";
-import HomeworkListPage from "./homework/HomeworkListPage";
-import HomeworkNewPage from "./homework/HomeworkNewPage";
-import HomeworkPage from "./homework/HomeworkPage";
-import ProgressPage from "./progress/ProgressPage";
-import StudentProgressPage from "./progress/StudentProgressPage";
 
 export default function TeacherRoutes() {
   return (
     <Routes>
       <Route path="login" element={<LoginPage role="teacher" />} />
-      {/* phase 2: phone capture page — no login (one-time link scoped to one exam) */}
-      <Route path="capture/:token" element={<CapturePage />} />
       <Route
         element={
           <RequireAuth role="teacher">
@@ -54,29 +39,22 @@ export default function TeacherRoutes() {
         <Route path="exams/:id/edit" element={<ExamSetupPage />} />
         <Route path="exams/:id/grading" element={<GradingPage />} />
         <Route path="exams/:id/submissions/:attemptId" element={<SubmissionReviewPage />} />
-        <Route path="exams/:id/submissions/:attemptId/timeline" element={<SessionTimelinePage />} />
-        <Route path="grading" element={<GradingListPage />} />
+        {/* 2026-10-13: grading list + gradebook are one "Grades" page */}
+        <Route path="grading" element={<Navigate to="/teacher/gradebook" replace />} />
         <Route path="gradebook" element={<GradebookPage />} />
-        <Route path="lms" element={<LmsPage />} />
-        <Route path="insights" element={<InsightsPage />} />
-        <Route path="students" element={<StudentsPage />} />
-        <Route path="students/:username" element={<StudentProfilePage />} />
-        <Route path="practice" element={<PracticePage />} />
-        <Route path="scan" element={<ScanOverviewPage />} />
-        <Route path="exams/:id/scan" element={<ScanExamPage />} />
         <Route path="classes" element={<ClassesPage />} />
         <Route path="classes/:classId" element={<ClassPage />} />
-        <Route path="homework" element={<HomeworkListPage />} />
-        <Route path="homework/new" element={<HomeworkNewPage />} />
-        <Route path="homework/:id" element={<HomeworkPage />} />
-        <Route path="progress" element={<ProgressPage />} />
-        <Route path="progress/students/:username" element={<StudentProgressPage />} />
-        <Route path="quality" element={<QualityPage />} />
-        <Route path="quality/exams/:id" element={<ExamQualityPage />} />
-        <Route path="quality/benchmarks" element={<BenchmarksPage />} />
-        <Route path="quality/benchmarks/:id" element={<BenchmarkSetPage />} />
-        <Route path="quality/runs/:id" element={<BenchmarkRunPage />} />
-        <Route path="quality/second-marking" element={<SecondMarkingQueuePage />} />
+        <Route path="students" element={<StudentsPage />} />
+        <Route path="students/:username" element={<StudentProfilePage />} />
+        {/* Optional parts: only when the server switches them on (FAIRPLAY_FEATURES). */}
+        <Route path="lms" element={<FeatureGate feature="lms" fallback="/teacher"><LmsPage /></FeatureGate>} />
+        <Route path="insights" element={<FeatureGate feature="insights" fallback="/teacher"><InsightsPage /></FeatureGate>} />
+        <Route path="practice" element={<FeatureGate feature="practice" fallback="/teacher"><PracticePage /></FeatureGate>} />
+        <Route path="scan" element={<FeatureGate feature="scan" fallback="/teacher"><ScanOverviewPage /></FeatureGate>} />
+        <Route
+          path="exams/:id/scan"
+          element={<FeatureGate feature="scan" fallback="/teacher/exams"><ScanExamPage /></FeatureGate>}
+        />
       </Route>
       <Route path="*" element={<Navigate to="/teacher" replace />} />
     </Routes>

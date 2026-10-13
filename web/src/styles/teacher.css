@@ -1034,8 +1034,25 @@
   font-variant-numeric: tabular-nums;
   font-size: 34px;
   font-weight: 700;
-  letter-spacing: 0.25em;
-  margin-right: -0.25em;
+  letter-spacing: 0.12em;
+  margin-right: -0.12em;
+}
+.t-code-sm {
+  font-size: 24px;
+}
+.t-mini-link {
+  border: 0;
+  background: none;
+  padding: 0 0 0 4px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.t-mini-link:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 .t-live-time {
   font-family: var(--font);
@@ -1921,3 +1938,349 @@
 .t-seat-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 8px; }
 
 .t-review-scan { display: block; max-width: 100%; max-height: 420px; border: 1px solid var(--border); border-radius: var(--r-tile); background: #fff; margin: 4px 0 8px; }
+/* audit S-02: handed in after time */
+.t-gb-late {
+  margin-left: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--warn);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* audit S-03: classes page */
+.t-class-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.t-class-card {
+  gap: 14px;
+}
+.t-class-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+}
+.t-class-head > div:first-child {
+  flex: 1 1 220px;
+}
+.t-class-code {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--r-tile);
+  background: var(--primary-tint);
+  color: var(--primary);
+}
+.t-class-body,
+.t-class-add {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.t-class-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px solid var(--divider);
+}
+
+/* audit W-06 / W-07 */
+.t-live-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: stretch;
+}
+.t-seat-action {
+  display: block;
+  padding: 0 10px 8px;
+  font-size: 12px;
+}
+
+/* 2026-10-13: classes as cards (Google Classroom style) and the class page */
+.t-class-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 20px;
+}
+.t-gc-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  min-height: 230px;
+  transition: box-shadow 0.15s ease;
+}
+.t-gc-card:hover,
+.t-gc-card:focus-within {
+  box-shadow: 0 4px 16px rgba(27, 37, 51, 0.12);
+}
+.t-gc-banner {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 18px 20px 20px;
+  min-height: 96px;
+  color: #fff;
+  text-decoration: none;
+  background-image: radial-gradient(circle at 92% 18%, rgba(255, 255, 255, 0.16) 0 46px, transparent 47px),
+    radial-gradient(circle at 78% 110%, rgba(255, 255, 255, 0.1) 0 60px, transparent 61px);
+}
+.t-gc-banner:hover .t-gc-name,
+.t-gc-banner:focus-visible .t-gc-name {
+  text-decoration: underline;
+}
+.t-gc-banner:focus-visible {
+  outline: 3px solid var(--primary-soft);
+  outline-offset: -3px;
+}
+.t-gc-name {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.t-gc-term {
+  font-size: 15px;
+  opacity: 0.95;
+}
+.t-gc-teacher {
+  font-size: 13px;
+  opacity: 0.9;
+  margin-top: 6px;
+}
+.t-gc-body {
+  flex: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding: 14px 20px;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.t-gc-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px 8px 20px;
+  border-top: 1px solid var(--divider);
+}
+.t-gc-code {
+  flex: 1;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+  font-size: 14px;
+}
+.t-class-new {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+.t-class-new-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.t-crumbs {
+  font-size: 14px;
+  color: var(--muted);
+}
+.t-crumbs a {
+  color: var(--primary);
+}
+.t-gc-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 150px;
+  padding: 24px 28px;
+  border-radius: 16px;
+  color: #fff;
+  background-image: radial-gradient(circle at 88% 22%, rgba(255, 255, 255, 0.16) 0 70px, transparent 71px),
+    radial-gradient(circle at 70% 130%, rgba(255, 255, 255, 0.1) 0 90px, transparent 91px);
+}
+.t-gc-hero h1 {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.2;
+  color: #fff;
+}
+.t-gc-hero p {
+  margin: 6px 0 0;
+  font-size: 16px;
+  opacity: 0.95;
+}
+.t-gc-hero-btn {
+  font: inherit;
+  font-weight: 600;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 0;
+  background: #fff;
+  color: var(--text);
+  cursor: pointer;
+}
+.t-gc-hero-btn:focus-visible {
+  outline: 3px solid var(--primary-soft);
+}
+.t-gc-share {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 14px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+.t-gc-share > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.t-cx-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.t-cx-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--divider);
+}
+.t-cx-row:last-child {
+  border-bottom: 0;
+}
+.t-cx-row > div:first-child {
+  flex: 1;
+}
+.t-avatar {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  background: var(--primary-tint);
+  color: var(--primary);
+}
+@media (max-width: 560px) {
+  .t-gc-hero {
+    padding: 18px;
+    min-height: 120px;
+  }
+  .t-gc-hero h1 {
+    font-size: 24px;
+  }
+}
+
+/* 2026-10-13: Google Forms-style exam editor */
+.t-fx {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 860px;
+  margin: 0 auto;
+  width: 100%;
+}
+.t-fx-top {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  background: var(--ground);
+}
+.t-fx-head {
+  gap: 14px;
+  border-top: 8px solid var(--primary);
+}
+.t-fx-head .t-title-input {
+  font-size: 28px;
+}
+.t-fx-basics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: flex-start;
+}
+.t-fx-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--primary);
+  cursor: pointer;
+}
+.t-fx-more:focus-visible {
+  outline: 2px solid var(--primary-soft);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.t-fx-more-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--divider);
+}
+.t-fx-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.t-fx-qhead {
+  margin: 8px 0 0;
+  font-size: 18px;
+}
+.t-fx-questions > .t-q {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-card);
+  padding: 4px 16px;
+}
+.t-fx-questions > .t-q:focus-within {
+  box-shadow: inset 4px 0 0 var(--primary);
+}
+.t-fx-add {
+  gap: 12px;
+  align-items: flex-start;
+}
+.t-fx-ask {
+  gap: 12px;
+  border: 2px solid var(--primary-soft);
+}

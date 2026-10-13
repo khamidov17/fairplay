@@ -7,6 +7,7 @@ averages, release and LMS push never read.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import math
 from typing import Any
 
@@ -17,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import ai, mathcheck
 from .db import get_session
+from .store import get_store
 from .models import Exam, User
 from .practice import generator
 from .practice.models import PracticeAttempt, PracticeSet
@@ -36,6 +38,10 @@ SOURCE_TYPES = ("mcq", "numeric", "short", "essay")
 
 
 # ---------------------------------------------------------------- schemas
+MAX_ITEMS_PER_REQUEST = 400
+GENERATE_LOCK_S = 600
+
+
 class GenerateIn(BaseModel):
     username: str | None = Field(default=None, max_length=64)
     usernames: list[str] | None = Field(default=None, max_length=MAX_STUDENTS)
@@ -170,6 +176,21 @@ async def practice_bank(topic: str | None = None, p: Principal = Depends(require
 async def practice_generate(body: GenerateIn, p: Principal = Depends(require_teacher),
                             session: AsyncSession = Depends(get_session)):
     names = list(dict.fromkeys(([body.username] if body.username else []) + (body.usernames or [])))
+    # Audit L-13: every item may be an AI call. Bounded per request, one run per teacher.
+    if len(names) * body.count > MAX_ITEMS_PER_REQUEST:
+        raise HTTPException(422, f"At most {MAX_ITEMS_PER_REQUEST} practice items at once "
+                                 f"(students × items). Make sets for fewer students at a time.")
+    lock = f"practice-gen:{p.user_id}"
+    store = get_store()
+    if await store.incr(lock, GENERATE_LOCK_S) > 1:
+        raise HTTPException(409, "Practice sets are already being made. Wait until they are ready.")
+    try:
+        return await _generate(body, names, p, session)
+    finally:
+        await store.delete(lock)
+
+
+async def _generate(body: GenerateIn, names: list[str], p: Principal, session: AsyncSession) -> dict:
     users = await _students(session, names)
     exams = await teacher_exams(session, p.user_id)
     stats = await topic_stats_by_student(session, p.user_id, [u.id for u in users.values()], exams)
@@ -412,9 +433,61 @@ async def student_practice_get(sid: str, p: Principal = Depends(require_student)
             "progress": progress(s.items or [], atts)}
 
 
+ANSWERS_PER_MINUTE = 30
+
+
+async def _record_try(session: AsyncSession, set_id: str, student_id: int, item_id: str,
+                      given, correct, now) -> PracticeAttempt:
+    """Audit L-17: one row per (set, item). Two first answers at once used to collide on
+    the unique key (500); and tries = tries + 1 in SQL so parallel answers both count."""
+    from sqlalchemy import update as sql_update
+    from sqlalchemy.exc import IntegrityError
+    ok = correct is True
+    for _ in range(2):
+        res = await session.execute(
+            sql_update(PracticeAttempt)
+            .where(PracticeAttempt.set_id == set_id, PracticeAttempt.item_id == item_id)
+            .values(answer=given, correct=correct, tries=PracticeAttempt.tries + 1,
+                    ever_correct=PracticeAttempt.ever_correct | ok, updated_at=now))
+        if res.rowcount:
+            await session.commit()
+            break
+        session.add(PracticeAttempt(set_id=set_id, student_id=student_id, item_id=item_id, tries=1,
+                                    ever_correct=ok, answer=given, correct=correct,
+                                    created_at=now, updated_at=now))
+        try:
+            await session.commit()
+            break
+        except IntegrityError:
+            await session.rollback()      # the other request inserted it: update instead
+    return (await session.execute(select(PracticeAttempt).where(
+        PracticeAttempt.set_id == set_id, PracticeAttempt.item_id == item_id)
+        .execution_options(populate_existing=True))).scalar_one()
+
+
+# Audit 2026-10-13: student answer checks get their own small pool, so slow math can't
+# fill the default executor that sign-in (password hashing) and package builds use; and
+# one check at a time per student (a second one while the first runs gets 429).
+_CHECK_POOL = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="practice-check")
+_CHECKING: set[str] = set()
+
+
+async def _check(user_id: str, it: dict, given: Any) -> dict:
+    if user_id in _CHECKING:
+        raise HTTPException(429, "Still checking your last answer. Wait a moment, then try again.")
+    _CHECKING.add(user_id)
+    try:
+        return await asyncio.get_running_loop().run_in_executor(_CHECK_POOL, check_answer, it, given)
+    finally:
+        _CHECKING.discard(user_id)
+
+
 @student_router.post("/{sid}/items/{iid}/answer")
 async def student_practice_answer(sid: str, iid: str, body: AnswerIn, p: Principal = Depends(require_student),
                                   session: AsyncSession = Depends(get_session)):
+    # Audit L-02: math checks are costly; a student may send ANSWERS_PER_MINUTE per minute.
+    if await get_store().incr(f"practice-ans:{p.user_id}", 60) > ANSWERS_PER_MINUTE:
+        raise HTTPException(429, "You are answering very fast. Wait a moment, then try again.")
     s = await _student_set(session, sid, p)
     it = next((it for it in s.items or [] if it.get("id") == iid), None)
     if it is None:
@@ -425,7 +498,7 @@ async def student_practice_answer(sid: str, iid: str, body: AnswerIn, p: Princip
             raise HTTPException(422, "Answer is too long")
     elif not (given is None or isinstance(given, (int, float))):
         raise HTTPException(422, "Answer must be text or a number")
-    verdict = await asyncio.to_thread(check_answer, it, given)
+    verdict = await _check(p.user_id, it, given)
     atts = (await _attempts(session, [s.id]))[s.id]
     a = atts.get(iid)
     if not verdict["readable"]:
@@ -433,16 +506,7 @@ async def student_practice_answer(sid: str, iid: str, body: AnswerIn, p: Princip
         return {"item_id": iid, "correct": False, "readable": False, "feedback": verdict["feedback"],
                 "result": result_out(it, a), "progress": progress(s.items or [], atts)}
     now = utcnow()
-    if a is None:
-        a = PracticeAttempt(set_id=s.id, student_id=p.user_id, item_id=iid, tries=0, ever_correct=False,
-                            created_at=now)
-        session.add(a)
-    a.answer = given
-    a.correct = verdict["correct"]
-    a.tries = (a.tries or 0) + 1
-    a.ever_correct = bool(a.ever_correct or verdict["correct"] is True)
-    a.updated_at = now
-    await session.commit()
+    a = await _record_try(session, s.id, p.user_id, iid, given, verdict["correct"], now)
     atts[iid] = a
     res = result_out(it, a)
     feedback = verdict["feedback"]

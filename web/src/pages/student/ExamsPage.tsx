@@ -105,12 +105,7 @@ function UpcomingItem({ exam }: { exam: StudentExamSummary }) {
     : exam.scheduled_at
       ? `Open now · ${isToday(exam.scheduled_at) ? "today" : shortDate(exam.scheduled_at)} ${shortTime(exam.scheduled_at)}`
       : "Open now";
-  const meta = [
-    exam.class_names?.length ? exam.class_names.join(", ") : "", // classes
-    exam.room && `Room ${exam.room}`,
-    `${exam.duration_min} min`,
-    plural(exam.question_count, "question"),
-  ]
+  const meta = [exam.room && `Room ${exam.room}`, `${exam.duration_min} min`, plural(exam.question_count, "question")]
     .filter(Boolean)
     .join(" · ");
   return (
@@ -131,7 +126,7 @@ function UpcomingItem({ exam }: { exam: StudentExamSummary }) {
         <span className="stu-exam-item-meta">{meta}</span>
       </div>
       {inProgress ? (
-        <button type="button" className="stu-btn primary" onClick={() => navigate(`/student/exam/${exam.attempt!.attempt_id}`)}>
+        <button type="button" className="stu-btn primary" onClick={() => navigate(`/student/exam/${encodeURIComponent(exam.attempt!.attempt_id)}`)}>
           Continue
         </button>
       ) : (

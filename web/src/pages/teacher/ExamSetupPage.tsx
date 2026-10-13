@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, teacherApi } from "../../api/client";
 import type { Exam } from "../../api/types";
 import { Loading } from "../../components/Loading";
@@ -10,9 +10,6 @@ import { ExamEditor } from "./ExamEditor";
 export default function ExamSetupPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  // classes: /teacher/exams/new?class=<id> ("New exam for this class")
-  const [params] = useSearchParams();
-  const fromClass = Number(params.get("class")) || null;
   const [exam, setExam] = useState<Exam | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -33,14 +30,7 @@ export default function ExamSetupPage() {
   const onSaved = (saved: Exam, opened: boolean) =>
     navigate(`/teacher/exams/${saved.id}${opened ? "?tab=live" : ""}`, { replace: !id });
 
-  if (!id)
-    return (
-      <ExamEditor
-        onSaved={onSaved}
-        cancelTo={fromClass ? `/teacher/classes/${fromClass}` : "/teacher"}
-        initialClassIds={fromClass ? [fromClass] : undefined}
-      />
-    );
+  if (!id) return <ExamEditor onSaved={onSaved} cancelTo="/teacher" />;
 
   if (error)
     return (

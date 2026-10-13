@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FairPlay.Core/FairPlay.Core.csproj" />
+    <Project Path="src/FairPlay.Guard/FairPlay.Guard.csproj" />
+    <Project Path="src/FairPlay.Shell/FairPlay.Shell.csproj" />
+    <Project Path="src/FairPlay.Watchdog/FairPlay.Watchdog.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FairPlay.Tests/FairPlay.Tests.csproj" />
+  </Folder>
+</Solution>

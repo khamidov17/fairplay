@@ -11,12 +11,17 @@ def normalize_short(s: str) -> str:
 def _number(v: Any) -> float | None:
     if isinstance(v, bool) or v is None:
         return None
+    # float() of a huge int (10**400) raises OverflowError: one such answer used to make
+    # submit, close, results and the gradebook fail for the whole exam (audit S-04).
     if isinstance(v, (int, float)):
-        f = float(v)
+        try:
+            f = float(v)
+        except OverflowError:
+            return None
     elif isinstance(v, str):
         try:
             f = float(v.strip())
-        except ValueError:
+        except (ValueError, OverflowError):
             return None
     else:
         return None

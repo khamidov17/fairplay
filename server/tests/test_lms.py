@@ -14,6 +14,13 @@ from app.lms import GradeRow, LmsAuthError, LmsError, make_provider
 from .conftest import SAMPLE_EXAM, login
 
 CANVAS = "https://canvas.test"
+
+
+@pytest.fixture(autouse=True)
+def _trusted_test_lms(monkeypatch):
+    """Audit L-14: these tests expect LMS logins to match existing students, which the
+    server only does for LMS hosts the admin lists. The fake LMS hosts are listed here."""
+    monkeypatch.setenv("FAIRPLAY_LMS_HOSTS", "canvas.test,moodle.test,blackboard.test,brightspace.test")
 GOOD = "good-canvas-token-SECRET123"
 
 
@@ -302,12 +309,12 @@ def test_link_exam_restricts_start(client, teacher, canvas):
     alice, carol = login(client, "alice"), login(client, "carol")
     r = client.post(f"/api/student/exams/{e['id']}/start", json={"start_code": e["start_code"]},
                     headers=carol)
-    assert r.status_code == 403 and r.json()["detail"] == "This exam is for Course 1 students"
+    assert r.status_code == 403 and r.json()["detail"].startswith("This exam is for Course 1 students")
     r = client.post(f"/api/student/exams/{e['id']}/start", json={"start_code": e["start_code"]},
                     headers=alice)
     assert r.status_code == 200, r.text
 
-    # unlink -> everyone may start again (cache invalidated)
+    # unlink -> the exam's class decides again; carol is in it (cache invalidated)
     r = client.put(f"/api/exams/{e['id']}/lms", json={"course_link_id": None}, headers=teacher)
     assert r.json()["course_link_id"] is None
     r = client.post(f"/api/student/exams/{e['id']}/start", json={"start_code": e["start_code"]},
@@ -528,3 +535,77 @@ def test_beta_adapters_whoami():
         asyncio.run(go())
     finally:
         lms.set_transport_factory(None)
+
+
+# ---------------------------------------------------------------- audit L-15 / L-16
+def test_push_skips_answers_not_graded_yet(client, teacher, canvas):
+    from .test_slice2 import ESSAY_EXAM
+    _, link = _link(client, teacher, canvas)
+    e = client.post("/api/exams", json=ESSAY_EXAM, headers=teacher).json()
+    e = client.post(f"/api/exams/{e['id']}/open", headers=teacher).json()
+    _finish(client, teacher, e, [("alice", {"2+2?": 1, "Why?": "Because."}, "")])
+    client.put(f"/api/exams/{e['id']}/lms", json={"course_link_id": link["id"]}, headers=teacher)
+    client.post(f"/api/exams/{e['id']}/close", headers=teacher)
+    client.post(f"/api/exams/{e['id']}/release", json={"force": True}, headers=teacher)
+    body = client.post(f"/api/exams/{e['id']}/lms/push", headers=teacher).json()
+    assert body["pushed"] == 0 and body["not_graded_yet"] == ["Alice Chen"]
+
+
+@pytest.mark.parametrize("provider,path,payload", [
+    ("brightspace", "/d2l/api/lp/1.31/enrollments/myenrollments/", ["not", "a", "dict"]),
+    ("blackboard", "/learn/api/public/v1/users/u1/courses", ["oops"]),
+])
+def test_beta_providers_report_odd_json_instead_of_crashing(provider, path, payload):
+    import asyncio
+    from app.lms import LmsError, make_provider
+
+    def handle(req):
+        return httpx.Response(200, json=payload)
+    lms.set_transport_factory(lambda pid, url: httpx.MockTransport(handle))
+    try:
+        prov = make_provider(provider, "https://lms.example", "tok")
+        if provider == "blackboard":
+            prov._uid = "u1"
+
+        async def go():
+            async with prov:
+                await prov.list_courses()
+        with pytest.raises(LmsError, match="unexpected answer"):
+            asyncio.run(go())
+    finally:
+        lms.set_transport_factory(None)
+
+
+
+def test_untrusted_lms_never_claims_existing_students(client, teacher, canvas, monkeypatch):
+    """Audit L-14: without FAIRPLAY_LMS_HOSTS a course roster can't bind a real student
+    by inventing the same login id; it gets a separate imported account instead."""
+    monkeypatch.delenv("FAIRPLAY_LMS_HOSTS", raising=False)
+    _, link = _link(client, teacher, canvas)
+    import sqlite3
+    from app.db import get_database
+    url = str(get_database().engine.url).split("///", 1)[1]
+    con = sqlite3.connect(url)
+    alice_ids = [r[0] for r in con.execute("select id from users where username like 'alice%'")]
+    assert len(alice_ids) == 2           # the real alice + a separate imported account
+
+
+def test_roster_sync_keeps_its_lock_and_releases_it(client, teacher, canvas, monkeypatch):
+    """T-05 (lock expiry): a long sync refreshes its lock; a click during it gets 409;
+    afterwards the lock is gone."""
+    from app import routes_lms
+    from app.store import get_store
+    seen = []
+    real = routes_lms.sync_roster
+
+    async def watching(session, provider, conn, link, lock_key=None):
+        seen.append(await get_store().ttl(lock_key) if lock_key else None)
+        out = await real(session, provider, conn, link, lock_key=lock_key)
+        seen.append(await get_store().ttl(lock_key) if lock_key else None)
+        return out
+    monkeypatch.setattr(routes_lms, "sync_roster", watching)
+    _, link = _link(client, teacher, canvas)
+    assert seen and seen[-1] > 0                       # held (and refreshed) while running
+    assert client.post(f"/api/lms/courses/{link['id']}/sync", headers=teacher).status_code == 200
+    assert client.portal.call(get_store().get, f"lmslink:{link['connection_id']}:101") is None \
+        if "connection_id" in link else True

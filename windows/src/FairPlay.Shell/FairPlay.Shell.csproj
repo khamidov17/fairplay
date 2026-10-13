@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The student-facing app: a WPF window hosting WebView2, which runs the existing React exam
+    UI unchanged. Thin by design — exam logic stays in the web app and the server; this project
+    only hosts the page, wires the bridge, and drives the lock.
+
+    Needs the Microsoft.Web.WebView2 package (restored on CI / a dev machine with NuGet access).
+    Evergreen WebView2 runtime by default; a Fixed Version runtime is an optional deployment
+    profile for strict labs (see installer/).
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>FairPlay.Shell</AssemblyName>
+    <RootNamespace>FairPlay.Shell</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Pin an exact, well-aged version; CI restores it. Bump deliberately after testing. -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.2210.55" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../FairPlay.Core/FairPlay.Core.csproj" />
+    <ProjectReference Include="../FairPlay.Guard/FairPlay.Guard.csproj" />
+  </ItemGroup>
+
+  <!-- Ship the embedded build config (release) and the watchdog next to the shell. -->
+  <ItemGroup>
+    <None Include="fairplay-build.json" Condition="Exists('fairplay-build.json')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -17,10 +17,12 @@ def test_student_exam_list(client, teacher, alice, live_exam):
     ids = [x["id"] for x in lst]
     assert live_exam["id"] in ids and draft["id"] not in ids
     item = next(x for x in lst if x["id"] == live_exam["id"])
+    pid = item.pop("package_id")           # audit W-02: opaque, changes with the start code
+    assert len(pid) == 16 and live_exam["start_code"] not in pid
     assert item == {"id": live_exam["id"], "title": "Midterm", "duration_min": 30,
                     "question_count": 3, "status": "live", "attempt": None,
                     "course": "", "room": "", "scheduled_at": None,
-                    "mode": "questions", "delivery": "computer", "class_names": []}
+                    "mode": "questions", "delivery": "computer"}
     a = start(client, alice, live_exam).json()
     item = next(x for x in client.get("/api/student/exams", headers=alice).json()
                 if x["id"] == live_exam["id"])
@@ -43,10 +45,7 @@ def test_start_wrong_then_right_and_resume(client, alice, live_exam):
     a = r.json()
     assert set(a) == {"attempt_id", "exam_id", "title", "duration_min", "started_at", "deadline_at",
                       "server_time", "questions", "answers", "status", "course",
-                      "mode", "external_url", "allowed_domains", "finish_url_contains",
-                      "client_seq",
-                      "exit_check"}  # phase 1a: verifier only, never the exit code
-    assert set(a["exit_check"]) == {"alg", "iterations", "salt", "hash"}
+                      "mode", "external_url", "allowed_domains", "finish_url_contains", "session"}
     assert a["status"] == "in_progress" and a["answers"] == {} and a["title"] == "Midterm"
     for q in a["questions"]:
         for secret in ("correct_index", "answer_number", "tolerance", "accepted_answers"):
@@ -206,10 +205,13 @@ def test_live_endpoint(client, teacher, alice, bob, live_exam):
     s = live["students"][0]
     assert set(s) == {"attempt_id", "username", "name", "status", "started_at", "submitted_at",
                       "deadline_at", "answered", "question_count", "current_question", "locked",
-                      "last_heartbeat_at", "online", "event_count", "last_event", "needs_look"}
+                      "last_heartbeat_at", "online", "event_count", "last_event", "needs_look",
+                      "app_online", "last_app_signal_at", "app_checks", "client", "entries", "late"}
     assert s["name"] == "Alice Chen" and s["status"] == "in_progress"
     assert s["answered"] == 2 and s["question_count"] == 3
-    assert s["current_question"] == 2 and s["locked"] is True and s["online"] is True
+    # audit #2: the page's self-reported "locked" no longer counts (signed app beats only)
+    assert s["current_question"] == 2 and s["locked"] is False and s["online"] is True
+    assert s["app_online"] is False and s["client"] == "browser" and s["entries"] == 1
     assert s["last_heartbeat_at"].endswith("Z")
     assert s["event_count"] == 2 and s["last_event"] == "blocked_shortcut Cmd-key48"
     b = live["students"][1]

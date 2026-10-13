@@ -51,7 +51,7 @@ export function LmsConnectForm({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (providers.length && !providers.some((p) => p.id === providerId)) setProviderId(providers[0].id);
+    if (providers.length && !providers.some((p) => p.id === providerId)) setProviderId(providers[0]!.id);
   }, [providers, providerId]);
 
   const provider = providers.find((p) => p.id === providerId);

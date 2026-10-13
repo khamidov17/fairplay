@@ -10,8 +10,6 @@ import { SendGradesButton } from "../../components/teacher/lms/SendGradesButton"
 import { errorText, eventLabel, formatWhen, num, pct, plural } from "../../components/teacher/util";
 import { formatClock } from "../../lib/timer";
 import { KIND_LABEL, kindOf } from "./examDraft";
-import { ExportButtons } from "./scan/ExportButtons"; // phase 2: CSV / Excel export
-import { StrugglePanel } from "./scan/StrugglePanel"; // phase 2: where students struggled
 
 const LETTERS = "ABCDEFGH";
 
@@ -155,7 +153,6 @@ export function ResultsView({ exam, onExamChange }: { exam: Exam; onExamChange: 
           </button>
         )}
         <SendGradesButton exam={exam} released={released} />
-        <ExportButtons examId={exam.id} />
         {!closed && !released && (
           <span id="release-hint" className="t-small t-muted" style={{ flexBasis: "100%", textAlign: "right" }}>
             Close the exam to release grades.
@@ -199,7 +196,6 @@ export function ResultsView({ exam, onExamChange }: { exam: Exam; onExamChange: 
           {releaseError}
         </div>
       )}
-      {exam.delivery === "paper" && <StrugglePanel examId={exam.id} />}
       {exam.status === "live" && (
         <div className="alert alert-info">The exam is still live. Results update as students submit.</div>
       )}
@@ -408,6 +404,7 @@ function AttemptStatus({ a }: { a: ResultAttempt }) {
     <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
       <Pill>Submitted</Pill>
       {a.auto_submitted && <Pill tone="orange">Auto-submitted</Pill>}
+      {a.late && <Pill tone="orange">Late</Pill>}
     </span>
   );
 }

@@ -284,3 +284,12 @@ textarea.ext-input {
   color: var(--primary);
   font-weight: 600;
 }
+
+/* audit 2026-10-12: broad allowed websites (shown, not blocking) */
+.ext-warn {
+  color: #9a4a06;
+}
+ul.ext-warn {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}

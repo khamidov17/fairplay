@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Tiny separate process started while locked (invoked as: FairPlay.Watchdog.exe watchdog pid).
+    If the shell dies while the lock marker still exists, it restores the HKCU policy journal,
+    reports watchdog_app_killed to the server, and relaunches the shell. Keeping it a separate
+    binary means a crash in the shell can't take the restore logic with it.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AssemblyName>FairPlay.Watchdog</AssemblyName>
+    <RootNamespace>FairPlay.Watchdog</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../FairPlay.Core/FairPlay.Core.csproj" />
+    <ProjectReference Include="../FairPlay.Guard/FairPlay.Guard.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -2,21 +2,17 @@ import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 import type { Exam } from "../../../api/types";
 import "../../../styles/scan.css";
-import { AnswerKeyStep } from "./AnswerKeyStep";
-import { ExportButtons } from "./ExportButtons";
-import { StrugglePanel } from "./StrugglePanel";
 import { PrintStep } from "./PrintStep";
 import { QueueStep } from "./QueueStep";
 import { UploadStep } from "./UploadStep";
 
-export type ScanStep = "print" | "key" | "upload" | "grade" | "release";
+export type ScanStep = "print" | "upload" | "grade" | "release";
 
 export const SCAN_STEPS: { id: ScanStep; n: number; label: string; hint: string }[] = [
   { id: "print", n: 1, label: "Print", hint: "Booklets with codes" },
-  { id: "key", n: 2, label: "Answer key", hint: "Key and rubric for the AI" },
-  { id: "upload", n: 3, label: "Upload scans", hint: "Match pages to students" },
-  { id: "grade", n: 4, label: "AI grading", hint: "Approve or fix drafts" },
-  { id: "release", n: 5, label: "Release", hint: "Students see grades" },
+  { id: "upload", n: 2, label: "Upload scans", hint: "Match pages to students" },
+  { id: "grade", n: 3, label: "AI grading", hint: "Approve or fix drafts" },
+  { id: "release", n: 4, label: "Release", hint: "Students see grades" },
 ];
 
 export function isScanStep(s: string | null): s is ScanStep {
@@ -66,7 +62,6 @@ export function ScanSteps({
 
       <div className="sc-panel">
         {current === "print" && <PrintStep examId={exam.id} title={exam.title} />}
-        {current === "key" && <AnswerKeyStep examId={exam.id} />}
         {current === "upload" && <UploadStep examId={exam.id} onChanged={changed} />}
         {current === "grade" && <QueueStep examId={exam.id} onChanged={changed} />}
         {current === "release" && (
@@ -76,7 +71,7 @@ export function ScanSteps({
               <p>Grades are released. Students see their scores, your comments and the picture of their answers.</p>
             ) : (exam.pending_grading ?? 0) > 0 ? (
               <p>
-                {exam.pending_grading} answers still wait for your approval. Approve them in step 4, then release from
+                {exam.pending_grading} answers still wait for your approval. Approve them in step 3, then release from
                 Results.
               </p>
             ) : (
@@ -86,7 +81,6 @@ export function ScanSteps({
               <Link to={`/teacher/exams/${exam.id}?tab=results`} className="btn btn-primary">
                 Open Results &amp; Release
               </Link>
-              <ExportButtons examId={exam.id} />
               {(exam.pending_grading ?? 0) > 0 && (
                 <button type="button" className="t-btn-outline" onClick={() => go("grade")}>
                   Back to AI grading
@@ -94,9 +88,6 @@ export function ScanSteps({
               )}
             </div>
           </section>
-        )}
-        {current === "release" && (
-          <StrugglePanel examId={exam.id} />
         )}
       </div>
     </div>

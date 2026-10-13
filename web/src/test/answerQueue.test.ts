@@ -44,13 +44,13 @@ describe("AnswerQueue (offline save)", () => {
     expect(statuses[statuses.length - 1]).toBe("synced");
   });
 
-  it("retries after 3 s while offline, backing off, then syncs", async () => {
+  it("retries every 3 s while offline, then syncs", async () => {
     let fail = 2;
     const put = vi.fn(async (_a: AnswerMap, seq: number) => {
       if (fail-- > 0) throw new NetworkError();
       return ok(seq);
     });
-    const q = new AnswerQueue("a1", put, { jitter: 0 });
+    const q = new AnswerQueue("a1", put);
     q.init({});
     q.set("q1", 5);
     await vi.advanceTimersByTimeAsync(1000);
@@ -61,9 +61,7 @@ describe("AnswerQueue (offline save)", () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(put).toHaveBeenCalledTimes(2);
     expect(q.status()).toBe("pending");
-    await vi.advanceTimersByTimeAsync(5999); // second failure: 6 s
-    expect(put).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(3000);
     expect(put).toHaveBeenCalledTimes(3);
     expect(q.status()).toBe("synced");
   });

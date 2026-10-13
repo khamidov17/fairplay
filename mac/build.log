@@ -1,0 +1,15 @@
+==> Compiling (dev build, server http://127.0.0.1:8000)...
+Building for production...
+[1 / 2]
+[2 / 3] Proctora-product
+[3 / 4] Proctora-product
+/Users/macbook/code/fairplay/mac/Package.swift: Proctora-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/macbook/code/fairplay/mac/Package.swift: Proctora-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[5 / 5] Proctora-product
+[7 / 8] Proctora-product
+Build complete! (8,41 secs)
+==> Assembling FairPlay.app...
+==> Signing with 'Proctora Dev'...
+FairPlay.app: replacing existing signature
+==> Done: FairPlay.app (dev)
+    Debug trace: /Users/macbook/code/fairplay/logs/events.log

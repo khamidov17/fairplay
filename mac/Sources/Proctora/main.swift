@@ -1,9 +1,16 @@
 import AppKit
 
+// `--watchdog <pid>`: the helper copy started while locked (Watchdog.swift).
+if CommandLine.arguments.count >= 3, CommandLine.arguments[1] == "--watchdog",
+   let pid = Int32(CommandLine.arguments[2]) {
+    Watchdog.run(parent: pid)
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var main: MainWindowController?
 
     func applicationDidFinishLaunching(_ note: Notification) {
+        DebugLog.installHooks()
         NSApp.setActivationPolicy(.regular)
         buildMenu()
 
@@ -18,8 +25,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         EventLog.shared.onEvent = { [weak wc] type, detail, time in
             wc?.sendEvent(type: type, detail: detail, time: time)
         }
+        AppSession.shared.onStatus = { [weak wc] status in
+            wc?.handleServerStatus(status)
+        }
         NotificationCenter.default.addObserver(forName: .proctoraEmergencyExit, object: nil, queue: .main) { [weak wc] _ in
             wc?.promptEmergencyExit()
+        }
+        if Watchdog.cleanUpAtLaunch() {
+            // The last run ended while locked (killed / crashed). The page forwards this
+            // once the student is back in the exam; the server also sees the beat gap.
+            EventLog.shared.record(.previousRunKilled)
+            DebugLog.log("app", "last run ended while LOCKED (killed, crashed or Mac restarted)")
         }
 
         wc.start()
@@ -27,16 +43,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         print("""
         ------------------------------------------------------------
-        FairPlay \(Config.version)  server: \(Config.serverURL.absoluteString)
+        FairPlay \(Config.version) (\(Config.isDevBuild ? "dev" : "release") build)  server: \(Config.serverURL.absoluteString)
         Safety auto-unlock: \(Config.safetyUnlockMinutes > 0 ? "\(Int(Config.safetyUnlockMinutes)) min" : "off")
-        Invigilator exit while locked: Ctrl-Opt-Cmd-E, per-exam code (teacher's live room)
+        Invigilator exit while locked: Ctrl-Opt-Cmd-E, code from the teacher's live room
+        No server / error: "Offline code..." in that dialog\(Config.isDevBuild ? " (dev builds also accept 0000)" : "")
+        TLS pins: \(Pinning.enabled ? "\(Config.pins.count)" : "none")   device: \(AppSession.shared.deviceId)
         Log: \(EventLog.shared.logPath)
         ------------------------------------------------------------
         """)
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        LockdownController.shared.isLocked ? .terminateCancel : .terminateNow
+        let locked = LockdownController.shared.isLocked
+        DebugLog.log("app", locked ? "quit requested while locked: refused" : "quitting")
+        return locked ? .terminateCancel : .terminateNow
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -45,7 +65,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         main?.takeFocus(); return true
     }
 
-    @objc func reloadPage(_ sender: Any?) { main?.reload() }
+    @objc func reloadPage(_ sender: Any?) {
+        // Audit M-18: a reload during the exam drops page state; not while locked.
+        guard !LockdownController.shared.isLocked else {
+            DebugLog.log("app", "View > Reload ignored while locked")
+            return
+        }
+        DebugLog.log("app", "View > Reload")
+        main?.reload()
+    }
 
     private func buildMenu() {
         let bar = NSMenu()

@@ -18,6 +18,7 @@ import type {
   LoginResponse,
   Me,
   Results,
+  Role,
   SaveAnswersResponse,
   StudentExamSummary,
   SubmitResponse,
@@ -31,13 +32,15 @@ import type {
   LmsProvider,
   LmsPushResult,
 } from "./types"; // slice 5
-import type { AdminStats, AdminTeacher, RegisterInput, RegisterResponse, SessionRole } from "./types";
+
+import * as bridge from "../lib/bridge";
+import { attemptIdOfPath, getAttemptSession, setAttemptSession } from "../lib/appSession";
 
 // ---------- token storage (one token per role) ----------
 
-export const tokenKey = (role: SessionRole) => `proctora:token:${role}`;
+export const tokenKey = (role: Role) => `proctora:token:${role}`;
 
-export function getToken(role: SessionRole): string | null {
+export function getToken(role: Role): string | null {
   try {
     return localStorage.getItem(tokenKey(role));
   } catch {
@@ -45,7 +48,7 @@ export function getToken(role: SessionRole): string | null {
   }
 }
 
-export function setToken(role: SessionRole, token: string): void {
+export function setToken(role: Role, token: string): void {
   try {
     localStorage.setItem(tokenKey(role), token);
   } catch {
@@ -53,21 +56,12 @@ export function setToken(role: SessionRole, token: string): void {
   }
 }
 
-export function clearToken(role: SessionRole): void {
+export function clearToken(role: Role): void {
   try {
     localStorage.removeItem(tokenKey(role));
   } catch {
     /* storage unavailable */
   }
-}
-
-/** Where each role signs in and lands after sign-in (the superadmin lives under /admin). */
-export function loginPath(role: SessionRole): string {
-  return role === "superadmin" ? "/admin/login" : `/${role}/login`;
-}
-
-export function homePath(role: SessionRole): string {
-  return role === "superadmin" ? "/admin" : `/${role}`;
 }
 
 // ---------- errors ----------
@@ -93,10 +87,10 @@ export class NetworkError extends Error {
 
 // ---------- 401 handling ----------
 
-type UnauthorizedHandler = (role: SessionRole) => void;
+type UnauthorizedHandler = (role: Role) => void;
 
 let onUnauthorized: UnauthorizedHandler = (role) => {
-  window.location.assign(loginPath(role));
+  window.location.assign(`/${role}/login`);
 };
 
 /** Override the 401 behaviour (the app uses router navigation; tests use a spy). */
@@ -120,54 +114,37 @@ function detailOf(body: unknown, fallback: string): string {
   return fallback;
 }
 
-export interface RequestOptions {
-  /** Abort and throw NetworkError when there is no response after this long (0 = never). */
-  timeoutMs?: number;
-}
-
-/**
- * Exam-time student calls (save, submit, heartbeat, events, resume) give up after this
- * long. Without it a request on a half-open connection (Wi-Fi switched, laptop woke from
- * sleep) can hang for minutes and, for submit, leave the student stuck on "Submitting".
- */
-export const STUDENT_REQUEST_TIMEOUT_MS = 15_000;
-
 export async function request<T>(
-  role: SessionRole | null,
+  role: Role | null,
   method: string,
   path: string,
   body?: unknown,
-  opts: RequestOptions = {},
 ): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const token = role ? getToken(role) : null;
   if (token) headers.Authorization = `Bearer ${token}`;
+  if (role === "student") {
+    // Audit #3: the attempt's app session goes along with every request for it.
+    const aid = attemptIdOfPath(path);
+    const sess = aid ? getAttemptSession(aid) : null;
+    if (sess) headers["X-FairPlay-Session"] = sess;
+  }
 
-  const ctrl = opts.timeoutMs && typeof AbortController !== "undefined" ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), opts.timeoutMs) : null;
   let res: Response;
   try {
     res = await fetch(path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
-      ...(ctrl ? { signal: ctrl.signal } : {}),
     });
   } catch {
-    if (timer) clearTimeout(timer);
-    throw new NetworkError(ctrl?.signal.aborted ? "The server did not answer in time" : undefined);
+    throw new NetworkError();
   }
+
   let data: unknown = null;
   if (res.status !== 204) {
-    let text: string;
-    try {
-      text = await res.text();
-    } catch {
-      throw new NetworkError(ctrl?.signal.aborted ? "The server did not answer in time" : undefined);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
+    const text = await res.text();
     if (text) {
       try {
         data = JSON.parse(text);
@@ -176,7 +153,6 @@ export async function request<T>(
       }
     }
   }
-  if (timer) clearTimeout(timer);
 
   if (!res.ok) {
     if (res.status === 401 && role) {
@@ -197,25 +173,21 @@ export const auth = {
   login(username: string, password: string): Promise<LoginResponse> {
     return request<LoginResponse>(null, "POST", "/api/auth/login", { username, password });
   },
-  me(role: SessionRole): Promise<Me> {
+  me(role: Role): Promise<Me> {
     return request<Me>(role, "GET", "/api/me");
   },
-  /** Self-registration; like login it sends no token. */
-  register(input: RegisterInput): Promise<RegisterResponse> {
-    return request<RegisterResponse>(null, "POST", "/api/auth/register", input);
-  },
-};
-
-// ---------- superadmin ----------
-
-export const adminApi = {
-  stats: () => request<AdminStats>("superadmin", "GET", "/api/admin/stats"),
-  teachers: () => request<AdminTeacher[]>("superadmin", "GET", "/api/admin/teachers"),
-  setTeacherStatus: (id: number, action: "approve" | "disable" | "enable") =>
-    request<AdminTeacher>("superadmin", "POST", `/api/admin/teachers/${id}/${action}`),
 };
 
 // ---------- teacher ----------
+
+/** ?course=…&class_id=… for the gradebook (2026-10-13: by class). */
+function gbQuery(course: string, classId: number | null): string {
+  const q = new URLSearchParams();
+  if (course) q.set("course", course);
+  if (classId != null) q.set("class_id", String(classId));
+  const s = q.toString();
+  return s ? `?${s}` : "";
+}
 
 export const teacherApi = {
   listExams: () => request<Exam[]>("teacher", "GET", "/api/exams"),
@@ -225,7 +197,18 @@ export const teacherApi = {
   deleteExam: (id: string) => request<void>("teacher", "DELETE", `/api/exams/${enc(id)}`),
   openExam: (id: string) => request<Exam>("teacher", "POST", `/api/exams/${enc(id)}/open`),
   closeExam: (id: string) => request<Exam>("teacher", "POST", `/api/exams/${enc(id)}/close`),
+  /** Audit #13: new start code for a live exam. */
+  rotateCode: (id: string) => request<Exam>("teacher", "POST", `/api/exams/${enc(id)}/rotate-code`),
+  /** Let a student continue on another computer (the old app session stops working). */
+  releaseDevice: (examId: string, aid: string) =>
+    request<{ ok: boolean }>("teacher", "POST", `/api/exams/${enc(examId)}/attempts/${enc(aid)}/release-device`),
   live: (id: string) => request<LiveRoom>("teacher", "GET", `/api/exams/${enc(id)}/live`),
+  /** 8-digit exit code for one student's locked Mac that cannot reach the server
+   *  (the Mac shows a Mac code). Only works on that Mac's current session; logged. */
+  offlineExit: (id: string, aid: string, macCode: string) =>
+    request<{ code: string }>("teacher", "POST", `/api/exams/${enc(id)}/attempts/${enc(aid)}/offline-exit`, {
+      mac_code: macCode,
+    }),
   results: (id: string) => request<Results>("teacher", "GET", `/api/exams/${enc(id)}/results`),
   extend: (id: string, minutes: number) =>
     request<Exam>("teacher", "POST", `/api/exams/${enc(id)}/extend`, { minutes }),
@@ -244,14 +227,14 @@ export const teacherApi = {
     request<Exam>("teacher", "POST", `/api/exams/${enc(id)}/release`, { force }),
   unrelease: (id: string) => request<Exam>("teacher", "POST", `/api/exams/${enc(id)}/unrelease`),
   gradingSummary: () => request<GradingSummary[]>("teacher", "GET", "/api/grading"),
-  gradebook: (course = "") =>
-    request<Gradebook>("teacher", "GET", `/api/gradebook${course ? `?course=${enc(course)}` : ""}`),
+  gradebook: (course = "", classId: number | null = null) =>
+    request<Gradebook>("teacher", "GET", `/api/gradebook${gbQuery(course, classId)}`),
   /** Downloads the CSV with the auth header and returns it as a Blob. */
-  async gradebookCsv(course = ""): Promise<Blob> {
+  async gradebookCsv(course = "", classId: number | null = null): Promise<Blob> {
     const token = getToken("teacher");
     let res: Response;
     try {
-      res = await fetch(`/api/gradebook.csv${course ? `?course=${enc(course)}` : ""}`, {
+      res = await fetch(`/api/gradebook.csv${gbQuery(course, classId)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
     } catch {
@@ -264,40 +247,50 @@ export const teacherApi = {
 
 // ---------- student ----------
 
-const STUDENT_TIMEOUT: RequestOptions = { timeoutMs: STUDENT_REQUEST_TIMEOUT_MS };
+/**
+ * POST start (audit #1): inside the FairPlay app it first gets a single-use challenge and
+ * has the app sign it; in a browser it sends no proof (the server refuses unless
+ * FAIRPLAY_REQUIRE_APP=0). Stores the returned app session for the attempt.
+ */
+async function startAttempt(examId: string, startCode: string, offlineStartedAt?: string): Promise<AttemptView> {
+  const body: Record<string, unknown> = { start_code: startCode };
+  if (offlineStartedAt) body.offline_started_at = offlineStartedAt;
+  if (bridge.isNative()) {
+    const ch = await request<{ nonce: string }>("student", "GET", `/api/student/exams/${enc(examId)}/challenge`);
+    const proof = await bridge.attest(ch.nonce);
+    if (proof) body.client = proof;
+  }
+  const view = await request<AttemptView>("student", "POST", `/api/student/exams/${enc(examId)}/start`, body);
+  if (view.session) {
+    setAttemptSession(view.attempt_id, view.session);
+    const token = getToken("student");
+    if (token) bridge.setExamSession({ attempt_id: view.attempt_id, token, session: view.session });
+  }
+  return view;
+}
 
 export const studentApi = {
   listExams: () => request<StudentExamSummary[]>("student", "GET", "/api/student/exams"),
-  start: (examId: string, startCode: string) =>
-    request<AttemptView>("student", "POST", `/api/student/exams/${enc(examId)}/start`, { start_code: startCode }),
-  getAttempt: (aid: string) =>
-    request<AttemptView>("student", "GET", `/api/student/attempts/${enc(aid)}`, undefined, STUDENT_TIMEOUT),
+  start: (examId: string, startCode: string) => startAttempt(examId, startCode),
+  getAttempt: (aid: string) => request<AttemptView>("student", "GET", `/api/student/attempts/${enc(aid)}`),
   saveAnswers: (aid: string, answers: AnswerMap, clientSeq: number) =>
-    request<SaveAnswersResponse>(
-      "student",
-      "PUT",
-      `/api/student/attempts/${enc(aid)}/answers`,
-      { answers, client_seq: clientSeq },
-      STUDENT_TIMEOUT,
-    ),
+    request<SaveAnswersResponse>("student", "PUT", `/api/student/attempts/${enc(aid)}/answers`, {
+      answers,
+      client_seq: clientSeq,
+    }),
+  /** `locked` is informational only: the server takes lock state from the app's signed beats. */
   heartbeat: (aid: string, currentQuestion: number, locked: boolean) =>
-    request<HeartbeatResponse>(
-      "student",
-      "POST",
-      `/api/student/attempts/${enc(aid)}/heartbeat`,
-      { current_question: currentQuestion, locked },
-      STUDENT_TIMEOUT,
-    ),
+    request<HeartbeatResponse>("student", "POST", `/api/student/attempts/${enc(aid)}/heartbeat`, {
+      current_question: currentQuestion,
+      locked,
+    }),
   events: (aid: string, events: IntegrityEvent[]) =>
-    request<EventsResponse>("student", "POST", `/api/student/attempts/${enc(aid)}/events`, { events }, STUDENT_TIMEOUT),
+    request<EventsResponse>("student", "POST", `/api/student/attempts/${enc(aid)}/events`, { events }),
   submit: (aid: string, answers: AnswerMap, clientSeq: number) =>
-    request<SubmitResponse>(
-      "student",
-      "POST",
-      `/api/student/attempts/${enc(aid)}/submit`,
-      { answers, client_seq: clientSeq },
-      STUDENT_TIMEOUT,
-    ),
+    request<SubmitResponse>("student", "POST", `/api/student/attempts/${enc(aid)}/submit`, {
+      answers,
+      client_seq: clientSeq,
+    }),
   grades: () => request<StudentGradeSummary[]>("student", "GET", "/api/student/grades"),
   feedback: (examId: string) =>
     request<StudentFeedback>("student", "GET", `/api/student/grades/${enc(examId)}`),
@@ -362,12 +355,12 @@ export const slice6Api = {
   topics: () => request<TopicCount[]>("teacher", "GET", "/api/topics"),
   examPackage: (examId: string) =>
     request<OfflinePackage>("student", "GET", `/api/student/exams/${enc(examId)}/package`),
+  /** Audit S-03: second half of the package key, only while the exam is live (class members only). */
+  packageKey: (examId: string) =>
+    request<{ exam_id: string; key: string }>("student", "GET", `/api/student/exams/${enc(examId)}/package-key`),
   /** Start (or resume) after working offline: the server sets the deadline from offline_started_at. */
   startAfterOffline: (examId: string, startCode: string, offlineStartedAt: string) =>
-    request<AttemptView>("student", "POST", `/api/student/exams/${enc(examId)}/start`, {
-      start_code: startCode,
-      offline_started_at: offlineStartedAt,
-    }),
+    startAttempt(examId, startCode, offlineStartedAt),
 };
 
 // ---------- slice 6 F/G: class insights + student profiles ----------
@@ -426,23 +419,30 @@ export const practiceApi = {
     request<PracticeAnswerResponse>("student", "POST", `/api/student/practice/${enc(id)}/items/${enc(itemId)}/answer`, { answer }),
 };
 
-// ---------- phase 1a: offline key release, session timeline, account security ----------
+// ---------- audit 2026-10-12 S-03: classes ----------
 
-import type { OfflineKeyRelease, SessionTimeline } from "./types";
+import type { AddMembersResult, ClassDetail, SchoolClass, StudentClass } from "./types";
 
-export const securityApi = {
-  /** Offline-package key wrapped with the start code (served only while the exam is open). */
-  packageKey: (examId: string) =>
-    request<OfflineKeyRelease>("student", "GET", `/api/student/exams/${enc(examId)}/package-key`),
-  /** Teacher: merged audit + integrity + heartbeat-gap timeline of one student session. */
-  timeline: (examId: string, attemptId: string) =>
-    request<SessionTimeline>("teacher", "GET", `/api/exams/${enc(examId)}/attempts/${enc(attemptId)}/timeline`),
-  /** Change the password; every other sign-in of this account stops working. Returns a new token. */
-  changePassword: (role: SessionRole, currentPassword: string, newPassword: string) =>
-    request<LoginResponse>(role, "POST", "/api/auth/password", {
-      current_password: currentPassword,
-      new_password: newPassword,
-    }),
-  /** Sign this account out on every device (this one too). */
-  logoutAll: (role: SessionRole) => request<void>(role, "POST", "/api/auth/logout-all"),
+export const classesApi = {
+  list: () => request<SchoolClass[]>("teacher", "GET", "/api/classes"),
+  create: (name: string, term = "") => request<SchoolClass>("teacher", "POST", "/api/classes", { name, term }),
+  get: (id: number) => request<ClassDetail>("teacher", "GET", `/api/classes/${id}`),
+  rename: (id: number, name: string) => request<SchoolClass>("teacher", "PUT", `/api/classes/${id}`, { name }),
+  update: (id: number, name: string, term: string) =>
+    request<SchoolClass>("teacher", "PUT", `/api/classes/${id}`, { name, term }),
+  newJoinCode: (id: number) => request<SchoolClass>("teacher", "POST", `/api/classes/${id}/join-code`),
+  addMembers: (id: number, usernames: string[]) =>
+    request<AddMembersResult>("teacher", "POST", `/api/classes/${id}/members`, { usernames }),
+  removeMember: (id: number, username: string) =>
+    request<void>("teacher", "DELETE", `/api/classes/${id}/members/${enc(username)}`),
+  /** Audit S-15: sign the student out on every device. */
+  signOutMember: (id: number, username: string) =>
+    request<{ ok: boolean }>("teacher", "POST", `/api/classes/${id}/members/${enc(username)}/sign-out`),
+  remove: (id: number) => request<void>("teacher", "DELETE", `/api/classes/${id}`),
+};
+
+export const studentClassesApi = {
+  list: () => request<StudentClass[]>("student", "GET", "/api/student/classes"),
+  join: (code: string) => request<StudentClass>("student", "POST", "/api/student/classes/join", { code }),
+  leave: (id: number) => request<void>("student", "DELETE", `/api/student/classes/${id}`),
 };

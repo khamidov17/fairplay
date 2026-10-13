@@ -302,7 +302,7 @@ export default function PracticePage() {
         ) : (
           drafts.map((s) =>
             open[s.id] ? (
-              <SetEditor key={s.id} set={open[s.id]} onChange={updateSet} onDelete={removeSet} onError={setError} />
+              <SetEditor key={s.id} set={open[s.id]!} onChange={updateSet} onDelete={removeSet} onError={setError} />
             ) : (
               <div key={s.id} className="t-card pr-set-row">
                 <div>
@@ -509,7 +509,7 @@ function SetEditor({
               className="t-btn-outline"
               disabled={!pick || busy}
               onClick={() => {
-                const [examId, qid] = pick.split("/");
+                const [examId = "", qid = ""] = pick.split("/");
                 setPick("");
                 setBank((b) => (b ? b.filter((q) => `${q.exam_id}/${q.question_id}` !== `${examId}/${qid}`) : b));
                 void run(() => practiceApi.addItem(set.id, examId, qid));

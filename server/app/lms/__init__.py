@@ -21,11 +21,12 @@ def provider_list() -> list[dict]:
     return [cls.info.as_dict() for cls in PROVIDERS.values()]
 
 
-def make_provider(provider_id: str, base_url: str, credential: str) -> LmsProvider:
+def make_provider(provider_id: str, base_url: str, credential: str,
+                  allow_private: bool = False) -> LmsProvider:
     cls = PROVIDERS.get(provider_id)
     if cls is None:
         raise LmsError(f"Unknown LMS “{provider_id}”")
-    return cls(base_url, credential)
+    return cls(base_url, credential, allow_private=allow_private)
 
 
 __all__ = ["PROVIDERS", "GradeError", "GradeRow", "LmsAuthError", "LmsCourse", "LmsError",

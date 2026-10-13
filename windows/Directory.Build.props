@@ -1,0 +1,16 @@
+<Project>
+  <!-- Common settings for every FairPlay.Windows project. -->
+  <PropertyGroup>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <Product>FairPlay</Product>
+    <Company>FairPlay</Company>
+    <!-- Keep the student build hard to read: no debug symbols in release, trimmed where possible.
+         Real obfuscation is applied in CI (tools/obfuscate), not here. -->
+    <Deterministic>true</Deterministic>
+    <FairPlayProtocolVersion>1</FairPlayProtocolVersion>
+  </PropertyGroup>
+</Project>

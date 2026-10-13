@@ -7,11 +7,15 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { ApiError, getToken, studentApi } from "../../api/client";
 import type { AttemptView } from "../../api/types";
 import * as bridge from "../../lib/bridge";
+import { getAttemptSession } from "../../lib/appSession";
 import { useForwardNativeEvents } from "../../lib/useForwardNativeEvents";
 import { clockOffset, remainingMs } from "../../lib/timer";
+import { ReenterExam, isSessionConflict } from "../../components/student/ReenterExam";
+import { PreflightProblems } from "../../components/student/Preflight";
 import "../../styles/external.css";
+import "../../styles/student.css";
 
-type Phase = "loading" | "loadError" | "notNative" | "locking" | "lockFailed" | "opening" | "openFailed";
+type Phase = "loading" | "loadError" | "reenter" | "notNative" | "locking" | "preflight" | "lockFailed" | "opening" | "openFailed";
 
 export default function ExternalExamPage() {
   const { attemptId = "" } = useParams();
@@ -21,6 +25,7 @@ export default function ExternalExamPage() {
   const [attempt, setAttempt] = useState<AttemptView | null>(null);
   const [loadError, setLoadError] = useState("");
   const [lockReason, setLockReason] = useState("");
+  const [preflightProblems, setPreflightProblems] = useState<string[]>([]);
   // server clock offset measured when the attempt arrived
   const offsetRef = useRef(0);
   const lockingRef = useRef(false);
@@ -46,9 +51,17 @@ export default function ExternalExamPage() {
       },
       (e: unknown) => {
         if (!alive) return;
+        if (e instanceof ApiError && isSessionConflict(e.status, e.detail)) {
+          setLoadError(e.detail);       // audit W-01
+          setPhase("reenter");
+          return;
+        }
+        // Audit W-11: say what the server said; only a network failure is "cannot reach".
         setLoadError(
-          e instanceof ApiError && e.status === 404
-            ? "This exam attempt was not found."
+          e instanceof ApiError
+            ? e.status === 404
+              ? "This exam attempt was not found."
+              : e.detail
             : "Cannot reach the server. Check the connection and try again.",
         );
         setPhase("loadError");
@@ -68,6 +81,13 @@ export default function ExternalExamPage() {
         return;
       }
       const token = getToken("student");
+      const session = getAttemptSession(a.attempt_id);
+      if (!session) {
+        // Audit W-01: no app session for this attempt on this computer: start code again.
+        setLoadError("This computer has no session for this exam.");
+        setPhase("reenter");
+        return;
+      }
       if (!token || !a.external_url) {
         setPhase("openFailed");
         return;
@@ -83,7 +103,7 @@ export default function ExternalExamPage() {
         server_time: new Date(Date.now() + offsetRef.current).toISOString(),
         title: a.course ? `${a.course} ${a.title}` : a.title,
         token,
-        exit_check: a.exit_check ?? null, // phase 1a: invigilator exit while offline
+        session,
       });
       if (!sent) setPhase("openFailed");
     },
@@ -94,7 +114,19 @@ export default function ExternalExamPage() {
     if (!attempt || lockingRef.current) return;
     lockingRef.current = true;
     setPhase("locking");
-    const res = await bridge.requestLock();
+    const problems = await bridge.preflight();          // audit M-11
+    if (problems.length > 0) {
+      lockingRef.current = false;
+      setPreflightProblems(problems);
+      setPhase("preflight");
+      return;
+    }
+    const token = getToken("student");
+    const session = getAttemptSession(attempt.attempt_id);
+    const res = await bridge.requestLock(
+      10000,
+      token && session ? { attempt_id: attempt.attempt_id, token, session } : undefined,
+    );
     lockingRef.current = false;
     if (res.ok) open(attempt);
     else {
@@ -137,6 +169,13 @@ export default function ExternalExamPage() {
     );
   }
 
+  if (phase === "reenter") return <ReenterExam attemptId={attemptId} detail={loadError} />;
+  if (phase === "preflight")
+    return (
+      <div className="stu stu-exam">
+        <PreflightProblems problems={preflightProblems} onRetry={() => void lock()} />
+      </div>
+    );
   if (phase === "loadError")
     return (
       <div className="ext-page">

@@ -500,747 +500,95 @@ is derived for old exams: mode external → "website", else "computer". New exam
 - Web: local attempt id `offline:<exam_id>`; record `fairplay:offline:<exam_id>` = {exam_id, start_code, started_at, view,
   real_attempt_id}. The exam page keeps running under the offline URL after reconnect and routes every call to the real id.
 
----
 
-# Phase 1a — trustworthy exam sessions (security + audit)
+## App session and lockdown hardening (audit 2026-10-12)
 
-Everything above stays valid unless changed here.
+Binding for `server/`, `web/` and `mac/`. Background: `claude/lockdown-audit-2026-10-12.md`.
 
-## Environment and deployment
-- `FAIRPLAY_ENV` = `development` (default) | `production`. Production refuses to start when `PROCTORA_SECRET` is
-  unset, the dev value, or shorter than 32 characters, or when `FAIRPLAY_CORS_ORIGINS` contains `*`; it warns loudly
-  without `REDIS_URL`; it never creates the demo users; load-test users need `PROCTORA_SEED_LOADTEST_USERS=N` **and**
-  `FAIRPLAY_ALLOW_LOADTEST_USERS=1`.
-- First accounts in production: `python -m app.manage create-user --username U --name "N" --role teacher`
-  (password prompted twice, or `--password-stdin`); also `set-password`, `revoke-tokens`, `unlock-login`.
-  `--role` is passed through unchanged (any role the token code accepts).
-- CORS: `FAIRPLAY_CORS_ORIGINS` (comma list). Default: `*` in development, none (same-origin only) in production.
-  (Replaces "CORS: allow all origins (dev)" in Serving.)
-- Every response carries `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`, `X-Frame-Options: DENY`,
-  `Cross-Origin-Opener-Policy: same-origin` and `Content-Security-Policy: default-src 'self'; script-src 'self';
-  style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self';
-  object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'`; production adds HSTS. Nothing in
-  FairPlay is framed (the Mac app and website exams navigate top-level). A route's own header wins.
+### Server settings
 
-## Auth (changed / added)
-- Sign-in limits (store-backed, shared by all workers): 10 failures per username in 15 min, or 100 per IP, lock that
-  username / IP for 15 min → `429 {"detail": "Too many failed sign-ins. Try again in N minutes."}` (even with the right
-  password). Success resets the username counter.
-- Token payload is now `user_id:role:exp:token_version` (HMAC-SHA256 as before; 3-field tokens count as version 0).
-  `users.token_version` (int, default 0) is checked on every request through the store (`tv:<user_id>`, 10 min
-  cache, DB read on a miss): a token older than the user's current version → 401.
-- `POST /api/auth/password` `{"current_password","new_password" (≥ 8)}` → `{"token","role","name"}` (new token);
-  wrong current password → 403. Bumps token_version, so every other sign-in stops working.
-- `POST /api/auth/logout-all` → 204: bumps token_version (sign out everywhere, including this device).
-- Admins (later: superadmin endpoint) call `app.account.revoke_user_tokens(session, user_id)`.
+| env | meaning |
+|---|---|
+| `PROCTORA_SECRET` (or `FAIRPLAY_SECRET`) | required, 16+ chars. The old public default is refused. Without it the server **does not start** unless `FAIRPLAY_DEV=1` (then a random secret is kept in `data/secret.key`). |
+| `FAIRPLAY_APP_KEY` | required when `FAIRPLAY_REQUIRE_APP=1`: HMAC key compiled into the Mac app (`mac/build.sh`). Comma-separated list during key rotation. The public dev key is accepted only with `FAIRPLAY_DEV=1`. |
+| `FAIRPLAY_REQUIRE_APP` | default `1`: exams start only from the app. `0` = browser demo mode (e2e scripts, demos); browser attempts show as client "browser". |
+| `FAIRPLAY_DEV` | `1` for a local laptop demo only (`Run Server.command` sets it). |
+| `FAIRPLAY_CORS_ORIGINS` | extra origins (comma-separated). Default: none (the UI is same-origin). Dev adds the Vite dev server. |
 
-## Invigilator exit code (replaces the fixed 1234)
-- `POST /open` issues a new per-exam code `XXXX-XXXX` (8 chars from the receipt alphabet, ~40 bits). Teacher only:
-  `exit_code` in the teacher Exam (null while draft) and in `GET /live`. Never in a student response.
-- Student attempt view (start / GET attempt) and the offline key release add
-  `"exit_check": {"alg":"PBKDF2-SHA256","iterations":100000,"salt":b64,"hash":b64}` = PBKDF2(normalised code, salt).
-  Normalised = upper-case, letters and digits only (`k7q2 m9xd` = `K7Q2-M9XD`).
-- `POST /api/student/attempts/{aid}/exit-code` `{"code"}` (own attempt) → `{"ok": true}` | 403 `Wrong exit code` |
-  429 after 5 wrong in 10 min (5 min lock) | 404 not this student's attempt. Every try is audited.
-- Native bridge (added): JS → native `{"action":"examSession","attempt_id": str|null,"token": str|null,
-  "exit_check": {...}|null}`, sent before `lock` and again when an offline attempt gets its server id; `openExternal`
-  also carries `exit_check`. On Ctrl-Opt-Cmd-E the app asks the server first; only when the server cannot be reached
-  does it compare with `exit_check` locally. The integrity event `emergency_exit` detail says how it was verified
-  (`server` / `offline` / `override`). `defaults write ai.proctora.student InvigilatorCode X` is a dev/IT override used
-  only when no exam session is known; there is no built-in default code any more.
+Start codes have **6 digits**. Each live exam also has a 6-digit `invigilator_code` (teacher views only: exam, live room).
 
-## Attempt-session write rules (unchanged, now tested)
-- Answer saves: 409 after the deadline (`Time is up`), after submit / close (`Attempt already submitted`).
-- Submit: idempotent (same receipt); after the deadline + 60 s still accepted but marked late (offline work is never
-  lost) and audited with `late: true` and whether the submit body carried newer answers.
-- Heartbeat after submit / close returns `status: "submitted"`. Start after submit → 409; after close → 409.
+### Start (app proof)
 
-## Offline package security (replaces the key of slice 6 A)
-Threat model. A student may copy the package off the laptop, work on it at leisure with fast hardware, share it
-with others, and use their own valid token against the API. The start code (4 digits = 10 000 values) is a
-"you are in the room now" check, not a cryptographic secret: anything that lets a student test start codes offline
-reveals the code in seconds. Goals: (1) a package obtained before the exam opens reveals nothing; (2) a package is
-only useful together with something the server hands out only while the exam is open, to an authenticated student
-allowed to take it; (3) every hand-out is recorded; (4) a student whose network drops at the start can still begin.
+1. `GET /api/student/exams/{id}/challenge` → `{"nonce", "expires_in": 120}` (single use, bound to student + exam).
+2. Page → app bridge `{"action":"attest","nonce"}` → app replies event `{"type":"attestation","nonce","device_id","signature","version","build"}` (or `attestationFailed`).
+   `signature = hex(HMAC-SHA256(app key, "start|<nonce>|<device_id>"))`.
+3. `POST /api/student/exams/{id}/start` body adds `"client": {"device_id","nonce","signature","version","build"}`.
+   - no `client` and `FAIRPLAY_REQUIRE_APP=1` → `403 {"detail": "Open this exam in the FairPlay app. ..."}`; bad/reused proof → `403`.
+   - Response = attempt view + `"session"` (string). The page stores it per attempt and sends `X-FairPlay-Session: <session>` on **every** `/api/student/attempts/{aid}/...` request (GET included).
+   - Existing attempt, other device → `409 "This exam is already open on another computer..."` + event `second_device`.
+   - Existing attempt, same device → new session (old one stops working) + event `re_entry`, except a repeat within 15 s (double click).
+   - After `POST /api/exams/{id}/attempts/{aid}/release-device` (teacher) the next start from any app binds the attempt (event `device_bound`).
+4. Wrong/missing session on an attempt request → `409 "This exam was opened somewhere else..."` + event `foreign_session` (max 1/min). In browser demo mode a request without the header is still accepted.
 
-Design (package format version 2):
-- `GET /api/student/exams/{id}/package` (student; exam live, or scheduled to start within 2 h; website / paper → 409 /
-  404; LMS course gate as for start) → `{"exam_id","version":2,"alg":"AES-GCM","iv","ciphertext"}` =
-  AES-256-GCM(K, iv, plaintext, aad = exam_id), K = random 256-bit per-exam key (`exams.package_key`, created on first
-  use, dropped at close so the next opening gets a new K). No part of it depends on the start code, so it cannot be
-  brute-forced.
-- `GET /api/student/exams/{id}/package-key` (student; exam **live** only, else 409) → `{"exam_id","version":2,
-  "alg":"PBKDF2-SHA256/AES-GCM","iterations":100000,"salt","iv","wrapped_key","exit_check"}`: K wrapped with
-  KEK = PBKDF2-SHA256(start_code + exam_id, salt, iterations, 32 bytes) → AES-GCM(aad = exam_id). The check-in page
-  fetches it once the exam is open (`fairplay:pkgkey:<exam_id>`); an offline start needs both halves; a wrong typed
-  code fails the GCM check ("Wrong start code"). Both responses are cached per exam (one PBKDF2 per room).
-- Audit: `package_downloaded` and `package_key_released` once per student per exam opening.
-- The server re-checks the start code when the offline attempt reaches it (`POST start` with `offline_started_at`).
-Residual risk (accepted, documented): once the exam is open, a student who fetched the key release can brute-force
-the start code from it, i.e. learn the code without being in the room. Mitigations: release only while live, only to
-authenticated students allowed to start (course gate), each release audited and shown in the session timeline,
-offline starts are marked in the audit log with the claimed start time (clamped to 30 min), and closing/reopening
-the exam rotates K and the code. If this is not acceptable for a deployment, the next step is to deliver the key
-release only to registered devices or to bind it to the student (per-student wrap), at the cost of one PBKDF2 per
-student.
+### App beats (the only source of "locked")
 
-## Audit log
-Table `audit_events` (append-only; no foreign keys so an exam delete keeps its trail):
-`id, at, actor_id, actor_role ("student"|"teacher"|"system"|""), ip, user_agent, action, exam_id, attempt_id,
-detail (JSON)`. Indexes (exam_id, attempt_id, at), (attempt_id, at), (actor_id, at).
-Actions: `login_ok, login_failed, login_locked, password_changed, sessions_revoked, exam_opened, exam_closed,
-deadline_extended, start_code_wrong, attempt_started (detail.offline …), attempt_resumed, answer_saved (coalesced:
-one row per attempt per 5 min with first_seq, last_seq, count, until), connection_lost / connection_restored
-(heartbeat gap > 30 s, detail.gap_s), submitted (receipt, late, answers_from_submit), auto_submitted (receipt),
-grade_changed (question_id, question_index, old_points, points), comment_changed, grades_released,
-grades_unreleased, package_downloaded, package_key_released, exit_code_used, exit_code_rejected`.
-Integrity events stay in `integrity_events` and are merged into the timeline. Hot-path cost: a save adds two store
-operations (DB row only when a 5-min window closes), a heartbeat one store GETSET (DB rows only after a gap).
-Helpers for other modules: `app.audit.add(session, action, ...)` (in the caller's transaction) and
-`await app.audit.record(action, ...)` (own transaction, never raises).
+`POST /api/student/attempts/{aid}/app-beat` every 5 s, sent by the **app** (not the page), with the student token and `X-FairPlay-Session`:
+`{"session","device_id","ts","locked","checks","signature"}`, `signature = hex(HMAC(app key, "beat|<aid>|<session>|<device_id>|<ts>|<0|1>|<checks>"))`, `ts` = client ms, strictly increasing.
+`checks` e.g. `vm=0,disp=1,mir=0,tap=1,inp=1,proc=0`. Response `{"ok","status","deadline_at","server_time"}`.
+Server events: `app_gap` (> 20 s since the last beat), `unlocked_in_exam` (locked → unlocked while writing), `no_app_signal` (page heartbeats but no app beat for 45 s; max 1 per 5 min).
+`POST .../heartbeat` still updates "online"/current question; its `locked` is ignored.
 
-`GET /api/exams/{exam_id}/attempts/{attempt_id}/timeline` (teacher, own exam only; 404 otherwise) →
-```json
-{"exam_id","attempt_id","exam_title","student":{"username","name"},"status","started_at","deadline_at",
- "submitted_at","receipt","late","auto_submitted",
- "events":[{"at":"ISO","source":"audit"|"integrity"|"heartbeat","action":"connection_lost",
-            "summary":"Connection lost (no heartbeat from the exam page)","actor":"student"|"teacher"|"system",
-            "ip":"10.0.0.7"|null,"detail":{},"tone":"info"|"warn"|"good"}]}
-```
-Ordered by time: this attempt's audit rows, the student's sign-ins and exam-level actions around the session,
-exam open/close/extend/release, integrity events (client time when believable), and a trailing "No heartbeat since"
-line when an in-progress attempt has gone quiet. Web: `/teacher/exams/:id/submissions/:attemptId/timeline`
-("Session timeline", linked from the submission review page).
+Live room student fields added: `app_online`, `last_app_signal_at`, `app_checks`, `client` ("app"|"browser"), `entries`; `locked` = fresh signed beat says locked. Live room adds `invigilator_code`.
 
-## Uploads (clarified)
-`GET /api/uploads/{id}` stays unauthenticated: an upload id is a 128-bit capability (unguessable, never listed),
-because `<img>` tags cannot send a bearer token. Uploading needs a teacher. Anyone who is given an upload URL can
-read that image; do not put upload URLs anywhere other than the exam/grading views of the people allowed to see them.
-# Registration + superadmin
+### Invigilator exit
 
-## Users (added columns)
-- `email` (nullable, unique, stored lowercase), `status` `"active" | "pending" | "disabled"` (default `active`),
-  `last_login_at` (set on every successful login). Registered usernames are stored lowercase.
+App (Ctrl-Opt-Cmd-E) → `POST /api/student/attempts/{aid}/exit-code {"code"}` → `{"ok": true}` or `403`; 5 wrong → `429` for 5 min. Events `emergency_exit`, `emergency_exit_rejected`. No code is stored in the app.
 
-## Auth (added / changed)
-- `POST /api/auth/login`: `username` may be a username **or an email** (contains `@`; case-insensitive), max 254.
-  Right password but `status` pending → `403 {"detail": "Your teacher account is waiting for approval by an administrator."}`;
-  disabled → `403 {"detail": "This account has been disabled. Contact your administrator."}`. Wrong password stays 401
-  (status is never revealed before the password is checked). Response `role` may be `"superadmin"`.
-- `POST /api/auth/register` (no token) body `{"name","email","username","password","role": "teacher"|"student"}` →
-  `201 {"status": "active", "role", "name", "token"}` (signed in, like login) or, for a teacher in approval mode,
-  `201 {"status": "pending", "role": "teacher", "name", "token": null, "detail"}`.
-  - name 2–100 chars (whitespace collapsed); email `x@y.z`; username `^[a-z0-9][a-z0-9._-]{2,31}$` after lowercasing;
-    password 8–128 chars, letters plus a digit or symbol, at least 4 distinct characters, not containing the username
-    or the email's local part. Invalid → 422 `{"detail": str}`.
-  - Username or email already used (case-insensitive) → 409. More than 10 sign-ups per client IP per hour → 429.
-  - Teachers follow env `FAIRPLAY_TEACHER_SIGNUP`: `open` (default in development) → active; `approval` (default when
-    `FAIRPLAY_ENV=production`) → pending; `closed` → 403. Students can always sign up (they join classes with a code).
-- Role `superadmin`: accepted in tokens; dependency `require_superadmin`. Teacher/student endpoints answer 403 to it.
-  Dev seed: `admin` / `admin123` ("Platform Admin"), alongside the other dev users.
+**Offline exit (2026-10-12, reworked after review)** — when the server cannot answer (no network, 5xx, session moved) or the invigilator picks "Offline code…" in the same dialog. The locked Mac shows a random **Mac code** (8 chars from `ABCDEFGHJKMNPQRSTUVWXYZ23456789`, shown as `XXXX-XXXX`, new per lock). Exit code = first 4 bytes of `HMAC-SHA256(K, "offline-exit|<MAC CODE>")` big-endian, mod 10^8, 8 digits zero-padded. Checked in the app; 5 wrong → 5 min wait.
 
-## Admin API (role superadmin; teachers and students get 403)
-- `GET /api/admin/stats` → `{"teachers": {"active","pending","disabled","total"}, "students", "exams_created",
-  "exams_held" (status live or closed = opened at least once), "attempts_submitted", "active_teachers_7d",
-  "active_teachers_30d", "generated_at"}`. A teacher is active in a window when one of their exams was created or
-  changed (edit/open/close/release bump `updated_at`) or a submitted attempt of theirs was graded/commented
-  (`updated_at > submitted_at`) in it.
-- `GET /api/admin/teachers` → `[{"id","username","name","email"|null,"status","created_at","last_login_at"|null,
-  "exams","students_reached"}]` (pending first, then newest). `students_reached` = distinct students with an attempt.
-- `POST /api/admin/teachers/{id}/approve` (pending → active), `/disable` (any → disabled), `/enable` (disabled → active)
-  → the updated teacher row; not a teacher → 404; wrong current status → 409.
+`K` is the attempt's **offline key**: `HMAC-SHA256(server secret, "offline-exit-key|<attempt>|<session>")`. It is not the app key and is not in the binary. The app fetches it itself right after the exam session is known:
 
-## Web
-- `/register` (`?role=teacher|student` preselects the role): full name, email, username, password + confirmation, role.
-  Linked as "Create account" from `/teacher/login` and `/student/login`; login pages show "Forgot password?" →
-  "Contact your administrator to reset your password." Label "Username or email" (input ids unchanged: `#username`, `#password`).
-- After sign-in on any login page the token is stored for the returned role and the app goes to that role's home:
-  teacher → `/teacher`, student → `/student`, superadmin → `/admin`.
-- `/admin/login`, `/admin` (RequireAuth role superadmin): top bar with name + Sign out, tiles, teacher table with
-  Approve / Disable / Enable. Token key `proctora:token:superadmin`. Types: `SessionRole = Role | "superadmin"`.
-# Classes (Google-Classroom style) — as implemented
+- `POST /api/student/attempts/{aid}/offline-key {"session","device_id","ts","signature"}`, signature = HMAC(app key, `offkey|<aid>|<session>|<device_id>|<ts>`) → `{"key": "<64 hex>"}`. **Once per session**: a second request → `409` + event `offline_key_requested_twice`. The page never sees the key; the app keeps it in memory only.
+- Teacher: `POST /api/exams/{id}/attempts/{aid}/offline-exit {"mac_code"}` → `{"code"}` for that student's current session; event `offline_exit_code_issued` (not a flag). Live room: "Mac offline or stuck? · offline exit" → pick the student, type the Mac code.
+- App events `offline_exit` / `offline_exit_rejected`, forwarded when the page is online again.
+- No key (the app never reached the server for this exam): **release builds have no offline exit** — restart the Mac, answers are saved. Dev builds fall back to the app key (`server/tools/offline_exit_code.py`) and also accept `0000` (`defaults write ai.proctora.student DevExitCode <code>`).
+- Limit: someone who extracted the app key AND holds the student's token can request the key once per session — that request is either the app's own (then theirs is refused and flagged) or it makes the app's refused (no offline exit, flagged). App Attest (M-20) closes this.
+- Test vectors: key bytes `00 01 … 1f`, Mac code `K7QM3XPA` → `06710479`; dev key (fallback) → `37496243`.
 
-Goal: put students in a class once, then give an exam to the whole class. Server: `server/app/classes/`
-(models, service with the eligibility rule) + `server/app/routes_classes.py`. Web: `/teacher/classes`,
-`/teacher/classes/:classId`, `/student/classes`; API module `web/src/api/classes.ts`.
+### Dev trace log
 
-## Model
-- `classes`: id, teacher_id, name (1–120), section (course code, ≤ 64), term (≤ 64), description (≤ 2000),
-  join_code (7 chars from `ABCDEFGHJKMNPQRSTUVWXYZ23456789` — no 0/O/1/I/L; unique; regenerable), join_enabled (default true),
-  archived (default false), created_at.
-- `class_members`: class_id, user_id, joined_at, added_by `"teacher"|"code"|"lms"`; unique (class_id, user_id). Only
-  `role = student` users are ever members.
-- `exam_classes`: exam_id, class_id; unique pair; both FKs `ON DELETE CASCADE` (deleting an exam drops its assignments).
+Dev builds write `logs/events.log` in the repo (path compiled in by `mac/build.sh`, override with `FAIRPLAY_DEBUG_LOG`; rotates at 5 MB to `events.log.1`): clicks in the app and on the page (element only), lock/unlock, check results, every app-quit attempt and its result, bridge messages, app↔server requests that fail (and all non-beat requests), page fetch errors, JavaScript errors/console.error, page crashes, uncaught exceptions, sleep/wake. Never typed text, codes, tokens or answers. Release builds write nothing there.
 
-## Eligibility rule (who may see and start an exam)
-Precedence, first match wins (`app.classes.service.exam_gate` / `require_exam_access`):
-1. **Explicit roster** (`scan_exam_roster` rows, `PUT /api/exams/{id}/roster`) → only those students.
-2. **Assigned classes** (≥ 1 `exam_classes` row) → only members of *any* assigned class (union). Archived classes still count.
-3. **Linked LMS course** (`course_link_id`, slice 5, unchanged) → only course members (403 "This exam is for <course> students").
-4. **None of these** → open, as before: any student with the start code.
-- Refused in 1/2 → `403 {"detail":"You are not in a class for this exam"}`. Applied to `POST /api/student/exams/{id}/start`
-  (checked after "Exam is not open" and before the start code, so refused students do not burn wrong-code attempts) and
-  `GET /api/student/exams/{id}/package`. Every other student endpoint is attempt-bound (own attempt only).
-- `GET /api/student/exams`: exams restricted by 1/2 that the student is not in are hidden (unless the student already has
-  an attempt). Each item gains `"class_names": [str]` — the student's classes the exam is assigned to (`[]` when none).
-- Teacher UI shows "Not assigned to any class: any student with the start code can join." for case 4.
-- Paper exams (Scan & Grade): `roster_of` uses the same order — `source` is `"picked"` (explicit roster) >
-  `"classes"` (union of class members) > `"course"` > `"all"`. `PUT roster []` returns to the default (classes, else course, else all).
+### Teacher
 
-## Teacher API (role teacher; another teacher's class or exam → 404)
-- `GET /api/classes[?archived=true]` → `[Class]` (active by default), by name. Class =
-  `{"id","name","section","term","description","join_code","join_enabled","archived","created_at","member_count","exam_count"}`.
-- `POST /api/classes` `{"name","section"?,"term"?,"description"?}` → 201 Class (blank name → 422).
-- `GET /api/classes/{id}` → Class + `"students":[{"id","username","name","email"|null,"joined_at","added_by"}]` (by name) +
-  `"exams":[{"id","title","status","course","delivery","scheduled_at","created_at"}]` (newest first).
-- `PATCH /api/classes/{id}` any of `name, section, term, description, join_enabled, archived` → Class (archive = `{"archived":true}`).
-- `POST /api/classes/{id}/join-code` → Class with a new code; the old code stops working.
-- `POST /api/classes/{id}/members` `{"text": "alice\nbob@x.edu"}` and/or `{"entries": [...]}` (newline / comma / semicolon /
-  tab separated, case-insensitive; matches `User.username`, and `User.email` when that column exists) →
-  `{"added":[Student],"already":[Student],"not_found":[str],"class":Class}`. Nothing to add → 422. Teachers never match.
-- `POST /api/classes/{id}/members/csv` `{"csv": "<file text>"}` — header row with `username`/`email`/`login`/`id` columns
-  (+ optional `name` column used in the not-found label `"Name (id)"`), or a plain list (every cell tried) → same shape.
-- `POST /api/classes/{id}/members/lms` `{"course_link_id"}` → copies the already-synced `CourseMember`s of the teacher's
-  linked course (no LMS call); `added_by "lms"`. Unknown / other teacher's link → 404.
-- `DELETE /api/classes/{id}/members/{user_id}` → 204 (not a member → 404).
-- `GET /api/exams/{id}/classes` / `PUT /api/exams/{id}/classes {"class_ids":[...]}` (replace; any exam status) →
-  `{"exam_id","classes":[{"id","name","section","term","archived","member_count"}],"student_count" (union),
-  "roster_override": bool, "audience": "roster"|"classes"|"course"|"open"}`. A class id not owned → 404 "Class not found".
-- `GET /api/gradebook[.csv]?class_id=` → only that class's students and the exams assigned to it (combinable with `course`).
+- `POST /api/exams/{id}/rotate-code` → exam with a new start code (live only). Offline packages need the new code.
+- `POST /api/exams/{id}/attempts/{aid}/release-device` → `{"ok": true}`.
 
-## Student API (role student)
-- `GET /api/student/classes` → `[{"id","name","section","term","description","teacher_name","joined_at",
-  "exams":[{"id","title","course","status","scheduled_at","duration_min","delivery","attempt":null|{"attempt_id","status"}}]}]`
-  — non-archived classes only; exams listed: live, closed, or drafts with a planned date (paper exams never).
-- `POST /api/student/classes/join` `{"code"}` (spaces/dashes ignored, case-insensitive) →
-  `{"id","name","section","term","teacher_name","already_member"}`. Unknown or archived class → 404
-  "No class has this code. Check it with your teacher."; joining off → 403 "Joining this class is turned off. Ask your teacher."
-  (already-members get 200). 10 wrong codes in 10 min → 429 "Too many wrong class codes, wait 10 minutes".
+### Native bridge (changed)
 
-## Web
-- Teacher nav "Classes": tiles (Active / Archived) + "New class"; class page: large join code with Copy, Regenerate
-  (confirm), "Students can join with the code" switch; Add students (usernames/emails textarea, CSV file, "From LMS course"
-  when linked courses exist) with a not-found list; searchable student table with Remove (confirm); assigned exams and
-  "New exam for this class" (`/teacher/exams/new?class=<id>`, class preselected).
-- Exam editor: "Assign to classes" checkbox list (saved with PUT `/classes` after the exam is saved) + the open-exam warning.
-  Exam page: strip with assigned classes, union student count and "Change". Gradebook: "Class" filter.
-- Student: nav "Classes" (join form + class cards with their exams); exam lists show the class names.
-## Step verification (math/physics)
-Code: `server/app/scan/mathverify.py` (LaTeX parsing, step chain, final answer, reconciliation, prompt v2, key
-LaTeX), `server/app/scan/units.py` (pint units, dimensions, significant figures). One hook in
-`ai_grade.suggest`: `prompt = mathverify.extend_prompt(build_prompt(...))` and
-`mathverify.apply_async(parse_suggestion(out, q, ctx), out, q, ctx)` (worker thread, ≤ 10 s per answer, never
-raises; on timeout the model's draft is kept). `FAIRPLAY_STEP_VERIFY=0` turns it off. Deps:
-`antlr4-python3-runtime==4.11` (SymPy's LaTeX parser; a small built-in LaTeX→SymPy converter is used when it is
-missing or fails) and `pint`.
+Page → app: `lock` may carry `attempt_id`, `token`, `session`; new `session` (same fields) and `attest`; `openExternal` adds `session`.
+App → page: new `attestation`, `attestationFailed`, `unlockPending {"reason": "offline"|"not_submitted"}`.
+`unlock` no longer unlocks by itself: the app unlocks only when `GET /api/student/attempts/{aid}` says `submitted` (or 404/409), retrying every 3 s. The app only accepts bridge messages from the main frame of the exam server (scheme + host + port).
 
-- **Prompt `fp-step-grade-v2`** = v1 + per step `"latex"` (the student's line as LaTeX, mistakes kept, units as
-  `\text{m/s}`, continuation lines start with `=`), `"ecf": bool`, top-level `"final_answer": {"latex","units"}`,
-  per criterion `"steps": [n...]` (the steps it is judged on); the prompt also carries the key's final answer /
-  worked solution as LaTeX, the ECF criteria and required sig figs. Parsing stays backward compatible: v1 outputs
-  (no LaTeX) are checked from the plain step text; `prompt_version` is `fp-step-grade-v2` only when LaTeX came back.
-- **Per step** (each against the last readable step): expressions algebraically equal (expand / simplify /
-  random-point sampling, `mathcheck.check`); equations equivalent (same equation up to a constant factor, same real
-  solution set for one unknown — "loses / adds solution" errors; physics keeps a dropped negative root; several
-  letters: solved for a shared letter both ways = formula rearranged); `= …` lines compared with the previous
-  value; claims inside a line (`3·4 = 12`, `\frac{d}{dx}(…) = …`, `f'(x)` / `y'` / `dy/dx` against an earlier
-  `f(x) = …`, `\int_a^b … = …`, `\int … dx = F + C` by differentiating F); written decimals compared with their
-  rounding; substituting values / new quantities / prose / inequalities / sums → `unverifiable`.
-  Units come only from `\text{}` / `\mathrm{}` markup or the `units` fields: a unit becomes its SI factor × base-unit
-  symbols, so `72 km/h = 20 m/s` is algebra and `5 m + 3 s` is an error ("adds m and s").
-- **ECF**: after a `verified_error`, a later step that follows from the wrong line is `verified_ok` with
-  `ecf: true` ("correct given the error in step k"); a step that is equivalent to the last correct line again
-  clears it. A wrong final answer that follows from the error gets `final.ecf: true`.
-- **Final answer** (`final_answer.latex`, else the last readable line) vs the key's `final_latex` (else a numeric
-  question's `answer_number`): equivalent forms, solution sets (any order, count must match), vectors `(x, y)` /
-  `\langle\rangle` / `\hat{i}`/`\mathbf{j}` component-wise, tolerance = the question's tolerance, the rounding of
-  the student's decimals (only to ≈3 significant figures or finer) or of a decimal key; units converted (km/h vs
-  m/s), "no units" / "wrong units" errors; significant figures when the key sets `sig_figs` or a criterion says
-  "… N significant figures".
-- **Reconcile** (verifier wins on algebra/arithmetic): a step the model called wrong but SymPy proves → `status`
-  becomes `correct` (`model_status: "error"`, `verifier_disagrees` text); a step the model called right but SymPy
-  refutes → `error`. Criteria with `steps` are re-scored from the checked steps: all `verified_ok` → full; ECF
-  steps count only when the criterion has `ecf: true` (method marks); otherwise max × ok/total, rounded down to
-  0.5; criteria with an unverifiable step keep the model's points (`criteria[i].model_points`, `verifier_note`).
-  `points` = sum. A disagreement that changes points (or a wrong final answer / units / sig figs with full marks, a
-  right final answer with 0, a re-scored criterion) adds review reason `verifier_disagrees` ("The math check
-  disagrees with the AI") and caps confidence at 0.5; a disagreement that changes no points lowers it by 0.1; full
-  agreement (checked steps + final matches the key, or a wrong final the model already marked down) raises it to
-  ≥ 0.9 (no final: +0.15, ≤ 0.95). `first_error_step` is recomputed. Drafts from the key (`source: "key"`) keep
-  their points.
-- Record additions in `attempt.ai_drafts[qid]`:
-  `steps[i] += {latex?, verify: "verified_ok"|"verified_error"|"unverifiable", verify_reason, ecf, model_status?,
-  verifier_disagrees?}`; `criteria[i] += {steps?, ecf?, model_points?, verifier_note?}`;
-  `final_answer: {latex, units, text} | null`;
-  `verification: {engine: "sympy"|"sympy+pint", version: "fp-verify-v1", steps: [{n, status, reason, ecf, latex}],
-  final: {status, reason, student, key, ecf} | null, units: {status, reason, student, key} | null,
-  sig_figs: {required, given: n | [min, max] | null, ok} | null, summary: {verified_ok, verified_error, unverifiable},
-  disagreements: [{n: step | "final" | "units" | "sig_figs" | "criteria", model, verifier, reason, changes_points}],
-  checked (false = nothing was math: no per-step `verify` fields, no UI), agrees, confidence_before, points_before,
-  seconds}` (or `{engine, version, error, ...}` if the check crashed).
-  Approved grades copy the steps as before (the extra fields ride along).
-- **Answer key** (`questions[qid]` in the key): `final_latex`, `units`, `solution_latex: [line]`, `sig_figs` (1–15 |
-  null), `latex_source: "teacher"|"ai"`; criteria may carry `ecf: true`. `PUT …/answer-key/questions/{qid}` accepts
-  `final_latex, units, solution_latex, sig_figs` (omitted = keep) and `criteria[].ecf`, and returns
-  `latex_warnings: [text]` (LaTeX / unit that cannot be read). `POST /api/exams/{id}/answer-key/latex
-  {question_ids?, overwrite?}` → the AI converts each key (worked solution + correct answer) to LaTeX once and
-  stores it (`latex_source: "ai"`; questions that already have `final_latex` are skipped unless `overwrite`; mcq
-  skipped); 409 when AI is off; response = the answer key + `converted, failed, latex_warnings: {qid: [text]}`.
-  The rubric AI draft (`ai-draft`) also returns `final_latex, units, solution_latex`. `key_context` adds
-  `key_final_latex, key_units, key_solution_latex, sig_figs`.
-- **Web**: review screen steps show the LaTeX (KaTeX; unreadable LaTeX as monospace source), a badge next to the
-  AI's mark (`✓ Proved` / `✓ ECF` / `✗ Error` / `? Can't check`) and a one-line disagreement; under the steps a
-  "Math check" box (summary, final answer vs key, units, sig figs, point-changing disagreements). Answer key: "Math
-  check (LaTeX)" fields (final answer with preview, units, sig figs, worked solution lines), an ECF checkbox per
-  criterion and a "Key to LaTeX (math check)" button.
+### Website mode
 
-# Phase 3 — Grading quality (benchmark, AI-vs-human metrics, review routing, second marking)
+`allowed_domains` entries: exact host (`canvas.dku.edu`), `*.host` for the host and all subdomains, optional path prefix (`docs.google.com/forms/d/e/1FAIpQL/`). Old bare entries now mean the exact host only. The exam address always adds its exact host, or host + folder on shared hosts (docs.google.com, drive.google.com, ...). Release apps open https only.
 
-Code: `server/app/quality/` (models, metrics, routing, graders, runner, importer, service, routes);
-web: `web/src/pages/teacher/quality/`, `web/src/api/quality.ts`. All endpoints are role teacher and
-scoped to the requesting teacher (another teacher's set / run / exam → 404), except the second-marker
-endpoints, which only expose the answers assigned to the caller, blind.
+### Mac app builds
 
-## Data read from grading (owned by Phase 2)
-- `attempt.ai_drafts[qid]`: `points` (or `suggested_points`), `confidence` 0..1, `needs_review`,
-  `needs_review_reason` (or `review_reason`), `illegible`, `criteria` / `criterion_points` / `rubric_scores`
-  (numbers or `{"points","max_points"}`), `mistake_tags`, `source` ("fallback" = no AI suggestion), `batch_id`.
-- `attempt.grades[qid]`: `points`, `comment`, `ai_suggested_points`, `source` ("ai_accepted"|"ai_edited"|"manual"),
-  `graded_by`, `graded_at`, `grading_seconds`, `batch_id`. **Missing = unknown**: AI points fall back to the
-  stored draft's points; a missing `source` is derived (no suggestion → manual; final == suggested → ai_accepted;
-  else ai_edited); answers without `grading_seconds` are left out of timing.
-- Moderation writes the final grade: `grades[qid]` keeps its fields and gets `points`, `comment`, `graded_at`,
-  `graded_by` (lead username), `source` (re-derived vs the AI suggestion), `moderated: true`,
-  `moderation: {second_mark_id, first_points, first_by, second_points, second_by, moderated_points, moderated_by, at}`;
-  `rubric_scores` is cleared when the points change. Score / needs_grading are recomputed.
+`mac/build.sh` (dev, default) vs `FAIRPLAY_BUILD=release` with `FAIRPLAY_SERVER` (https), `FAIRPLAY_APP_KEY`, optional `FAIRPLAY_PINS` (`mac/pin.sh`), `FAIRPLAY_SIGN_ID`, `FAIRPLAY_NOTARY_PROFILE`. Release: no UserDefaults/env overrides, no safety unlock, no ATS exceptions, hardened runtime.
 
-## Metrics (`app.quality.metrics`; rates are fractions 0..1, points are numbers)
-`Agreement = {n, exact, within_1, within_10pct, mae, mae_pct, bias, kappa, severe_rate, severe, mean_ai, mean_human}`.
-exact = |ai−human| < 1e-6; within_1 ≤ 1 point; within_10pct ≤ 10 % of max; mae = mean |ai−human|;
-bias = mean(ai) − mean(human) (> 0: AI more generous); kappa = quadratic weighted Cohen's kappa on integer marks
-(round half up) over categories 0..ceil(largest max) of the group, null when undefined (n < 2 or one category);
-severe = |ai−human| ≥ severe_fraction × max (default 0.25, `?severe_fraction=` 0.01..1). Breakdowns:
-`[{...Agreement, key}]` by `question_type` and by `subject` (lower-case; production subject = exam course).
-`Correction = {ai_suggested, accepted, edited, correction_rate, points_changed, mean_edit, mean_edit_pct}`
-(mean_edit over edited suggestions, points). `Timing = {ai_assisted: T, manual: T, time_saved_fraction,
-batches: [{batch, items, total_seconds, mean_seconds, ai_assisted}]}` with `T = {n, mean, median, total}` (seconds);
-batch = grade/draft `batch_id`, else the exam id.
+### Audit 2026-10-13 additions (bridge and app)
 
-## Review routing (`app.quality.routing`)
-`route_item(exam, attempt, qid, policy=None, weak=None) -> {"review": bool, "reasons": [{"code","message"}]}` —
-pure (works on ORM rows or any objects/dicts with `questions, course, total_points` / `answers, grades, ai_drafts`);
-`from app.quality import route_item`. Phase 2's review screen shows a "Check by hand" badge when `review` is true,
-with the reason messages (or calls the HTTP endpoint below, which applies the exam's policy and benchmark weak areas).
-Codes: `no_ai_suggestion`, `confidence_unknown`, `low_confidence`, `illegible_handwriting`, `ai_flagged`,
-`points_out_of_range`, `criteria_inconsistent`, `near_boundary` (attempt total with the AI's points — other
-answers: grade, else draft, else auto — within `boundary_margin` points of a boundary), `weak_question_type`,
-`weak_subject` (benchmark kappa below `weak_kappa`, latest run per set pooled, groups with ≥ `weak_min_items`
-items; subject matches the exam course or a question topic).
-Policy defaults: `{"confidence_threshold":0.7,"review_illegible":true,"review_ai_flagged":true,
-"boundary_margin":1,"grade_boundaries":[50,60,70,80,90],"check_criteria":true,"weak_kappa":0.6,
-"weak_min_items":5,"review_without_ai":true}`; layers: built-in → teacher default → exam override
-(table `quality_routing_policies`: teacher_id, exam_id "" = default, settings JSON).
-Candidates = every answer with an AI draft, every paper answer (except bubbles read automatically) and every
-essay / website item of submitted attempts.
+- **Preflight (M-11):** page → app `{"action":"preflight"}`; app → page `{"type":"preflight","problems":[...]}` (plain sentences; `[]` = ready). The page shows the problems and doesn't ask to lock until the list is empty. Hosts that don't answer within 3 s count as `[]` (the lock's own checks still run).
+- **Bridge nonce (W-10):** the host may set `window.__fairplayNonce` (≥16 chars) at document start; the page reads it once, deletes it, and from then on ignores `proctora-native` events whose `detail.bridge_nonce` differs (its own field: `attestation` messages already use `nonce` for the server challenge). The Mac app sets one per launch. The Windows shell should do the same.
+- **Signed hand-in (M-04):** `GET /api/student/attempts/{aid}/handin?nonce=` → `{"status": "submitted"|"in_progress"|"gone"|"moved", "proofs": [HMAC(app key, "handin|aid|session|status|nonce") per key]}`. The app unlocks only on a valid proof for submitted/gone/moved.
+- **Beat checks (M-02):** `console=0` → the server treats the beat as not locked and flags `off_console`; `secinput=1` → `secure_input_other_app`.
+- **Lock without a session (M-06):** `{"action":"lock"}` must carry `attempt_id`/`token`/`session`, or `offline: true` (offline start). Otherwise `{"type":"lockFailed","reason":"bad_session"}` and the page asks for the start code again.
+- **Relaunch (M-17):** after ending while locked, the watchdog reopens the app with `--resume-attempt <aid>`; it opens `/student/exam/<aid>` directly.
 
-- `GET|PUT /api/quality/routing-policy` (teacher default; PUT body = any subset of the policy; boundaries
-  0..100 else 422) → `{policy, teacher_settings, defaults}`.
-- `GET|PUT|DELETE /api/exams/{id}/quality/routing-policy` → `{policy, teacher_settings, defaults, exam_settings|null,
-  inherits}` (DELETE = back to the teacher default).
-- `GET /api/exams/{id}/quality/routing[?review_only=true]` → `{exam_id, policy, weak_areas:{types:{type:kappa},
-  subjects:{subject:kappa}}, summary:{total, routed, routed_ungraded, by_reason:{code:n}}, items:[{attempt_id,
-  anon_id, question_id, review, reasons, graded, ai_points, confidence}]}`.
-- `GET /api/exams/{id}/quality/routing/{attempt_id}/{question_id}` → `{attempt_id, question_id, review, reasons}`.
-
-## Benchmark
-Tables: `benchmark_sets` (id `bs_…`, teacher_id, name, subject, consent_note, consent_basis, created_at);
-`benchmark_items` (id `bi_…`, set_id, question_prompt, question_type, subject, max_points, rubric JSON,
-answer_key, answer_image `/api/uploads/<id>` | null, answer_text, human_marks [num] (first = reference),
-human_points, human_comment, source_exam_id / source_attempt_id / source_question_id (if copied), consent,
-consent_by, consent_at, created_at — **no student name column**); `benchmark_runs` (id `br_…`, set_id, teacher_id,
-grader, provider, model, prompt_version, status running|done|failed, severe_fraction, item_count, done_count,
-metrics JSON, error, created_at, finished_at); `benchmark_run_items` (run_id, item_id, question_type, subject,
-max_points, human_points, ai_points|null (failed), confidence, needs_review, explanation, error).
-
-- `GET /api/quality/benchmarks` → `[Set]`, `Set = {id, name, subject, consent_note, consent_basis, created_at,
-  item_count, last_run: Run|null}`; `POST` (201) body `{name, subject?, consent_note?, consent_basis?}`;
-  `GET /api/quality/benchmarks/{sid}` → `Set + {items:[Item], runs:[Run]}`; `PUT` same body; `DELETE` → 204 (items, runs too).
-- `Item = {id, set_id, question_prompt, question_type, subject, max_points, rubric, answer_key, answer_image,
-  answer_text, human_marks, human_points, human_comment, source:{exam_id,attempt_id,question_id}|null, consent,
-  consent_by, consent_at, created_at}`.
-- `POST /api/quality/benchmarks/{sid}/items` (201) body `{question_prompt, question_type: mcq|numeric|short|essay|work|external,
-  subject?, max_points, rubric?, answer_key?, answer_text?, answer_image?, human_marks:[1..5 marks], human_comment?,
-  consent:true}`. Without `consent: true` → 422 (detail mentions consent); marks outside 0..max → 422.
-- `POST /api/quality/benchmarks/{sid}/items/from-grade` (201) body `{exam_id, attempt_id, question_id, consent:true,
-  human_comment?}` → copies prompt, type, points, rubric, answer key, answer (text; paper: crop URL + approved
-  transcript), the teacher grade (+ the second mark if one exists) — never the student's name. 422 without consent,
-  409 if not graded / blank / already in the set.
-- `POST /api/quality/benchmarks/{sid}/import` multipart `file` (CSV ≤ 5 MB), optional `images` (zip ≤ 200 MB),
-  `consent=true` (else 422) → `{imported, errors:[{row, error}], ignored_columns, dropped_personal_columns}`.
-  Columns (aliases): question_prompt (prompt, question), question_type (type), subject, max_points (points),
-  rubric (JSON list or `label: pts; label: pts`), answer_key, answer_text (answer), image (file name in the zip),
-  human_mark (human_marks, mark, score: `3` or `3;4`), human_comment (comment). Name/email/username columns are dropped.
-- `DELETE /api/quality/benchmarks/{sid}/items/{iid}` → 204.
-- `GET /api/quality/graders` → `{graders:[name], default, ai_enabled}`.
-- `POST /api/quality/benchmarks/{sid}/runs` (202) body `{grader?, severe_fraction?}` → `Run` (status running; runs in
-  the background, 4 at a time). 409 if AI is off for an AI grader, the set is empty or a run is going; 422 unknown grader.
-  `Run = {id, set_id, grader, provider, model, prompt_version, status, severe_fraction, item_count, done_count,
-  metrics:{overall: Agreement, by_type, by_subject, failed, human_vs_human: Agreement|null}, error, created_at, finished_at}`.
-- `GET /api/quality/benchmarks/{sid}/runs` → `[Run]` newest first; `GET /api/quality/runs/{rid}` → `Run + {set:{id,name,subject},
-  items:[{item_id, question_type, subject, prompt, max_points, human_points, ai_points, diff, severe, confidence,
-  needs_review, explanation, error}]}` (largest relative difference first).
-- Graders (`app.quality.graders`): `async def grader(item) -> {"points", "confidence"?, "explanation"?, "needs_review"?}`
-  with `item = {id, question:{type,prompt,points,rubric,options,answer_number,tolerance,accepted_answers,correct_index,answer_key},
-  subject, answer_text, answer_image, image: bytes|None}` (never the human mark). `register_grader(name, fn,
-  prompt_version="", needs_ai=True)`, `set_default_grader(name)` or env `FAIRPLAY_BENCHMARK_GRADER`. Built-in
-  `default` uses `app.ai.complete_json` (prompt version `bench-default-1`). Phase 2 drops its grader in here.
-
-## Quality reports (live production data)
-- `GET /api/quality/overview?course=&exam_ids=&severe_fraction=` → `Block + {exams:[{exam_id, title, course, graded, n,
-  exact, within_1, mae, kappa, severe_rate, bias, correction_rate, mean_seconds_ai, mean_seconds_manual}], courses,
-  all_exams:[{exam_id,title,course}], weak_areas, benchmarks:[{set_id, name, run_id, finished_at, overall}]}`.
-- `GET /api/exams/{id}/quality?severe_fraction=` → `Block + {exam_id, title, course, status, grades_released,
-  questions:[{question_id,index,type,prompt,points,rubric,options,images}], routing: summary, moderation:{total, open, by_status}}`.
-- `Block = {agreement: Agreement, by_type, by_question:[Agreement + {exam_id, question_id, question_index, prompt, type}],
-  correction, timing, worst:[{exam_id, exam_title, attempt_id, anon_id, question_id, question_index, prompt, type,
-  source, graded_by, confidence, ai_points, final_points, max_points, diff, severe}] (top 25 by |diff|/max),
-  graded, severe_fraction}`. Pairs = graded answers with an AI suggestion (ai_suggested_points vs final points).
-- `GET /api/exams/{id}/quality/graded` → `[{attempt_id, anon_id, question_id, question_index, prompt, type, max_points,
-  suggested, final, source}]` (pickers).
-
-## Second marking and moderation
-Table `quality_second_marks` (id `sm_…`, exam_id, attempt_id, question_id unique together, lead_id, marker_id,
-tolerance, reason selected|sample|routed, second_points/comment/at, first_points/comment/by/at (snapshot at
-moderation), ai_points, moderated_points/comment/by/at, created_at). Lead status: `awaiting_second` →
-(`awaiting_first` if no teacher grade yet) → `agreed` (|first − second| ≤ tolerance) | `needs_moderation` →
-`moderated`. The first mark compared is the live `attempt.grades[qid]`.
-- `GET /api/quality/second-marking/teachers` → `[{username, name}]` (other teacher accounts).
-- `POST /api/exams/{id}/quality/second-marking` (201) body `{marker_username, question_ids?, sample_percent? (0..100],
-  routed_only?, tolerance? (points; default 10 % of the question), seed?}` → `{created, skipped, ids, marker}`.
-  Candidates: routed_only → answers routed to review; else routing candidates (+ every answered answer of the
-  listed `question_ids`); filtered by `question_ids`; then a random `sample_percent` (ceil, seeded by `seed` or exam
-  id). Existing assignments are skipped. Marker must be another teacher (self → 422, unknown/student → 404).
-- `GET /api/exams/{id}/quality/second-marking` → `{exam_id, title, counts:{status:n}, open, items:[{id, attempt_id,
-  anon_id, username, name, question_id, question_index, prompt, type, max_points, answer:{text,image}, marker:{username,name},
-  tolerance, reason, status, first:{points,comment,graded_by,graded_at}|null, second:{points,comment,marked_at}|null,
-  ai:{points,confidence,comment}|null, moderated:{points,comment,by,at}|null, created_at}]}`.
-- `DELETE /api/exams/{id}/quality/second-marking/{sm_id}` → 204 (409 once moderated).
-- `POST /api/exams/{id}/quality/second-marking/{sm_id}/moderate` body `{points, comment?}` (lead only) →
-  `{id, status:"moderated", grade, score, percent}`; 409 unless status is needs_moderation; 422 points out of range.
-- Marker (blind): `GET /api/quality/second-marking/queue` → `{items:[{id, exam_id, exam_title, course, anon_id,
-  question:{question_id,index,type,prompt,points,rubric,options,images}, answer:{text,image},
-  status:"to_mark"|"marked"|"closed", my_mark:{points,comment,marked_at}|null}], to_mark}` — never the first mark,
-  the AI draft/transcript, the comparison result or the student's name. `PUT /api/quality/second-marking/{sm_id}/mark`
-  body `{points, comment}` → same item shape (404 if not assigned to the caller, 409 once moderated, 422 out of range).
-- `GET /api/exams/{id}/quality/release-check` → `{exam_id, moderation_open, by_status, ok}`.
-- `POST /api/exams/{id}/release` (changed): after the pending-grading check, if any second-marked answer of the
-  exam is not agreed/moderated and `force` is false → 409 `"<n> second-marked answers still need moderation: grades may change"`
-  (the Results "Release anyway" button sends force).
-
-## Web
-Teacher nav "Grading quality" → `/teacher/quality` (overview across exams, course filter), `/teacher/quality/exams/:id`
-(exam report, routing rules + routed answers, second-marking assignment, moderation cards),
-`/teacher/quality/benchmarks`, `/teacher/quality/benchmarks/:id` (answers, add from graded answers with a consent
-checkbox, add by hand, CSV + zip import, run), `/teacher/quality/runs/:id`, `/teacher/quality/second-marking`
-(the second marker's blind queue). Charts follow the Insights style (one primary hue, values printed, table view).
-
-# Graph and diagram questions (paper exams, AI grading)
-
-A written-answer question (`type: "essay"`) may be marked as a hand-drawn **graph / chart / diagram**. It is
-then graded against a **feature checklist** instead of steps/rubric. No `diagram` = today's behaviour.
-Code: `server/app/scan/diagram_spec.py` (kinds, defaults, validation), `diagrams.py` (prompt, parsing, endpoints,
-grade/student views), `diagram_cv.py` (OpenCV checks); web `src/api/diagrams.ts`, `src/components/diagrams/`.
-
-## Spec (`question.diagram`, and the per-exam override `answer_key.questions[qid].diagram`)
-```
-{"kind": "function_graph" | "data_chart" | "geometry" | "physics_fbd" | "physics_circuit" | "physics_ray"
-         | "chemistry_structure" | "labelled_diagram" | "flowchart",
- "features": [{"id": "f1", "key": "axes", "label": "Axes drawn and labelled", "points": 1,
-               "expected": "free text", "points_xy": [[x, y], ...], "tolerance": 0.5}],   # points_xy/tolerance optional
- "reference_image": "/api/uploads/<id>" | null,   # teacher's correct drawing
- "notes": "free text for the AI"}
-```
-- Feature points add up to the question's points (422 otherwise); empty `features` = the kind's default checklist
-  shared to the question's points (multiples of 0.5, largest remainder). Max 20 features, 50 points_xy each.
-- On an essay with `diagram` the essay rubric is cleared (the checklist replaces it); on other types `diagram` is dropped.
-- Teacher views of the exam include `diagram`; **student views never do** (`student_question` removes it).
-- Effective spec = answer-key override, else the question's (rescaled if the question's points changed).
-- `effective_criteria(q, entry)` returns the features as criteria (`{id, label, points, description: expected}`,
-  source `"diagram"`), so the review screen's criterion toggles and `approve` with `criteria` work unchanged.
-  `rubric_scores` stays null for these.
-
-## API (role teacher)
-- `GET /api/diagram-kinds` → `{"kinds": [{"kind", "label", "group", "hint", "features": defaults for 10 points}]}`
-- `GET /api/exams/{id}/diagrams` → `{"exam_id", "kinds", "questions": [{"question_id", "index", "type", "prompt",
-  "points", "diagram": effective spec | null, "source": "key" | "question" | null, "question_diagram"}]}`
-- `PUT /api/exams/{id}/diagrams/{qid}` body `{"diagram": spec | null}` → one question row. Stores the override in
-  the answer key (works after the exam was given); `null` removes the override. Essays only (422 otherwise).
-- Scan queue questions carry `"diagram": effective spec | null`.
-
-## Grading
-- Prompt: the step prompt plus a checklist section (`fp-diagram-v1`, appended by the one hook in
-  `ai_grade.build_prompt`): every feature with points, expected text and points to plot; asks per feature for
-  `status` present/wrong/missing, `points`, `note`, `box` [x0,y0,x1,y1] or `point` [x,y] (fractions 0..1 of the
-  student's image from its top-left), and `readings` (values read off the axes with their image spot).
-- Images: the student's answer first; the reference drawing (if any) last (`scan.grading.draft_for`).
-- Parsing (one hook in `parse_suggestion`) is strict: unknown feature ids dropped; matched by id, else label, else
-  position; points clamped to [0, max]; `missing` with points and `wrong` with full points → 0 + reason
-  `features_inconsistent`; a feature the model skipped → `not_assessed`, 0 points, reason `missing_features`;
-  percentages accepted for coordinates, bad boxes dropped. Total = sum of features. The step grader's
-  `missing_criteria` / `total_mismatch` / `no_steps` reasons do not apply.
-- OpenCV checks (`diagram_cv.analyze`): axes (longest near-horizontal/vertical lines, ignoring a printed box
-  border), tick marks + even spacing, filled dots (blobs thicker than the pen stroke), `plot_dots` = those in the
-  first quadrant. `cross_check` compares: the model's readings vs. the expected points; axes present/missing vs.
-  detected; "even scale" vs. tick spacing (data charts); expected points mapped to pixels through a linear fit of
-  the model's readings vs. detected dots; readings that are not at a dot; points credited with no dot found.
-  Any disagreement → reason `diagram_check_disagrees`, confidence ≤ 0.6. The checks never award points.
-- Bulk-approve groups for drawings: identical feature verdicts + points (`"d:..."`), never when flagged.
-
-## Records
-Draft (`attempt.ai_drafts[qid]`) adds, besides `criteria` mirroring the features:
-```
-"diagram": {"kind", "kind_label",
-            "features": [{"id","key","label","points","max_points","met",
-                          "status": "present"|"wrong"|"missing"|"not_assessed","note","box","point"}],
-            "readings": [{"label","x","y","at": [x,y]|null}],
-            "check": {"ran","axes_found","dots_found","ticks_even","expected_points","points_matched",
-                      "readings_on_dots","calibrated","agrees": bool|null,"issues": [text]},
-            "reference_image", "prompt_version": "fp-diagram-v1"}
-```
-Grade (`attempt.grades[qid]`) adds `"diagram": {"kind","kind_label","features": [{"id","label","points",
-"max_points","status","note","box","point"}],"reference_image"}` — status recomputed from the approved criteria
-points (full → present, 0 → the AI's wrong/missing else wrong, otherwise `partial`); the AI note is dropped when
-the teacher changed that feature's points. Student feedback (`GET /api/student/grades/{id}`) questions carry
-the same `diagram` (approved grade only). No new DB columns (all JSON).
-
-## Web
-- Exam editor (essay) and answer-key step: "Answer is" select (written answer, or a kind grouped by subject),
-  checklist editor with defaults sized to the points, expected text, points to plot + tolerance, "Fit to N pts",
-  notes for the AI, reference drawing upload.
-- Review screen: the drawing with ✓/✗ marks (numbered like the checklist) and the checklist with toggles and
-  per-feature points (ticking recomputes the total and the mark), the AI's notes, the picture-check warnings,
-  values the AI read, and a link to the reference drawing.
-- Student feedback: the marked drawing, the checklist results and "See the correct drawing".
-- E2E: `e2e/e2e_diagrams.py` (ports 8270/8271, fake vision model).
-# Any-paper answer finding — as implemented
-
-Goal: grade ANY handwritten paper (own answer sheets, notebook pages, phone photos), not only FairPlay
-booklets. Code: `server/app/scan/segment.py` (OpenCV candidates + vision prompt + validation + crops),
-`server/app/scan/grouping.py` (page headers, student grouping, roster fuzzy match),
-`server/app/scan/any_paper.py` (table `scan_answer_sets`, pipeline step, teacher API). Web:
-`web/src/pages/teacher/scan/RegionCheck.tsx` + `regionLogic.ts`, `web/src/api/anyPaper.ts`.
-QR booklets and the manual "Map pages" step are unchanged and remain the fallbacks.
-
-## Pipeline (upload `?unprinted=1` or phone capture "not printed"; AI on)
-1. Pages are read and flattened as before (`pipeline.analyze_unprinted`, photos via `photo.rectify`).
-2. `grouping.read_header` per page (prompt `fp-page-header-v1`, page ≤ 1000 px) →
-   `{"name","student_id","first_page","page_number","confidence"}`.
-3. `grouping.group_pages(headers, roster, pages_per_student|None)`: a page with a different name/ID or a
-   first-page mark starts a new student, other pages continue the current one; strong duplicate matches are
-   merged (pages sorted by the written page number); no names at all + mapping `pages_per_student` → chunks.
-   Roster match (`match_roster`): exact username/ID → 1.0, else name similarity (accents folded, Cyrillic
-   transliterated, token/initials aware, difflib). Picked when ≥ 0.72; sure when ≥ 0.88 with a 0.08 margin.
-4. Per student, `segment.segment_pages(questions, page_images)` (below); one `AnswerSet` row is stored and
-   applied: every question becomes a paper answer of that student (crop of exactly its region(s); an answer
-   continued on the next page is stitched top-to-bottom into one image); the pages get `status "assigned"`,
-   `page_no` = position in the set, reason "Answers found by AI". A set without a matched student leaves its
-   pages `unmatched` ("Answers found — choose the student").
-5. The existing AI grading drafts every answer (`draft_answers`). Questions without a region get
-   `{"blank": true, "not_found": true, "whole_page": true, "image": <first page>}` → rule draft "No answer written".
-With AI off nothing changes: pages wait for "Map pages" (or the teacher builds sets by hand, see API).
-
-## `segment_pages(exam_questions, page_images, hint="") -> dict` (async, never raises)
-`page_images`: one student's pages (bytes PNG/JPEG or arrays), any order, already flattened.
-Pre-pass (`candidate_regions(img)`): adaptive + global ink threshold, ruled/margin lines removed
-(morphology), text lines from the row ink profile, lines merged into blocks split at gaps > max(1.1 × median
-line height, 1.8 % page height), ≤ 40 per page. Blocks are numbered across pages and drawn on the images sent
-to the model (`fp-segment-v1`, ≤ 8 pages per call, long side 1400 px); the prompt lists every candidate's box.
-The model answers with candidate numbers (or a raw box with its page, snapped to the candidates it covers).
-`parse_segmentation` validates: question references resolved by id or by the number the student wrote
-("2", "Q2", "2)", "#2", "2b" → a question whose prompt starts with "2b", else 2); unknown questions dropped;
-boxes clamped to 0..1 (percent accepted), min side 0.01; two questions claiming the same box → the more
-confident keeps it, flagged; confidence 0..1 (percent accepted, default 0.5).
-```
-{"prompt_version": "fp-segment-v1", "source": "ai"|"fallback",
- "pages": [{"index", "candidates": [{"n", "box"}]}],
- "regions": [{"id","question_id"|null,"page" (0-based),"box":[x0,y0,x1,y1],"confidence","crossed_out",
-              "label" (as written),"order","source":"ai","needs_check" (confidence < 0.7)}],
- "missing": [qid], "name": {"text","student_id","page","box"|null,"confidence"}|null,
- "confidence" (lowest live region), "needs_check": bool,
- "reasons": ["low_confidence","missing","ai_off","ai_failed","no_questions","no_pages"]}
-```
-Crossed-out regions are kept (shown to the teacher) but never cropped into the answer.
-Helpers: `region_answers(questions, regions, page_urls, page_keys=None, extra=None) -> {qid: answer}` (sync,
-writes crops as uploads) and `await find_answers(exam_questions, page_urls, extra=None) -> (seg, answers)`.
-Answer value: `{"image","page" (1-based, first part),"blank":false,"mcq":null,"marks":null,
-"regions":[{"page","page_id"|"page_key","box"}],"region_confidence","found":"ai"|"teacher","set_id"}`.
-
-## AnswerSet (`scan_answer_sets`) and teacher API (role teacher; other teacher's exam → 404)
-- `GET /api/exams/{id}/scans/sets` → `{exam_id, ai_enabled, low_confidence_below, questions:[{question_id,index,
-  prompt,type,points}], students (roster), sets:[Set], needs_check (count), loose_pages:[{page_id,seq,preview,batch_id}]}`.
-  `Set = {set_id, batch_id, student_id, student:{id,username,name}|null, name_read, id_read,
-  match:{confidence, candidates:[{student_id,name,username,score}], reasons, teacher}, status:"needs_check"|"ok"|"confirmed",
-  needs_check, reasons:["no_student"|"check_student"|"low_confidence"|"missing"|"not_found_by_ai"],
-  pages:[{page_id,seq,preview,image,candidates:[box]}], regions:[{id,question_id,page_id,box,confidence,crossed_out,
-  label,source:"ai"|"teacher",needs_check}], missing:[qid], segment:{prompt_version,source,reasons,confidence,name}, updated_at}`.
-- `PUT /api/exams/{id}/scans/sets/{set_id}` any of `{"student_id": id|null, "page_ids": [...], "regions": [{id?,question_id|null,
-  page_id,box,crossed_out?,label?}], "confirm": bool}` → the list above + `queued` + `set`. Student taken by another set → 409;
-  unknown question / box on a page outside the set / box too small → 422. Changed regions become `source "teacher"`,
-  confidence 1. Only questions whose regions changed are re-cropped and re-drafted; a new student gets every question and
-  the old student's not-yet-graded answers from this set are removed (an emptied paper attempt is deleted). Pages listed in
-  `page_ids` are taken from other sets (those are rebuilt; an emptied set is deleted). Teacher grades are never touched.
-- `POST /api/exams/{id}/scans/sets {"page_ids", "student_id"?}` → 201: new set from pages (split / loose pages), AI segments it.
-- `POST /api/exams/{id}/scans/sets/{set_id}/resegment` → the AI finds the answers again (409 when AI is off).
-- Scan queue items gain `"found": {"by","confidence","not_found","regions"}` (null for QR booklets / hand mapping).
-
-## Web
-Upload step: "Check answer regions" card (shown when unprinted uploads exist; "Map pages by hand instead" is folded below
-when AI is on). Student chips (filter "Needs check (n)" / "All"; drop a dragged page on a chip to move it), page images with
-coloured boxes labelled `Q<n> · <confidence>` (dashed = unsure, hatched = crossed out); drag to move, corner handles to
-resize, "Draw" + drag to add, per-question "Not answered", selected-box panel (question, crossed out, delete), student
-select with AI-read name and roster suggestions, "Move to…" per page, "Find again with AI". Keyboard: Tab/] [ boxes, 1–9
-question, arrows move (Shift: resize), Delete, x crossed out, n not answered, Enter save + confirm + next, s save, j/k students.
-Review screen shows "Answer region found by AI (n% sure)" or "No answer was found…".
----
-
-# Homework mode and progress — as implemented
-
-Paper assignments in the Frizzle style: students do the work on paper and hand it in with their phone
-camera (or the teacher scans the class stack), the Phase 2 grader drafts every step, the teacher reviews
-in the existing review screen and releases, students get feedback that explains the mistakes, and a
-class dashboard shows where each student struggles across assignments. Server: `server/app/homework/`
-(models, routes, service, processing, segment_adapter, loader, progress); web:
-`web/src/pages/teacher/homework/`, `web/src/pages/teacher/progress/`, `web/src/pages/student/homework/`,
-`web/src/api/homework.ts`, `web/src/styles/homework.css`. E2E: `e2e/e2e_homework.py`.
-
-## Decision: a homework is a paper Exam + one `homework_assignments` row
-- The exam row is an ordinary `Exam` with `delivery: "paper"` (duration 60, never opened/started, never in
-  `GET /api/student/exams`). Answer key, rubric, AI grading (`ai_grade`), Scan & Grade storage, review queue,
-  bulk approve, export, release, student feedback (`GET /api/student/grades/{id}`), gradebook and LMS push
-  work unchanged. Homework also appears in `/teacher/scan` (it is a paper exam). No new `delivery` value:
-  every existing `delivery == "paper"` rule applies as is.
-- Who gets it: the exam's assigned classes (`exam_classes`, ≥ 1 required) via the usual roster precedence
-  (`routes_scan.roster_of`: picked roster > classes > course > all).
-- Answers handed in by a student live on the student's paper `Attempt` (`source: "paper"`), value
-  `{"image": first url, "images": [urls], "page", "whole_page": bool, "blank": false, "mcq": null,
-  "marks": null, "homework": true}`. `scan.grading.draft_for` sends every picture in `images` (≤ 6) to the
-  AI; the review queue item gains `images` and the review screen shows all of them.
-- The first student hand-in (like the first scan upload) sets the exam to `closed` ("collected"), so
-  release works; questions can be changed (PATCH) only while nobody has handed in.
-
-## Tables (all new columns carry a server_default)
-- `homework_assignments`: exam_id (PK), teacher_id, due_at (UTC), instructions, allow_late (true),
-  allow_resubmit (true), auto_release (false), worksheet_path/name/type (private file under
-  `<uploads>/../homework-worksheets/`), auto_released_at, created_at, updated_at.
-- `homework_submissions`: id `hs_…`, exam_id, student_id (unique pair), status
-  `processing` → `grading` → `graded` | `failed`, pages `[{url, flattened}]`, sources (temp files), version
-  (bumped per resubmission; an older background job never overwrites a newer upload), late, segmented
-  (`segment`|`partial`|`whole_page`), error, attempt_id, submitted_at, processed_at.
-- `homework_feedback_seen`: exam_id, student_id (unique), seen_at — in-app notification state.
-- `progress_notes`: id, teacher_id, student_id, text, created_at (teacher-private).
-
-## Student upload pipeline (background, never blocks the event loop)
-Photos (JPEG/PNG/WebP/HEIC when pillow-heif is installed) or PDFs, ≤ 30 files, ≤ 80 MB → each page
-flattened with `scan.photo.rectify` (page outline, perspective, lighting; no outline found → contrast-enhanced
-as is), JPEG ≤ 2000 px stored as uploads → `homework.segment_adapter.locate(questions, pages)` → the attempt's
-answers are REPLACED (grades and drafts of the old pages are dropped) → `routes_scan.draft_answers` drafts
-every answer. Segmentation: calls `app.scan.segment.segment_pages(questions, page_images)` when that module
-exists (another team); any failure, missing module or unusable region → that question gets the whole page set
-(`whole_page: true`; the AI prompt says "grade only THIS question"). Accepted region shapes are documented in
-`segment_adapter.py` (bytes, ndarray, page index, `{"page"|"page_no", "bbox"}` in pixels or 0..1 fractions).
-
-## Hand-in rules (`homework.service.submit_block`, 409 with these texts)
-"Feedback is already released" (after release, for students with work) · "You already handed this in"
-(resubmit off) · "The due date has passed" (late off) · "The due date has passed — your work is handed in"
-(late on, but no resubmitting after the due date) · "Your last upload is still being read — wait a moment".
-Not a member of an assigned class → 403 "You are not in a class for this homework" (student endpoints);
-unknown id → 404; teachers → 403. Late = submitted after `due_at`; flagged on the submission and the attempt.
-
-## Per-student status (teacher)
-`not_submitted` → `submitted` (pages being read, or pending answers without an AI draft) → `ai_graded`
-(every pending answer has a draft) → `reviewed` (no pending answers: every answer has a teacher grade)
-→ `released`. Row also has `processing: "processing"|"grading"|"failed"|null`, `source: "student"|"scan"`.
-
-## Release and auto-release
-- `POST /api/homework/{id}/release {"force"?}` closes the exam if needed and releases; 409 "<n> answers still
-  need grading", 409 "Some uploads are still being read", 409 moderation open (phase 3) unless force.
-  `POST /api/homework/{id}/unrelease` hides it again and turns auto-release off.
-- Auto-release (opt-in, "gentle"): released by itself when every submitted answer has a teacher grade, no upload
-  is in flight, ≥ 1 student handed in, and the due date passed or every rostered student handed in. Checked after
-  every approve / bulk approve in the review screen (one hook in `routes_scan`) and when the teacher opens the
-  homework. Sets `auto_released_at`.
-
-## Teacher API (role teacher; another teacher's homework/class → 404)
-- `POST /api/homework` `{title, course?, due_at, class_ids:[≥1], instructions?, allow_late?, allow_resubmit?,
-  auto_release?, questions:[QuestionIn …]}` (questions validated exactly like exams: topics required) → 201 Detail.
-- `GET /api/homework[?class_id=]` → `[Summary]` newest due first. Summary = `{exam_id, title, course, due_at,
-  instructions, allow_late, allow_resubmit, auto_release, auto_released_at, worksheet:{name,type}|null, status,
-  grades_released, released_at, question_count, total_points, created_at, past_due, classes:[{id,name,section}],
-  counts:{not_submitted, submitted, ai_graded, reviewed, released, total, late, handed_in}}`.
-- `GET /api/homework/{id}` → Summary + `questions:[{question_id,index,type,prompt,points,options,images,topics}]`,
-  `ai_enabled`, `pending`, `students:[{id,username,name,status,late,submitted_at,source,processing,error,pages,
-  attempt_id,needs_grading,score,percent}]`.
-- `PATCH /api/homework/{id}` any of `title, due_at, class_ids, instructions, allow_late, allow_resubmit,
-  auto_release, questions` (questions → 409 once anyone handed in) → Detail. `DELETE /api/homework/{id}` → 204
-  (exam, attempts, submissions).
-- Worksheet: `PUT /api/homework/{id}/worksheet` (multipart `file`, PDF/PNG/JPEG ≤ 20 MB; else 422/413),
-  `DELETE …/worksheet`, `GET …/worksheet` (download). Booklets with QR codes still come from `print.pdf`.
-- Collecting the class stack, answer key, review queue, approve/regrade/bulk: the existing Scan & Grade
-  endpoints with the homework's exam id.
-
-## Student API (role student)
-- `GET /api/student/homework` → `[Item]`; Item = `{exam_id, title, course, due_at, past_due, state:
-  "not_submitted"|"processing"|"failed"|"handed_in"|"feedback", late, overdue, submitted_at, can_submit,
-  block_reason, allow_late, allow_resubmit, released, feedback_new, score|null, total_points, percent|null,
-  question_count, class_names}` (score/percent only once released).
-- `GET /api/student/homework/{id}` → Item + `instructions, worksheet, questions (no keys, no topics), pages
-  (my flattened pages), error, ai_enabled`. Opening a released homework marks its feedback seen.
-- `POST /api/student/homework/{id}/submit` multipart `files` in page order → 202 `{submission_id, pages, late,
-  state:"processing"}`.
-- `GET /api/student/homework/{id}/worksheet` (class members only).
-- `GET /api/student/notifications` → `{feedback_ready, items:[{exam_id,title,released_at}]}` — released homework
-  with the student's work that they have not opened yet. In-app only (badge on the student home), no email.
-- `GET /api/student/progress` → `{mastery, level, trend_label, improving, work_on, strong, topics:[{topic,
-  mastery, trend, trend_label, n}], mistakes:[{label,count,topics}], recent:[{exam_id,title,date,percent,homework}]}`
-  — RELEASED exams/homework and teacher grades only (never unreviewed AI drafts).
-
-## Progress dashboard (`app.homework.progress`, pure functions; tested on a fixed fixture)
-Items = every (student, question) of the teacher's submitted attempts (homework, paper and computer exams;
-external items skipped), dated by `attempt.submitted_at`.
-- Mastery (student × topic) = Σ w·awarded / Σ w·max over graded answers, w = 0.5^(age_days / 21) — recent
-  work counts more; pending answers are skipped. Levels: ≥ 80 strong, ≥ 60 developing, else struggling.
-  Class mastery of a topic = mean of the students' masteries.
-- Trend = per-assignment percents in date order; recent = last min(2, n // 2), before = up to 3 before those;
-  delta = mean(recent) − mean(before), needs n ≥ 2 (else "new"). ≤ −10 slipping, ≥ +10 improving, else steady.
-- Misconception label per answer that lost points: approved grade's misconception tag (`other` → its text),
-  else its first mistake tag; answers not graded yet: the AI draft's tag (teacher view only). This week =
-  [now − 7 d, now), last week = [now − 14 d, now − 7 d). Top 10 by this week.
-- Actions per topic with class mastery < 70 or ≥ 2 struggling students: "reteach" when class mastery < 60 or
-  ≥ 40 % of the students with answers struggle, else "practice" — with the struggling usernames.
-- `GET /api/progress?class_id=` (class must be the teacher's) → `{class, generated_at, assignments,
-  topics:[{topic,mastery,level,students,struggling:[{username,name,mastery}]}], students:[{student_id,username,
-  name,mastery,level,n,assignments,trend,trend_label,cells:{topic:{mastery,n,level,trend}}}],
-  misconceptions:[{label,this_week,last_week,change,approved,students,topics}], actions:[{topic,kind,mastery,
-  text,students,misconception}], slipping:[…], improving:[{username,name,trend,mastery}]}`.
-- `GET /api/progress/students/{username}` (student in one of the teacher's classes or with work on their
-  exams; else 404) → `{student, classes, mastery, level, n, trend, trend_label, assignments:[{exam_id,title,date,
-  percent}], topics:[{topic,mastery,level,n,trend,trend_label,series:[…]}], mistakes:[{label,count,recurring,
-  topics,last_seen,examples:[{exam_id,title,question_id,prompt,image,date,comment,approved}]}], notes}`.
-- `POST /api/progress/students/{username}/notes {"text"}` → 201 note; `DELETE /api/progress/notes/{id}` → 204.
-- One-click practice: the dashboard calls the existing `POST /api/practice/generate {usernames, topics}` for the
-  struggling group (drafts; the teacher still approves and sends on `/teacher/practice`), or links to
-  `/teacher/practice?student=a,b&topic=x` (prefill).
-
-## Web
-- Teacher nav "Homework" → `/teacher/homework` (list, class filter), `/teacher/homework/new[?class=]` (title, due,
-  classes, instructions, questions with topics and key, late / resubmit / auto-release switches),
-  `/teacher/homework/:id?tab=students|key|collect|review|settings` (status table with page thumbnails and late
-  flags; the shared AnswerKeyStep, UploadStep (+ PrintStep), QueueStep; settings + worksheet; "Release feedback").
-- Teacher nav "Progress" → `/teacher/progress[?class=]` (slipping / improved, misconceptions this vs last week,
-  students × topics heatmap with numbers in every cell, sort by name / weakest / slipping, suggested actions with
-  "Assign practice to N students") and `/teacher/progress/students/:username` (topic lines, recurring mistakes with
-  thumbnails of the student's own answers, notes).
-- Student nav "Homework" → `/student/homework`, `/student/homework/:id` (questions, worksheet download,
-  `<input type="file" accept="image/*" capture="environment" multiple>` + "Choose files", reorder/delete pages,
-  "Hand in N pages" / "Hand in again" / "Hand in late", what you handed in, feedback card → `/student/grades/:id`);
-  "Progress" → `/student/progress`. Student home shows a "Feedback ready" badge and homework still to do.
+## 2026-10-13 simplification
+- **Optional parts:** `FAIRPLAY_FEATURES` (comma list of `scan`, `lms`, `practice`; default empty). Parts not listed have no API routes (404) and the teacher UI hides them; `GET /api/health` returns `features`. Paper exams (`delivery: "paper"`) are refused (400) unless `scan` is on. Insights is hidden in the UI; its `/api/students…` profile routes stay.
+- **Classes:** `term` (free text, ≤80, e.g. "Fall 2026 · Section 2") on create/`PUT`; responses add `term` and `teacher_name`. Student `GET /api/student/classes` adds `term`. Invite link: `/student/join/<code>` (signed out: code kept for this tab, joined right after sign-in).
+- **Grades:** `GET /api/gradebook` and `/api/gradebook.csv` take `class_id` (the class's members are listed even before any exam); `GET /api/grading` rows add `class_id`.
+- **Exams:** saving needs no class; opening still does (the editor asks). Question `topics` are optional; a question without one is stored under the course (lower-case) or `general`.

@@ -9,21 +9,41 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 QID_RE = re.compile(r"^q_[A-Za-z0-9_-]{1,40}$")
-# slice 3: allowed-website entries are bare hostnames (a domain also allows its subdomains).
+# slice 3, tightened by the 2026-10-12 audit (#10): an allowed-website entry is an EXACT
+# host ("canvas.dku.edu"), "*.host" for the host and all its subdomains, optionally
+# followed by a path prefix ("docs.google.com/forms/d/e/1FAIpQL/").
 DOMAIN_RE = re.compile(r"^[a-z0-9-]+(\.[a-z0-9-]+)*$")
+PATH_RE = re.compile(r"^/[A-Za-z0-9._~!$&'()*+,;=:@%/-]*$")
 MAX_ALLOWED_DOMAINS = 30
 MAX_EXTERNAL_URL = 2000
 MAX_FINISH_CONTAINS = 200
 
 
 def normalize_domain(v: str) -> str:
-    """Lowercase/strip one allowed-website entry and validate it; raises ValueError."""
-    d = v.strip().lower().rstrip(".")
-    if not d:
+    """Normalize/validate one allowed-website entry ([*.]host[/path]); raises ValueError.
+    The host is lowercased, the path keeps its case (form ids are case-sensitive)."""
+    raw = v.strip()
+    s = raw
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", s):
+        s = s.split("://", 1)[1]
+    s = s.split("?", 1)[0].split("#", 1)[0]
+    host, slash, path = s.partition("/")
+    wildcard = host.startswith("*.")
+    if wildcard:
+        host = host[2:]
+    host = host.lower().rstrip(".")
+    if ":" in host:
+        host = host.split(":", 1)[0]
+    if not host:
         raise ValueError("allowed website must not be empty")
-    if len(d) > 253 or not DOMAIN_RE.match(d) or ("." not in d and d != "localhost"):
-        raise ValueError(f"'{v.strip()}' is not a website name like canvas.dku.edu")
-    return d
+    if len(host) > 253 or not DOMAIN_RE.match(host) or ("." not in host and host != "localhost"):
+        raise ValueError(f"'{raw}' is not a website name like canvas.dku.edu")
+    path = ("/" + path) if slash else ""
+    if path == "/":
+        path = ""
+    if path and (len(path) > 500 or not PATH_RE.match(path)):
+        raise ValueError(f"'{raw}' has an unusable path")
+    return ("*." if wildcard else "") + host + path
 
 
 def external_host(url: str | None) -> str | None:
@@ -41,7 +61,7 @@ def external_host(url: str | None) -> str | None:
 
 
 class LoginIn(BaseModel):
-    username: str = Field(max_length=254)  # username or email
+    username: str = Field(max_length=64)
     password: str = Field(max_length=256)
 
 
@@ -142,9 +162,6 @@ class QuestionIn(BaseModel):
     max_words: int | None = Field(default=None, ge=1, le=100_000)
     # slice 6 (Scan & Grade): lines of answer space on the printed paper (null = default)
     answer_lines: int | None = Field(default=None, ge=1, le=40)
-    # graph / chart / diagram question (essays only): kind + feature checklist, see
-    # app.scan.diagram_spec. Omitted = a normal written answer.
-    diagram: dict | None = None
 
     @field_validator("prompt")
     @classmethod
@@ -160,12 +177,6 @@ class QuestionIn(BaseModel):
 
     @model_validator(mode="after")
     def _by_type(self) -> "QuestionIn":
-        if self.type == "essay" and self.diagram is not None:
-            from .scan.diagram_spec import clean_diagram
-            self.diagram = clean_diagram(self.diagram, self.points)  # the checklist replaces the rubric
-            self.rubric = []
-        elif self.type != "essay":
-            self.diagram = None
         if self.type == "essay":
             rubric = self.rubric or []
             if rubric and abs(sum(r.points for r in rubric) - self.points) > 1e-9:
@@ -208,8 +219,6 @@ class QuestionIn(BaseModel):
 
     def to_dict(self) -> dict:
         d = self.model_dump(exclude={"id", "rubric"})
-        if d.get("diagram") is None:
-            d.pop("diagram", None)
         d["rubric"] = [{"label": r.label, "points": _whole(r.points)} for r in self.rubric or []]
         return d
 
@@ -236,6 +245,9 @@ class ExamIn(BaseModel):
     # slice 6: how the exam is delivered. Omitted -> derived from mode. "website" <=> mode
     # "external"; sending only delivery sets the mode, sending both must agree (422).
     delivery: Literal["computer", "paper", "website"] | None = None
+    # Audit S-03: the class that takes this exam (one of the teacher's classes). Required
+    # before the exam can be opened, unless it is linked to an LMS course.
+    class_id: int | None = Field(default=None, ge=1)
 
     @field_validator("title")
     @classmethod
@@ -253,7 +265,11 @@ class ExamIn(BaseModel):
     @field_validator("scheduled_at")
     @classmethod
     def _naive_utc(cls, v: datetime | None) -> datetime | None:
-        if v is not None and v.tzinfo is not None:
+        # Audit S-17: a time without a zone ("2026-10-12T09:00") is ambiguous -- a teacher in
+        # China meant 09:00 there, the server would store 09:00 UTC (8 hours off). Refuse it.
+        if v is not None and v.tzinfo is None:
+            raise ValueError("scheduled_at needs a time zone, e.g. 2026-10-12T09:00:00+08:00 or ...Z")
+        if v is not None:
             v = v.astimezone(timezone.utc).replace(tzinfo=None)
         return v
 
@@ -278,8 +294,8 @@ class ExamIn(BaseModel):
             self.mode = "external" if self.delivery == "website" else "questions"
         elif (self.delivery == "website") != (self.mode == "external"):
             raise ValueError("delivery \"website\" goes with mode \"external\" (and only with it)")
-        if self.mode != "external" and any(not q.topics for q in self.questions):
-            raise ValueError(TOPIC_REQUIRED_DETAIL)
+        # 2026-10-13: topics are optional (a question without one gets the course, or
+        # "general", when saved -- see routes_teacher._apply).
         if self.mode == "external":
             url = (self.external_url or "").strip()
             if not url:
@@ -303,8 +319,21 @@ class ExamIn(BaseModel):
 AnswerMap = dict[str, Any]
 
 
+class ClientProofIn(BaseModel):
+    """Audit #1: proof that the FairPlay app (not a browser) starts the attempt.
+    signature = hex HMAC-SHA256(app key, "start|<nonce>|<device_id>"); the nonce comes
+    from GET /api/student/exams/{id}/challenge and is single-use."""
+    model_config = ConfigDict(extra="ignore")
+    device_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9-]+$")
+    nonce: str = Field(min_length=8, max_length=128)
+    signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]+$")
+    version: str = Field(default="", max_length=32)
+    build: str = Field(default="", max_length=16)
+
+
 class StartIn(BaseModel):
     start_code: str = Field(default="", max_length=16)
+    client: ClientProofIn | None = None
     # slice 6: the student began from the offline package before the server knew; the
     # server accepts up to 30 minutes in the past (older is clamped) and sets the deadline
     # from it. Ignored when resuming an existing attempt.
@@ -318,9 +347,12 @@ class StartIn(BaseModel):
         return v
 
 
+MAX_ANSWER_INT = 10 ** 300
+
+
 class AnswersIn(BaseModel):
     answers: AnswerMap = Field(default_factory=dict)
-    client_seq: int = 0
+    client_seq: int = Field(default=0, ge=0, le=2 ** 62)   # audit S-14: fits BIGINT
 
     @field_validator("answers")
     @classmethod
@@ -334,12 +366,52 @@ class AnswersIn(BaseModel):
                 raise ValueError("answer too long")
             if isinstance(val, (dict, list)):
                 raise ValueError("answer values must be numbers, strings or null")
+            # Audit S-04: no inf/NaN, no integers a float can't hold.
+            if isinstance(val, float) and not math.isfinite(val):
+                raise ValueError("answer numbers must be finite")
+            if isinstance(val, int) and not isinstance(val, bool) and abs(val) > MAX_ANSWER_INT:
+                raise ValueError("answer number too large")
         return v
 
 
 class HeartbeatIn(BaseModel):
-    current_question: int = 0
+    current_question: int = Field(default=0, ge=0, le=10_000)
+    # Ignored since the audit (#2): lock state only counts from signed app beats.
     locked: bool = False
+
+
+class AppBeatIn(BaseModel):
+    """Sent by the Mac app itself every 5 s (audit #2, #6). signature = hex
+    HMAC-SHA256(app key, "beat|<attempt>|<session>|<device_id>|<ts>|<locked 0/1>|<checks>")."""
+    model_config = ConfigDict(extra="ignore")
+    session: str = Field(min_length=8, max_length=64)
+    device_id: str = Field(min_length=8, max_length=64)
+    ts: int = Field(ge=0)                       # client ms, strictly increasing per attempt
+    locked: bool = False
+    checks: str = Field(default="", max_length=200)   # e.g. "vm=0,displays=1,tap=1,input=1"
+    signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]+$")
+
+
+class ExitCodeIn(BaseModel):
+    code: str = Field(min_length=1, max_length=16)
+    # Audit 2026-10-13: the app's nonce; the reply then carries proofs over
+    # "exit|<attempt>|<session>|ok|<nonce>" (app_client.exit_message).
+    nonce: str | None = Field(default=None, min_length=8, max_length=128,
+                              pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class OfflineKeyIn(BaseModel):
+    """The app asks for its attempt's offline exit key. signature = hex
+    HMAC-SHA256(app key, "offkey|<attempt>|<session>|<device_id>|<ts>")."""
+    model_config = ConfigDict(extra="ignore")
+    session: str = Field(min_length=8, max_length=64)
+    device_id: str = Field(min_length=8, max_length=64)
+    ts: int = Field(ge=0, le=2 ** 62)
+    signature: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]+$")
+
+
+class OfflineExitIn(BaseModel):
+    mac_code: str = Field(min_length=1, max_length=20)
 
 
 class EventIn(BaseModel):

@@ -1,0 +1,6 @@
+bin/
+obj/
+*.user
+src/FairPlay.Shell/fairplay-build.json
+.vs/
+artifacts/

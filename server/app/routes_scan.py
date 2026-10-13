@@ -8,23 +8,22 @@ release, feedback, gradebook and LMS push work unchanged.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from . import ai
 from .db import get_database, get_session
 from .grading import exam_questions, grade_attempt, is_answered, num, paper_answer, paper_given, percent
-from .models import Attempt, CourseMember, Exam, User
-from .scan import ai_grade, answer_key, photo, review  # phase 2: step-level AI grading + answer key
-from .scan import diagram_spec, diagrams  # graph / diagram questions
-from .scan import any_paper  # any-paper answer finding (no QR)
+from .models import Attempt, ClassMember, CourseMember, Exam, User
 from .scan import grading as scan_grading
 from .scan import pipeline
 from .scan import print as print_mod
@@ -45,6 +44,33 @@ AI_CONCURRENCY = 4
 STALE_AFTER = timedelta(minutes=30)
 _tasks: set[asyncio.Task] = set()     # keep background jobs referenced
 _running: set[str] = set()            # batch ids running in this process
+_pending: set[str] = set()            # batch ids queued or running in this process
+# Audit L-06: batches survive a restart. The worker holding a batch refreshes its heartbeat;
+# any server process sweeps for unfinished batches whose heartbeat is stale and resumes them.
+UNFINISHED = ("queued", "reading", "grading")
+CLAIM_STALE = timedelta(seconds=120)
+HEARTBEAT_EVERY = 30.0
+SWEEP_EVERY = 60.0
+LOST_SOURCE = "the file was lost when the server restarted; upload it again"
+# Audit L-03: scan reading is bounded per server process -- one batch at a time on its own
+# two threads, so a big upload never takes the threads live exams need.
+MAX_BATCH_PAGES = 4000
+SCAN_THREADS = 2
+_scan_pool = concurrent.futures.ThreadPoolExecutor(max_workers=SCAN_THREADS, thread_name_prefix="scan")
+_batch_slots: dict[int, asyncio.Semaphore] = {}
+
+
+def _slot() -> asyncio.Semaphore:
+    """One per event loop (tests run many loops in one process)."""
+    key = id(asyncio.get_running_loop())
+    if key not in _batch_slots:
+        _batch_slots.clear()
+        _batch_slots[key] = asyncio.Semaphore(1)
+    return _batch_slots[key]
+
+
+async def _in_scan_pool(fn, *args):
+    return await asyncio.get_running_loop().run_in_executor(_scan_pool, fn, *args)
 
 
 # ---------------------------------------------------------------- helpers
@@ -69,9 +95,28 @@ def _printable(e: Exam) -> None:
         raise HTTPException(409, "Add questions before printing")
 
 
-async def _all_students(session: AsyncSession) -> list[User]:
+MAX_TEACHER_STUDENTS = 5000
+
+
+def teacher_student_ids(teacher_id: int):
+    """Audit L-11 (and S-03): the students a teacher works with -- members of their
+    classes, of their linked LMS courses, and anyone who took one of their exams.
+    Never every student on the server."""
+    from .models import CourseLink, LmsConnection, SchoolClass
+    in_class = (select(ClassMember.user_id).join(SchoolClass, SchoolClass.id == ClassMember.class_id)
+                .where(SchoolClass.teacher_id == teacher_id))
+    in_course = (select(CourseMember.user_id).join(CourseLink, CourseLink.id == CourseMember.course_link_id)
+                 .join(LmsConnection, LmsConnection.id == CourseLink.connection_id)
+                 .where(LmsConnection.teacher_id == teacher_id))
+    took = (select(Attempt.student_id).join(Exam, Exam.id == Attempt.exam_id)
+            .where(Exam.teacher_id == teacher_id))
+    return in_class.union(in_course, took)
+
+
+async def _all_students(session: AsyncSession, teacher_id: int) -> list[User]:
     return list((await session.execute(
-        select(User).where(User.role == "student").order_by(User.name, User.username))).scalars())
+        select(User).where(User.role == "student", User.id.in_(teacher_student_ids(teacher_id)))
+        .order_by(User.name, User.username).limit(MAX_TEACHER_STUDENTS))).scalars())
 
 
 async def roster_of(session: AsyncSession, e: Exam) -> tuple[str, list[User]]:
@@ -80,18 +125,43 @@ async def roster_of(session: AsyncSession, e: Exam) -> tuple[str, list[User]]:
         .where(ExamRoster.exam_id == e.id).order_by(User.name, User.username))).scalars().all()
     if picked:
         return "picked", list(picked)
-    # classes: union of the members of the exam's assigned classes (explicit pick wins)
-    from .classes.service import class_member_users
-    members = await class_member_users(session, e.id)
-    if members is not None:
-        return "classes", members
     if e.course_link_id:
         members = (await session.execute(
             select(User).join(CourseMember, CourseMember.user_id == User.id)
             .where(CourseMember.course_link_id == e.course_link_id)
             .order_by(User.name, User.username))).scalars().all()
         return "course", list(members)
-    return "all", await _all_students(session)
+    if e.class_id:
+        members = (await session.execute(
+            select(User).join(ClassMember, ClassMember.user_id == User.id)
+            .where(ClassMember.class_id == e.class_id, User.role == "student")
+            .order_by(User.name, User.username))).scalars().all()
+        return "class", list(members)
+    return "all", await _all_students(session, e.teacher_id)
+
+
+# Audit L-08 / L-10: the layout is computed off the event loop and cached per question set;
+# booklets come in parts of at most BOOKLETS_PER_PDF students, and never for "every student
+# in FairPlay" by default.
+BOOKLETS_PER_PDF = 500
+_layout_cache: dict[tuple[str, str], int] = {}
+_LAYOUT_CACHE_MAX = 256
+
+
+async def _pages_per_student(exam_id: str, qs: list[dict]) -> int:
+    key = (exam_id, print_mod.questions_hash(qs))
+    hit = _layout_cache.get(key)
+    if hit is not None:
+        return hit
+    layout, _ = await asyncio.to_thread(print_mod.build_layout, exam_id, qs)
+    if len(_layout_cache) >= _LAYOUT_CACHE_MAX:
+        _layout_cache.pop(next(iter(_layout_cache)))
+    _layout_cache[key] = int(layout["page_count"])
+    return _layout_cache[key]
+
+
+def _parts(n: int) -> int:
+    return max(1, -(-n // BOOKLETS_PER_PDF))
 
 
 def _user_out(u: User) -> dict:
@@ -147,14 +217,14 @@ async def get_roster(exam_id: str, p: Principal = Depends(require_teacher),
     e = await _own_exam(session, exam_id, p)
     source, users = await roster_of(session, e)
     return {"exam_id": e.id, "source": source, "students": [_user_out(u) for u in users],
-            "all_students": [_user_out(u) for u in await _all_students(session)]}
+            "all_students": [_user_out(u) for u in await _all_students(session, e.teacher_id)]}
 
 
 @router.put("/exams/{exam_id}/roster")
 async def put_roster(exam_id: str, body: RosterIn, p: Principal = Depends(require_teacher),
                      session: AsyncSession = Depends(get_session)):
     """Pick the students who get a booklet. An empty list goes back to the default
-    (members of the assigned classes, else the linked LMS course, else all students)."""
+    (the linked LMS course, else all students)."""
     e = await _own_exam(session, exam_id, p)
     wanted = sorted({u.strip() for u in body.usernames if u and u.strip()})
     users = []
@@ -206,15 +276,17 @@ async def print_info(exam_id: str, p: Principal = Depends(require_teacher),
     e = await _own_exam(session, exam_id, p)
     row = await session.get(PrintLayout, e.id)
     qs = exam_questions(e)
-    current, _ = print_mod.build_layout(e.id, qs) if qs and e.mode != "external" else ({"page_count": 0}, None)
+    pages = await _pages_per_student(e.id, qs) if qs and e.mode != "external" else 0
     source, users = await roster_of(session, e)
     return {
         "exam_id": e.id, "delivery": delivery_of(e),
         "printed_at": iso(row.created_at) if row else None,
         "printed_pages": row.page_count if row else None,
-        "pages_per_student": current["page_count"],
+        "pages_per_student": pages,
         "layout_changed": bool(row and row.questions_hash != print_mod.questions_hash(qs)),
         "roster_source": source, "student_count": len(users),
+        "booklet_parts": _parts(len(users)), "booklets_per_part": BOOKLETS_PER_PDF,
+        "needs_roster": source == "all",
         "questions": [{"question_id": q["id"], "index": i, "type": q["type"],
                        "prompt": q.get("prompt", ""), "answer_lines": q.get("answer_lines"),
                        "default_lines": print_mod.DEFAULT_LINES.get(q["type"])}
@@ -223,14 +295,21 @@ async def print_info(exam_id: str, p: Principal = Depends(require_teacher),
 
 
 @router.get("/exams/{exam_id}/print.pdf")
-async def print_pdf(exam_id: str, blank: int = 0, p: Principal = Depends(require_teacher),
+async def print_pdf(exam_id: str, blank: int = 0, part: int = 1, p: Principal = Depends(require_teacher),
                     session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     _printable(e)
     qs = exam_questions(e)
-    _, users = await roster_of(session, e)
-    if not blank and not users:
-        raise HTTPException(409, "No students to print for — pick students first")
+    source, users = await roster_of(session, e)
+    parts = _parts(len(users))
+    if not blank:
+        if source == "all":
+            raise HTTPException(409, "Pick the students who get a booklet, or put the exam in a class")
+        if not users:
+            raise HTTPException(409, "No students to print for — pick students first")
+        if not 1 <= part <= parts:
+            raise HTTPException(422, f"There are {parts} part(s) of booklets")
+        users = users[(part - 1) * BOOKLETS_PER_PDF:part * BOOKLETS_PER_PDF]
     # the stored layout is the one scans are read with: (re)build it when questions changed
     row = await session.get(PrintLayout, e.id)
     layout, planned = await asyncio.to_thread(print_mod.build_layout, e.id, qs)
@@ -245,9 +324,10 @@ async def print_pdf(exam_id: str, blank: int = 0, p: Principal = Depends(require
     students = [{"id": u.id, "name": u.name, "username": u.username} for u in users]
     pdf = await asyncio.to_thread(print_mod.render, exam, planned, students, bool(blank))
     name = "".join(c if c.isalnum() else "-" for c in e.title)[:60].strip("-") or "exam"
-    suffix = "blank" if blank else "booklets"
+    suffix = "blank" if blank else ("booklets" if parts == 1 else f"booklets-part{part}-of-{parts}")
     return Response(pdf, media_type="application/pdf", headers={
-        "Content-Disposition": f'attachment; filename="{name}-{suffix}.pdf"', "Cache-Control": "no-store"})
+        "Content-Disposition": f'attachment; filename="{name}-{suffix}.pdf"', "Cache-Control": "no-store",
+        "X-FairPlay-Parts": str(1 if blank else parts)})
 
 
 # ---------------------------------------------------------------- upload + processing
@@ -264,21 +344,17 @@ def _sniff(head: bytes) -> str | None:
         return "webp"
     if head[:2] == b"BM":
         return "bmp"
-    if photo.is_heic(head):  # phase 2: iPhone photos
-        return "heic"
     return None
 
 
 @router.post("/exams/{exam_id}/scans", status_code=202)
-async def upload_scans(exam_id: str, files: list[UploadFile] = File(...), unprinted: int = 0,
+async def upload_scans(exam_id: str, files: list[UploadFile] = File(...),
                        p: Principal = Depends(require_teacher), session: AsyncSession = Depends(get_session)):
-    """`?unprinted=1`: answer sheets NOT printed by FairPlay (no QR codes) — pages are kept for
-    the manual "Map pages" step instead of being matched by QR."""
     e = await _own_exam(session, exam_id, p)
     _printable(e)
     if e.status == "live" and delivery_of(e) != "paper":
         raise HTTPException(409, "Close the exam before uploading scans")
-    if not unprinted and await session.get(PrintLayout, e.id) is None:
+    if await session.get(PrintLayout, e.id) is None:
         raise HTTPException(409, "Print the booklets from FairPlay first — scans are read with their layout")
     if not files or len(files) > MAX_FILES:
         raise HTTPException(422, f"Upload 1 to {MAX_FILES} files")
@@ -291,9 +367,6 @@ async def upload_scans(exam_id: str, files: list[UploadFile] = File(...), unprin
             kind = _sniff(head)
             if kind is None:
                 raise HTTPException(422, f"{f.filename or 'A file'} is not a PDF or an image")
-            if kind == "heic" and not photo.heic_supported():
-                raise HTTPException(422, f"{f.filename or 'A photo'} is HEIC (iPhone) — not supported on this server "
-                                         "yet. Export it as JPEG or set the camera to Most Compatible")
             path = os.path.join(sources_dir(), f"{batch_id}_{i}.{kind}")
             with open(path, "wb") as out:
                 out.write(head)
@@ -311,8 +384,7 @@ async def upload_scans(exam_id: str, files: list[UploadFile] = File(...), unprin
         raise
     names = ", ".join(f.filename or "scan" for f in files)
     b = ScanBatch(id=batch_id, exam_id=e.id, teacher_id=p.user_id, status="queued",
-                  filename=names[:300], sources=paths, created_at=utcnow(),
-                  mode="unprinted" if unprinted else "printed")
+                  filename=names[:300], sources=paths, created_at=utcnow())
     session.add(b)
     # A paper exam is "collected" once scans arrive: closed, so grades can be released.
     if e.status != "closed":
@@ -339,59 +411,211 @@ def _page_row(batch: ScanBatch, seq: int, res: dict) -> ScanPage:
                     crops=res.get("crops") or {}, created_at=utcnow())
 
 
+async def _claim(batch_id: str) -> bool:
+    """Take a batch for this process: atomic, so two workers never run the same batch."""
+    now = utcnow()
+    async with get_database().sessionmaker() as s:
+        r = await s.execute(
+            update(ScanBatch)
+            .where(ScanBatch.id == batch_id, ScanBatch.status.in_(UNFINISHED),
+                   or_(ScanBatch.heartbeat_at.is_(None), ScanBatch.heartbeat_at < now - CLAIM_STALE))
+            .values(heartbeat_at=now)
+            .execution_options(synchronize_session=False))
+        await s.commit()
+        return (r.rowcount or 0) == 1
+
+
+@asynccontextmanager
+async def _heartbeat(batch_id: str):
+    async def beat():
+        while True:
+            await asyncio.sleep(HEARTBEAT_EVERY)
+            try:
+                async with get_database().sessionmaker() as s:
+                    await s.execute(update(ScanBatch).where(ScanBatch.id == batch_id)
+                                    .values(heartbeat_at=utcnow())
+                                    .execution_options(synchronize_session=False))
+                    await s.commit()
+            except Exception:  # noqa: BLE001 - a missed beat only risks a resume elsewhere
+                log.warning("heartbeat of scan batch %s failed", batch_id, exc_info=True)
+
+    t = asyncio.get_running_loop().create_task(beat())
+    try:
+        yield
+    finally:
+        t.cancel()
+
+
 async def run_batch(batch_id: str) -> None:
+    _pending.add(batch_id)
+    try:
+        async with _slot():
+            if not await _claim(batch_id):
+                return              # another worker has it, or it already finished
+            async with _heartbeat(batch_id):
+                await _run_batch(batch_id)
+    finally:
+        _pending.discard(batch_id)
+
+
+async def sweep_batches() -> int:
+    """Resume unfinished batches nobody is working on. Returns how many were started."""
+    now = utcnow()
+    async with get_database().sessionmaker() as s:
+        ids = list((await s.execute(select(ScanBatch.id).where(
+            ScanBatch.status.in_(UNFINISHED),
+            or_(ScanBatch.heartbeat_at < now - CLAIM_STALE,
+                (ScanBatch.heartbeat_at.is_(None)) & (ScanBatch.created_at < now - CLAIM_STALE)),
+        ))).scalars())
+    started = 0
+    for bid in ids:
+        if bid in _pending or bid in _running:
+            continue
+        log.info("resuming scan batch %s", bid)
+        _spawn(run_batch(bid))
+        started += 1
+    return started
+
+
+async def sweep_forever() -> None:
+    while True:
+        try:
+            await sweep_batches()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.warning("scan batch sweep failed", exc_info=True)
+        await asyncio.sleep(SWEEP_EVERY)
+
+
+async def _draft_pairs(session: AsyncSession, e: Exam, batch_id: str, only_missing: bool) -> list[tuple[str, str]]:
+    """(attempt, question) pairs from this batch's pages that still want an AI draft: the
+    attempt still holds this page's crop and the item is not graded. only_missing skips
+    items that already have a draft of this very crop (used when resuming)."""
+    pages = (await session.execute(select(ScanPage).where(
+        ScanPage.batch_id == batch_id, ScanPage.status.in_(("matched", "assigned"))))).scalars().all()
+    qmap = _question_map(e)
+    sids = {int(pg.student_id) for pg in pages if pg.student_id is not None}
+    attempts = {a.student_id: a for a in (await session.execute(select(Attempt).where(
+        Attempt.exam_id == e.id, Attempt.student_id.in_(sids)))).scalars()} if sids else {}
+    pairs: list[tuple[str, str]] = []
+    for pg in pages:
+        a = attempts.get(int(pg.student_id)) if pg.student_id is not None else None
+        if a is None:
+            continue
+        for qid, crop in (pg.crops or {}).items():
+            if qid not in qmap or not isinstance(crop, dict):
+                continue
+            ans = (a.answers or {}).get(qid)
+            if not paper_answer(ans) or ans.get("image") != crop.get("image"):
+                continue
+            if (a.grades or {}).get(qid) is not None or not paper_given(qmap[qid], ans, None)[1]:
+                continue
+            if only_missing and ((a.ai_drafts or {}).get(qid) or {}).get("image") == ans.get("image"):
+                continue
+            if (a.id, qid) not in pairs:
+                pairs.append((a.id, qid))
+    return pairs
+
+
+async def _run_batch(batch_id: str) -> None:
     db = get_database()
     _running.add(batch_id)
+    sources: list[str] = []
+    finished = False        # sources are removed only once the batch is done or failed
     try:
         async with db.sessionmaker() as s:
             b = await s.get(ScanBatch, batch_id)
-            e = await s.get(Exam, b.exam_id) if b else None
-            row = await s.get(PrintLayout, b.exam_id) if b else None
-            unprinted = bool(b) and (b.mode or "printed") == "unprinted"
-            if b is None or e is None or (row is None and not unprinted):
+            if b is None:
                 return
-            layout = row.layout if row is not None else {}
-            b.status = "reading"
-            await s.commit()
-            sources = list(b.sources or [])
-        counts = await asyncio.to_thread(lambda: [pipeline.source_page_count(pth) for pth in sources])
-        async with db.sessionmaker() as s:
-            b = await s.get(ScanBatch, batch_id)
-            b.page_count = sum(counts)
-            await s.commit()
-        seq = 0
-        for pth, n in zip(sources, counts):
-            for i in range(n):
-                res = await asyncio.to_thread(pipeline.process_source_page, pth, i, e.id, layout, unprinted)
-                async with db.sessionmaker() as s:
-                    b = await s.get(ScanBatch, batch_id)
-                    s.add(_page_row(b, seq, res))
-                    b.processed = seq + 1
-                    await s.commit()
-                seq += 1
-        for pth in sources:
-            pipeline.safe_remove(pth)
-        # any paper (no QR): group pages into students and find the answer regions (AI on)
-        found = await any_paper.process_batch(e.id, batch_id) if unprinted else []
-        async with db.sessionmaker() as s:
-            pages = list((await s.execute(
-                select(ScanPage).where(ScanPage.batch_id == batch_id).order_by(ScanPage.seq))).scalars())
             e = await s.get(Exam, b.exam_id)
-            pairs = await merge_pages(s, e, [pg for pg in pages if pg.status == "matched"]) + found
-            await _suggest_names(s, e, [pg for pg in pages if pg.status == "unmatched" and pg.name_crop])
-            b = await s.get(ScanBatch, batch_id)
-            b.status = "grading"
-            b.ai_total = len(pairs)
-            b.ai_done = 0
+            row = await s.get(PrintLayout, b.exam_id)
+            sources = list(b.sources or [])
+            if e is None or row is None:
+                raise ValueError("The exam or its printed layout is gone")
+            layout = row.layout
+            resume_grading = b.status == "grading"
+            if not resume_grading:
+                b.status = "reading"
+            known = list(b.source_counts or [])
+            names = (b.filename or "").split(", ")
+            done_seqs = set((await s.execute(
+                select(ScanPage.seq).where(ScanPage.batch_id == batch_id))).scalars())
             await s.commit()
+
+        if resume_grading:
+            async with db.sessionmaker() as s:
+                pairs = await _draft_pairs(s, e, batch_id, only_missing=True)
+                b = await s.get(ScanBatch, batch_id)
+                b.ai_total, b.ai_done = len(pairs), 0
+                await s.commit()
+        else:
+            # Audit L-05: one unreadable/encrypted/oversized file is one unreadable page,
+            # not a failed batch. L-06: counts are stored, so a resumed run skips stored pages.
+            problems: dict[int, str] = {}
+            if len(known) == len(sources):
+                counts = [int(c) for c in known]
+            else:
+                counts = []
+                for k, pth in enumerate(sources):
+                    if not os.path.exists(pth):
+                        counts.append(-1)
+                        problems[k] = LOST_SOURCE
+                        continue
+                    try:
+                        counts.append(await _in_scan_pool(pipeline.source_page_count, pth))
+                    except pipeline.SourceError as ex:
+                        counts.append(-1)
+                        problems[k] = str(ex)
+            total = sum(max(c, 0) for c in counts)
+            if total > MAX_BATCH_PAGES:
+                raise ValueError(f"{total} pages in one upload; at most {MAX_BATCH_PAGES}. Upload in parts.")
+            async with db.sessionmaker() as s:
+                b = await s.get(ScanBatch, batch_id)
+                b.source_counts = counts
+                b.page_count = total + sum(1 for c in counts if c < 0)
+                await s.commit()
+            seq = 0
+            for k, (pth, n) in enumerate(zip(sources, counts)):
+                name = names[k] if k < len(names) else "a file"
+                for i in range(max(n, 1) if n < 0 else n):
+                    if seq not in done_seqs:
+                        if n < 0 or not os.path.exists(pth):
+                            why = problems.get(k) or (LOST_SOURCE if not os.path.exists(pth)
+                                                      else "the file could not be read")
+                            res = {"status": "unmatched", "reason": f"{name}: {why}"[:300],
+                                   "qr_found": 0, "rotation": 0, "crops": {}}
+                        else:
+                            res = await _in_scan_pool(pipeline.process_source_page, pth, i, e.id, layout)
+                        async with db.sessionmaker() as s:
+                            b = await s.get(ScanBatch, batch_id)
+                            s.add(_page_row(b, seq, res))
+                            b.processed = seq + 1
+                            await s.commit()
+                    seq += 1
+            async with db.sessionmaker() as s:
+                pages = list((await s.execute(
+                    select(ScanPage).where(ScanPage.batch_id == batch_id).order_by(ScanPage.seq))).scalars())
+                e = await s.get(Exam, e.id)
+                pairs = await merge_pages(s, e, [pg for pg in pages if pg.status == "matched"])
+                await _suggest_names(s, e, [pg for pg in pages if pg.status == "unmatched" and pg.name_crop])
+                b = await s.get(ScanBatch, batch_id)
+                b.status = "grading"
+                b.processed = max(b.processed, seq)
+                b.ai_total = len(pairs)
+                b.ai_done = 0
+                await s.commit()
         await draft_answers(e.id, pairs, batch_id=batch_id)
         async with db.sessionmaker() as s:
             b = await s.get(ScanBatch, batch_id)
-            b.status = "done"
-            b.finished_at = utcnow()
-            await s.commit()
+            if b is not None:
+                b.status = "done"
+                b.finished_at = utcnow()
+                await s.commit()
+        finished = True
     except Exception as ex:  # noqa: BLE001 - report on the batch, never crash the server
         log.exception("scan batch %s failed", batch_id)
+        finished = True
         try:
             async with db.sessionmaker() as s:
                 b = await s.get(ScanBatch, batch_id)
@@ -403,6 +627,9 @@ async def run_batch(batch_id: str) -> None:
         except Exception:  # noqa: BLE001
             log.exception("could not record failure of batch %s", batch_id)
     finally:
+        if finished:
+            for pth in sources:      # audit L-05: never leave uploaded sources on disk
+                pipeline.safe_remove(pth)
         _running.discard(batch_id)
 
 
@@ -462,6 +689,34 @@ async def merge_pages(session: AsyncSession, e: Exam, pages: list[ScanPage]) -> 
     return need
 
 
+async def _unmerge_page(session: AsyncSession, e: Exam, pg: ScanPage) -> None:
+    """Take this page's answers back out of its current student's paper attempt (only the
+    answers that are this page's crops), drop their drafts/grades and regrade. A paper
+    attempt left without any answer is removed (that student handed nothing in)."""
+    a = (await session.execute(
+        select(Attempt).where(Attempt.exam_id == e.id, Attempt.student_id == int(pg.student_id))
+        .with_for_update().execution_options(populate_existing=True))).scalar_one_or_none()
+    if a is None:
+        return
+    answers, drafts, grades = dict(a.answers or {}), dict(a.ai_drafts or {}), dict(a.grades or {})
+    for qid, crop in (pg.crops or {}).items():
+        if qid.startswith("_"):
+            continue
+        cur = answers.get(qid)
+        if isinstance(cur, dict) and isinstance(crop, dict) and cur.get("image") == crop.get("image"):
+            answers.pop(qid, None)
+            drafts.pop(qid, None)
+            grades.pop(qid, None)
+    if not answers and (a.source or "computer") == "paper":
+        await session.delete(a)
+    else:
+        a.answers, a.ai_drafts, a.grades = answers, drafts, grades
+        score, pending, _ = grade_attempt(exam_questions(e), answers, grades)
+        a.score, a.needs_grading, a.updated_at = score, pending, utcnow()
+    await session.flush()
+    await get_store().delete(attempt_key(a.id))
+
+
 async def _suggest_names(session: AsyncSession, e: Exam, pages: list[ScanPage]) -> None:
     """Blank copies: ask the AI to read the Name box and suggest a student (never applied)."""
     if not pages or not ai.enabled():
@@ -501,12 +756,10 @@ async def draft_answers(exam_id: str, pairs: list[tuple[str, str]], batch_id: st
     async with db.sessionmaker() as s:
         e = await s.get(Exam, exam_id)
         qmap = _question_map(e)
-        key = await answer_key.load_key(s, exam_id)  # phase 2: answer key + rubric
         aids = sorted({aid for aid, _ in pairs})
         answers = {aid: ans for aid, ans in (await s.execute(
             select(Attempt.id, Attempt.answers).where(Attempt.id.in_(aids)))).all()}
-    ctxs = {qid: answer_key.key_context(key, q) for qid, q in qmap.items()}
-    sem = asyncio.Semaphore(ai_grade._concurrency())
+    sem = asyncio.Semaphore(AI_CONCURRENCY)
 
     async def one(aid: str, qid: str) -> tuple[str, str, dict] | None:
         ans = (answers.get(aid) or {}).get(qid)
@@ -515,7 +768,7 @@ async def draft_answers(exam_id: str, pairs: list[tuple[str, str]], batch_id: st
             return None
         async with sem:
             img = await asyncio.to_thread(read_url, ans.get("image"))
-            d = await scan_grading.draft_for(q, ans, img, hint, ctx=ctxs.get(qid))
+            d = await scan_grading.draft_for(q, ans, img, hint)
             d["image"] = ans.get("image")  # the draft belongs to this crop
             return aid, qid, d
 
@@ -534,8 +787,6 @@ async def draft_answers(exam_id: str, pairs: list[tuple[str, str]], batch_id: st
                 merged = dict(a.ai_drafts or {})
                 cur = a.answers or {}
                 for qid, d in ds.items():
-                    if (a.grades or {}).get(qid) is not None:
-                        continue  # never touch an answer the teacher already graded
                     if (cur.get(qid) or {}).get("image") == d.get("image"):  # not re-scanned meanwhile
                         merged[qid] = d
                 a.ai_drafts = merged
@@ -549,15 +800,14 @@ async def draft_answers(exam_id: str, pairs: list[tuple[str, str]], batch_id: st
 # ---------------------------------------------------------------- batches + unmatched pages
 def _batch_out(b: ScanBatch, counts: dict[str, int]) -> dict:
     status = b.status
-    if status in ("queued", "reading", "grading") and b.id not in _running and \
-            utcnow() - b.created_at > STALE_AFTER:
+    if status in UNFINISHED and b.id not in _pending and b.id not in _running and \
+            (utcnow() - b.heartbeat_at > CLAIM_STALE if b.heartbeat_at else utcnow() - b.created_at > STALE_AFTER):
         status = "stalled"
     return {"batch_id": b.id, "status": status, "filename": b.filename, "page_count": b.page_count,
             "processed": b.processed, "matched": counts.get("matched", 0) + counts.get("assigned", 0),
             "unmatched": counts.get("unmatched", 0), "ignored": counts.get("ignored", 0),
             "ai_total": b.ai_total, "ai_done": b.ai_done, "error": b.error,
-            "created_at": iso(b.created_at), "finished_at": iso(b.finished_at),
-            "mode": b.mode or "printed", "origin": b.origin or "upload"}  # phase 2
+            "created_at": iso(b.created_at), "finished_at": iso(b.finished_at)}
 
 
 @router.get("/exams/{exam_id}/scans")
@@ -635,6 +885,11 @@ async def assign_page(exam_id: str, page_id: int, body: AssignIn, p: Principal =
                 break
             targets.append((other, expect))
             expect += 1
+    # Audit L-12: a page that already belonged to another student leaves their paper first,
+    # so the answers are not credited twice.
+    for target, _n in targets:
+        if target.student_id and int(target.student_id) != u.id and target.status in ("matched", "assigned"):
+            await _unmerge_page(session, e, target)
     for target, page_no in targets:
         crops = {k: v for k, v in (target.crops or {}).items() if not k.startswith("_")}
         if target.page_no != page_no or not crops:
@@ -672,40 +927,51 @@ async def rerun_ai(exam_id: str, batch_id: str, p: Principal = Depends(require_t
     b = await session.get(ScanBatch, batch_id)
     if b is None or b.exam_id != e.id:
         raise HTTPException(404, "Batch not found")
-    if b.id in _running:
+    if b.id in _running or b.id in _pending:
         raise HTTPException(409, "This batch is still being processed")
-    pages = (await session.execute(select(ScanPage).where(
-        ScanPage.batch_id == b.id, ScanPage.status.in_(("matched", "assigned"))))).scalars().all()
-    qmap = _question_map(e)
-    sids = {pg.student_id for pg in pages}
-    attempts = {a.student_id: a for a in (await session.execute(select(Attempt).where(
-        Attempt.exam_id == e.id, Attempt.student_id.in_(sids)))).scalars()} if sids else {}
-    pairs: list[tuple[str, str]] = []
-    for pg in pages:
-        a = attempts.get(pg.student_id)
-        if a is None:
-            continue
-        for qid in (pg.crops or {}):
-            ans = (a.answers or {}).get(qid)
-            if qid in qmap and paper_answer(ans) and (a.grades or {}).get(qid) is None and \
-                    paper_given(qmap[qid], ans, None)[1] and (a.id, qid) not in pairs:
-                pairs.append((a.id, qid))
-    b.status, b.ai_total, b.ai_done = "grading", len(pairs), 0
+    pairs = await _draft_pairs(session, e, b.id, only_missing=False)
+    now = utcnow()
+    # Audit L-06: take the batch atomically (no other worker is on it) and mark it ours.
+    r = await session.execute(
+        update(ScanBatch)
+        .where(ScanBatch.id == b.id,
+               or_(ScanBatch.status.notin_(UNFINISHED), ScanBatch.heartbeat_at.is_(None),
+                   ScanBatch.heartbeat_at < now - CLAIM_STALE))
+        .values(status="grading", heartbeat_at=now, ai_total=len(pairs), ai_done=0,
+                error=None, finished_at=None)
+        .execution_options(synchronize_session=False))
     await session.commit()
+    if (r.rowcount or 0) != 1:
+        raise HTTPException(409, "This batch is still being processed")
+    bid, eid = b.id, e.id
 
     async def job():
-        _running.add(b.id)
+        _pending.add(bid)
+        _running.add(bid)
+        ok, err = False, None
         try:
-            await draft_answers(e.id, pairs, batch_id=b.id)
+            async with _heartbeat(bid):
+                await draft_answers(eid, pairs, batch_id=bid)
+            ok = True
+        except Exception as ex:  # noqa: BLE001
+            log.exception("re-drafting scan batch %s failed", bid)
+            err = f"{ex.__class__.__name__}: {ex}"[:500]
         finally:
-            _running.discard(b.id)
-            async with get_database().sessionmaker() as s:
-                bb = await s.get(ScanBatch, b.id)
-                bb.status, bb.finished_at = "done", utcnow()
-                await s.commit()
+            _running.discard(bid)
+            _pending.discard(bid)
+            try:
+                async with get_database().sessionmaker() as s:
+                    bb = await s.get(ScanBatch, bid)
+                    if bb is not None:
+                        bb.status = "done" if ok else "failed"
+                        bb.error = None if ok else err
+                        bb.finished_at = utcnow()
+                        await s.commit()
+            except Exception:  # noqa: BLE001
+                log.exception("could not record the end of re-drafting %s", bid)
 
     _spawn(job())
-    return {"batch_id": b.id, "queued": len(pairs)}
+    return {"batch_id": bid, "queued": len(pairs)}
 
 
 # ---------------------------------------------------------------- AI grading queue
@@ -720,18 +986,15 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
                      session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     qs = exam_questions(e)
-    key_entries = (await answer_key.load_key(session, e.id)).get("questions") or {}
-    page_images: dict[tuple[int, int], str] = {}
-    for sid, pno, prev in (await session.execute(
-            select(ScanPage.student_id, ScanPage.page_no, ScanPage.preview).where(
-                ScanPage.exam_id == e.id, ScanPage.status.in_(("matched", "assigned")))
-            .order_by(ScanPage.created_at, ScanPage.id))).all():
-        if sid is not None and pno is not None and prev:
-            page_images[(int(sid), int(pno))] = prev  # latest scan of that page wins
     rows = (await session.execute(
         select(Attempt, User.username, User.name).join(User, User.id == Attempt.student_id)
         .where(Attempt.exam_id == e.id, Attempt.status == "submitted")
         .order_by(User.name, User.username))).all()
+    # Audit L-11: building the queue is pure CPU over every answer: off the event loop.
+    return await asyncio.to_thread(_build_queue, e, qs, rows)
+
+
+def _build_queue(e: Exam, qs: list[dict], rows) -> dict:
     stats = {q["id"]: {"total": 0, "to_review": 0, "approved": 0, "auto": 0, "low_confidence": 0} for q in qs}
     items: list[dict] = []
     groups: dict[tuple[str, str], dict] = {}
@@ -757,16 +1020,10 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
             key = scan_grading.group_key(d)
             items.append({
                 "attempt_id": a.id, "username": username, "name": name, "question_id": qid,
-                "image": ans.get("image"), "images": ans.get("images"),  # homework: several pages
-                "page": ans.get("page"), "mcq": ans.get("mcq"),
+                "image": ans.get("image"), "page": ans.get("page"), "mcq": ans.get("mcq"),
                 "marks": ans.get("marks"), "blank": bool(ans.get("blank")),
                 "draft": d, "grade": g, "status": status, "auto_points": auto,
                 "low_confidence": low, "group": key,
-                "page_image": page_images.get((a.student_id, int(ans.get("page") or 0))),
-                # any paper (no QR): where the answer was found (None for QR booklets / hand mapping)
-                "found": {"by": ans.get("found") or "ai", "confidence": ans.get("region_confidence"),
-                          "not_found": bool(ans.get("not_found")), "regions": ans.get("regions") or []}
-                if ans.get("set_id") else None,
             })
             if status == "needs_review" and d and key != "none":
                 grp = groups.setdefault((qid, key), {"question_id": qid, "key": key,
@@ -780,12 +1037,7 @@ async def scan_queue(exam_id: str, p: Principal = Depends(require_teacher),
         "questions": [{"question_id": q["id"], "index": i, "type": q["type"], "prompt": q.get("prompt", ""),
                        "points": q.get("points", 1), "images": list(q.get("images") or []),
                        "options": list(q.get("options") or []),
-                       "correct_answer": _correct_answer(q),
-                       # phase 2: rubric criteria used for grading + the worked solution
-                       "criteria": answer_key.effective_criteria(q, key_entries.get(q["id"]))[0],
-                       "solution": (key_entries.get(q["id"]) or {}).get("solution", ""),
-                       "diagram": diagram_spec.effective(q, key_entries.get(q["id"])),  # graph / diagram
-                       **stats[q["id"]]} for i, q in enumerate(qs)],
+                       "correct_answer": _correct_answer(q), **stats[q["id"]]} for i, q in enumerate(qs)],
         "items": items,
         "groups": [dict(g, count=len(g["items"])) for g in groups.values() if len(g["items"]) >= 2],
     }
@@ -805,17 +1057,9 @@ def _correct_answer(q: dict) -> Any:
 class ApproveIn(BaseModel):
     points: float | None = None
     comment: str | None = Field(default=None, max_length=5000)
-    # phase 2: per-criterion points (recompute the total), step marks flipped by the teacher,
-    # misconception tag, and the time between opening the item and saving (sent by the client)
-    criteria: list[review.CriterionPoints] | None = Field(default=None, max_length=20)
-    steps: list[review.StepMark] | None = Field(default=None, max_length=100)
-    misconception: review.MisconceptionIn | None = None
-    grading_seconds: float | None = Field(default=None, ge=0, le=86400)
 
 
-def _apply_grade(e: Exam, a: Attempt, q: dict, points: float | None, comment: str | None,
-                 body: ApproveIn | None = None, key: dict | None = None,
-                 teacher: tuple[int, str] | None = None) -> dict:
+def _apply_grade(e: Exam, a: Attempt, q: dict, points: float | None, comment: str | None) -> dict:
     """Turn the draft (or the teacher's edit) into a grade on the attempt (no commit)."""
     if a.status != "submitted":
         raise HTTPException(409, "Attempt is not submitted")
@@ -823,25 +1067,28 @@ def _apply_grade(e: Exam, a: Attempt, q: dict, points: float | None, comment: st
     if not paper_answer(ans):
         raise HTTPException(404, "No paper answer for this question")
     d = (a.ai_drafts or {}).get(q["id"]) or {}
-    entry = ((key or {}).get("questions") or {}).get(q["id"])
-    eff, src = answer_key.effective_criteria(q, entry)
-    body = body or ApproveIn()
-    grade = review.build_grade(q, ans, d, points, comment, eff_criteria=eff, criteria_source=src,
-                               criteria=body.criteria, steps=body.steps, misconception=body.misconception,
-                               grading_seconds=body.grading_seconds, teacher=teacher)
-    dg = diagrams.grade_diagram(grade, d, diagram_spec.effective(q, entry))  # graph / diagram questions
-    if dg:
-        grade["diagram"] = dg
+    max_points = float(q.get("points", 1))
+    if points is None:
+        if d.get("source") == "fallback":
+            raise HTTPException(409, "There is no AI grade for this answer — enter the points")
+        if d:
+            points = float(d.get("points") or 0)
+        else:
+            given, pend = paper_given(q, ans, None)
+            if pend:
+                raise HTTPException(409, "No AI draft yet — enter the points")
+            points = max_points if q.get("type") == "mcq" and given == q.get("correct_index") else 0.0
+    if not -1e-9 <= points <= max_points + 1e-9:
+        raise HTTPException(422, f"Points must be between 0 and {num(max_points)}")
+    grade = {"points": num(points), "comment": (comment if comment is not None else d.get("comment", "")) or "",
+             "rubric_scores": None, "graded_at": iso(utcnow()),
+             "transcript": d.get("transcript") or "", "source": "scan",
+             "from_draft": comment is None and (d.get("points") == num(points))}
     grades = dict(a.grades or {})
     grades[q["id"]] = grade
     score, pending, _ = grade_attempt(exam_questions(e), a.answers, grades)
     a.grades, a.score, a.needs_grading, a.updated_at = grades, score, pending, utcnow()
     return grade
-
-
-async def _teacher(session: AsyncSession, p: Principal) -> tuple[int, str]:
-    u = await session.get(User, p.user_id)
-    return p.user_id, (u.username if u else str(p.user_id))
 
 
 async def _locked_attempt(session: AsyncSession, e: Exam, aid: str) -> Attempt:
@@ -865,13 +1112,10 @@ async def approve(exam_id: str, aid: str, qid: str, body: ApproveIn | None = Non
                   p: Principal = Depends(require_teacher), session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     q = _q(e, qid)
-    body = body or ApproveIn()
-    key = await answer_key.load_key(session, e.id)
-    teacher = await _teacher(session, p)
     a = await _locked_attempt(session, e, aid)
-    grade = _apply_grade(e, a, q, body.points, body.comment, body, key, teacher)
+    body = body or ApproveIn()
+    grade = _apply_grade(e, a, q, body.points, body.comment)
     await session.commit()
-    await _homework_auto_release(session, e.id)
     return {"attempt_id": a.id, "question_id": qid, "grade": grade, "score": num(a.score or 0),
             "total_points": num(e.total_points), "percent": percent(a.score or 0, e.total_points),
             "needs_grading": a.needs_grading}
@@ -894,8 +1138,7 @@ async def regrade(exam_id: str, aid: str, qid: str, body: RegradeIn | None = Non
     if not paper_answer(ans):
         raise HTTPException(404, "No paper answer for this question")
     img = await asyncio.to_thread(read_url, ans.get("image"))
-    ctx = answer_key.key_context(await answer_key.load_key(session, e.id), q)
-    d = await scan_grading.draft_for(q, ans, img, (body.hint if body else "") or "", ctx=ctx)
+    d = await scan_grading.draft_for(q, ans, img, (body.hint if body else "") or "")
     d["image"] = ans.get("image")
     a = await _locked_attempt(session, e, aid)
     drafts = dict(a.ai_drafts or {})
@@ -921,8 +1164,6 @@ async def approve_bulk(exam_id: str, body: BulkIn, p: Principal = Depends(requir
     without a draft are skipped)."""
     e = await _own_exam(session, exam_id, p)
     qmap = _question_map(e)
-    key = await answer_key.load_key(session, e.id)
-    teacher = await _teacher(session, p)
     by_attempt: dict[str, list[str]] = {}
     for it in body.items:
         by_attempt.setdefault(it.attempt_id, []).append(it.question_id)
@@ -939,19 +1180,9 @@ async def approve_bulk(exam_id: str, body: BulkIn, p: Principal = Depends(requir
                 skipped += 1
                 continue
             try:
-                _apply_grade(e, a, q, None, None, None, key, teacher)
+                _apply_grade(e, a, q, None, None)
                 approved += 1
             except HTTPException:
                 skipped += 1
     await session.commit()
-    await _homework_auto_release(session, e.id)
     return {"approved": approved, "skipped": skipped}
-
-
-async def _homework_auto_release(session: AsyncSession, exam_id: str) -> None:
-    """Homework with "auto-release" on: release once everything is reviewed (app.homework)."""
-    try:
-        from .homework.service import maybe_auto_release
-    except ImportError:
-        return
-    await maybe_auto_release(session, exam_id)

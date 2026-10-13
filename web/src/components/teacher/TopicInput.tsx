@@ -113,7 +113,7 @@ export function TopicInput({
             let next = value;
             for (const p of parts.slice(0, -1)) next = addTopic(next, p);
             if (next !== value) onChange(next);
-            setText(parts[parts.length - 1]);
+            setText(parts[parts.length - 1] ?? "");
           } else setText(v);
           setOpen(true);
           setActive(-1);

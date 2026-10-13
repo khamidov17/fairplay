@@ -21,8 +21,11 @@ import asyncio
 import cmath
 import concurrent.futures
 import math
+import os
+import queue
 import random
 import re
+import threading
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from typing import Any, Callable
@@ -36,6 +39,8 @@ MAX_OPS_LEN = 400        # AI-provided check expressions (may call expand/diff/.
 MAX_EXPONENT = 1000      # |constant exponent|
 MAX_LOG10 = 3000         # estimated decimal digits of any constant sub-expression
 MAX_NODES = 400          # nodes in the expression tree
+MAX_TERMS = 5000         # audit L-02: terms an expand() of the expression could produce
+MAX_SYMBOLIC_POWER = 12  # audit L-02: (a+b)^n with symbols, n above this is refused
 DEFAULT_TIMEOUT = 2.0    # seconds per check
 
 _TRANSFORMS = standard_transformations + (implicit_multiplication_application, convert_xor)
@@ -179,6 +184,32 @@ def _log10_mag(e: sympy.Basic) -> float | None:
     return est
 
 
+def _terms(e: sympy.Basic) -> int:
+    """Upper bound on the number of terms expand(e) produces (audit L-02):
+    (a+b+c+d+f+g)^999 parses in milliseconds but expands to ~10^12 terms."""
+    if not e.free_symbols:
+        return 1
+    if e.is_Add:
+        return sum(_terms(a) for a in e.args)
+    if e.is_Mul:
+        n = 1
+        for a in e.args:
+            n *= _terms(a)
+            if n > MAX_TERMS:
+                return n
+        return n
+    if e.is_Pow:
+        base, ex = e.args
+        t = _terms(base)
+        if ex.is_Integer and t > 1:
+            k = abs(int(ex))
+            if k > MAX_SYMBOLIC_POWER:
+                return MAX_TERMS + 1
+            return math.comb(k + t - 1, t - 1)
+        return t
+    return max((_terms(a) for a in e.args), default=1)
+
+
 def _check_size(e: sympy.Basic) -> None:
     n = 0
     for _ in sympy.preorder_traversal(e):
@@ -186,6 +217,8 @@ def _check_size(e: sympy.Basic) -> None:
         if n > MAX_NODES:
             raise MathError("Expression is too long")
     _log10_mag(e)
+    if _terms(e) > MAX_TERMS:
+        raise MathError("Expression is too big to check")
 
 
 def _parse_sync(text: str, allow_ops: bool = False) -> sympy.Expr:
@@ -194,7 +227,7 @@ def _parse_sync(text: str, allow_ops: bool = False) -> sympy.Expr:
     if allow_ops:
         local.update(_OPS)
     try:
-        raw = parse_expr(s, local_dict=dict(local), global_dict=dict(_GLOBALS),
+        raw = parse_expr(s, local_dict=dict(local), global_dict={"__builtins__": {}, **_GLOBALS},
                          transformations=_TRANSFORMS, evaluate=False)
     except MathError:
         raise
@@ -204,7 +237,7 @@ def _parse_sync(text: str, allow_ops: bool = False) -> sympy.Expr:
         raise MathError("Could not read this as math")
     _check_size(raw)
     try:
-        expr = parse_expr(s, local_dict=dict(local), global_dict=dict(_GLOBALS),
+        expr = parse_expr(s, local_dict=dict(local), global_dict={"__builtins__": {}, **_GLOBALS},
                           transformations=_TRANSFORMS, evaluate=True)
     except Exception as e:
         raise MathError("Could not read this as math") from e
@@ -220,11 +253,117 @@ _pool = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix=
 # simplify() is started from inside a _pool task: separate pool so nesting cannot deadlock.
 _inner_pool = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="mathcheck-s")
 
+# Audit L-02: a thread that runs away can't be stopped, and four of them used to block every
+# math check on the server. By default the SymPy work runs in worker PROCESSES with memory
+# and CPU limits; one that is still busy at its deadline is killed and replaced.
+# FAIRPLAY_MATH_PROCESSES=0 keeps everything in threads (tests that monkeypatch internals).
+# Per server process, started on first use (~100 MB each with SymPy loaded).
+PROCESS_WORKERS = max(1, int(os.environ.get("FAIRPLAY_MATH_WORKERS", "2") or 2))
+WORKER_MEMORY_BYTES = 1024 * 1024 * 1024
+WORKER_CPU_SECONDS = 600            # whole life of a worker; it is replaced when it dies
+
+
+def _use_processes() -> bool:
+    return os.environ.get("FAIRPLAY_MATH_PROCESSES", "1") != "0"
+
+
+def _worker_main(conn) -> None:  # pragma: no cover - runs in the child process
+    try:
+        import resource
+        for lim, val in ((getattr(resource, "RLIMIT_AS", None), WORKER_MEMORY_BYTES),
+                         (getattr(resource, "RLIMIT_CPU", None), WORKER_CPU_SECONDS)):
+            if lim is not None:
+                try:
+                    resource.setrlimit(lim, (val, val))
+                except (ValueError, OSError):
+                    pass            # macOS ignores RLIMIT_AS; the kill on timeout still holds
+    except ImportError:
+        pass
+    os.environ["FAIRPLAY_MATH_PROCESSES"] = "0"     # inside a worker: plain threads
+    while True:
+        try:
+            name, args = conn.recv()
+        except (EOFError, OSError):
+            return
+        try:
+            conn.send((True, _SYNC[name](*args)))
+        except MathError as e:
+            conn.send((False, str(e)))
+        except MemoryError:
+            conn.send((False, "This took too much memory to check"))
+        except Exception as e:
+            conn.send((False, f"Could not check this ({type(e).__name__})"))
+
+
+class _Worker:
+    def __init__(self) -> None:
+        import multiprocessing as mp
+        ctx = mp.get_context("spawn")
+        self.conn, child = ctx.Pipe()
+        self.proc = ctx.Process(target=_worker_main, args=(child,), daemon=True,
+                                name="fairplay-mathcheck")
+        self.proc.start()
+        child.close()
+
+    def kill(self) -> None:
+        try:
+            self.proc.kill()
+            self.proc.join(1)
+        except Exception:  # pragma: no cover
+            pass
+        try:
+            self.conn.close()
+        except Exception:  # pragma: no cover
+            pass
+
+
+class _ProcessPool:
+    def __init__(self, size: int) -> None:
+        self.size = size
+        self._idle: "queue.Queue[_Worker]" = queue.Queue()
+        self._lock = threading.Lock()
+        self._started = False
+        self.killed = 0             # for tests and logs
+
+    def _start(self) -> None:
+        with self._lock:
+            if not self._started:
+                for _ in range(self.size):
+                    self._idle.put(_Worker())
+                self._started = True
+
+    def run(self, name: str, args: tuple, timeout: float) -> Any:
+        self._start()
+        try:
+            w = self._idle.get(timeout=max(timeout, 5.0))   # all busy: wait a little
+        except queue.Empty:
+            raise MathError("The server is busy checking math. Try again.") from None
+        try:
+            w.conn.send((name, args))
+            if not w.conn.poll(timeout):
+                raise TimeoutError
+            ok, value = w.conn.recv()
+        except (TimeoutError, EOFError, OSError, BrokenPipeError):
+            w.kill()
+            self.killed += 1
+            self._idle.put(_Worker())
+            raise MathError("This took too long to check") from None
+        self._idle.put(w)
+        if ok:
+            return value
+        raise MathError(value)
+
+
+_procs = _ProcessPool(PROCESS_WORKERS)
+
 
 def run_limited(fn: Callable[..., Any], *args: Any, timeout: float = DEFAULT_TIMEOUT,
                 pool: concurrent.futures.ThreadPoolExecutor | None = None) -> Any:
-    """Run fn on the worker pool; TimeoutError -> MathError. (A thread cannot be killed:
-    inputs are size-guarded so runaway work is unlikely, and the pool is bounded.)"""
+    """Run fn with a deadline; too slow -> MathError. Registered SymPy entry points go to a
+    killable worker process (see above); anything else runs on the bounded thread pool."""
+    name = getattr(fn, "__name__", "")
+    if pool is None and _use_processes() and _SYNC.get(name) is fn:
+        return _procs.run(name, args, timeout)
     fut = (pool or _pool).submit(fn, *args)
     try:
         return fut.result(timeout=timeout)
@@ -256,7 +395,10 @@ def parse_number(text: Any, *, timeout: float = DEFAULT_TIMEOUT) -> float:
     if isinstance(text, bool):
         raise MathError("Not a number")
     if isinstance(text, (int, float)):
-        f = float(text)
+        try:
+            f = float(text)
+        except OverflowError as e:      # audit 2026-10-13: a huge JSON integer
+            raise MathError("Not a finite number") from e
         if not math.isfinite(f):
             raise MathError("Not a finite number")
         return f
@@ -265,18 +407,21 @@ def parse_number(text: Any, *, timeout: float = DEFAULT_TIMEOUT) -> float:
     m = re.fullmatch(r"([-+]?\d*\.?\d+)(?:[eE]([-+]?\d{1,3}))?\s*(%?)", s)
     if m:
         f = float(m.group(1) + (f"e{m.group(2)}" if m.group(2) else ""))
+        if not math.isfinite(f):        # "9e999" -> inf
+            raise MathError("Not a finite number")
         return f / 100 if m.group(3) else f
 
-    def go() -> float:
-        e = _parse_sync(s)
-        if e.free_symbols:
-            raise MathError("Expected a number")
-        v = _to_complex(e)
-        if abs(v.imag) > 1e-12 * max(1.0, abs(v.real)):
-            raise MathError("Expected a real number")
-        return v.real
+    return run_limited(_parse_number_sync, s, timeout=timeout)
 
-    return run_limited(go, timeout=timeout)
+
+def _parse_number_sync(s: str) -> float:
+    e = _parse_sync(s)
+    if e.free_symbols:
+        raise MathError("Expected a number")
+    v = _to_complex(e)
+    if abs(v.imag) > 1e-12 * max(1.0, abs(v.real)):
+        raise MathError("Expected a real number")
+    return v.real
 
 
 def is_number_text(text: Any) -> bool:
@@ -425,19 +570,23 @@ def _evaluate_formula_sync(formula: str, values: dict[str, Any]) -> sympy.Expr:
 def evaluate_formula(formula: str, values: dict[str, Any], *,
                      timeout: float = DEFAULT_TIMEOUT) -> float:
     """Real value of `formula` with n1..n9 replaced by `values`."""
-    def go() -> float:
-        v = _to_complex(_evaluate_formula_sync(formula, values))
-        if abs(v.imag) > 1e-12 * max(1.0, abs(v.real)):
-            raise MathError("Formula gave a complex number")
-        return v.real
-    return run_limited(go, timeout=timeout)
+    return run_limited(_formula_value_sync, formula, values, timeout=timeout)
+
+
+def _formula_value_sync(formula: str, values: dict[str, Any]) -> float:
+    v = _to_complex(_evaluate_formula_sync(formula, values))
+    if abs(v.imag) > 1e-12 * max(1.0, abs(v.real)):
+        raise MathError("Formula gave a complex number")
+    return v.real
 
 
 def evaluate_check(expression: str, *, timeout: float = DEFAULT_TIMEOUT) -> sympy.Expr:
     """Evaluate an AI-provided check like "expand((x+1)^2)" (expand/factor/diff/... allowed)."""
-    def go() -> sympy.Expr:
-        return _parse_sync(expression, allow_ops=True)
-    return run_limited(go, timeout=timeout)
+    return run_limited(_parse_ops_sync, expression, timeout=timeout)
+
+
+def _parse_ops_sync(expression: str) -> sympy.Expr:
+    return _parse_sync(expression, allow_ops=True)
 
 
 def pretty(expr: Any) -> str:
@@ -460,3 +609,18 @@ async def check_async(a: Any, b: Any, **kw: Any) -> Verdict:
 
 async def numbers_equal_async(given: Any, expected: float, tolerance: float | None = None) -> bool:
     return await asyncio.to_thread(numbers_equal, given, expected, tolerance)
+
+
+# Entry points a worker process may run (by name: functions are looked up, never pickled).
+_SYNC: dict[str, Callable[..., Any]] = {
+    "_parse_sync": _parse_sync,
+    "_parse_number_sync": _parse_number_sync,
+    "_formula_value_sync": _formula_value_sync,
+    "_parse_ops_sync": _parse_ops_sync,
+    "_equivalent_sync": _equivalent_sync,
+}
+# Tests only: a slow entry point, to prove a stuck worker is killed (needs the env var
+# in the parent before the pool starts; spawned workers inherit it).
+if os.environ.get("FAIRPLAY_MATH_SELFTEST") == "1":
+    import time as _time
+    _SYNC["_selftest_sleep"] = _time.sleep

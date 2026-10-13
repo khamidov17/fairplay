@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Windows lockdown: keyboard/mouse hooks, foreground guard, process control, display/VM/
+    session checks, IME guard, clipboard guard, HKCU policy journal, capture protection.
+    Hand-written P/Invoke (no CsWin32 / no NuGet) keeps the security-critical binary free of
+    third-party code and buildable where package access is restricted.
+
+    Targets net10.0-windows; cannot be built or run on Linux (this cloud container), so it is
+    verified by the Windows CI job (.github/workflows/windows.yml) and hand tests.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AssemblyName>FairPlay.Guard</AssemblyName>
+    <RootNamespace>FairPlay.Guard</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../FairPlay.Core/FairPlay.Core.csproj" />
+    <InternalsVisibleTo Include="FairPlay.Tests" />
+  </ItemGroup>
+
+</Project>

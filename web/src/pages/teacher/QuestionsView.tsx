@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { urlHost } from "../../components/teacher/externalValidation";
+import { describeEntry, effectiveAllowedSites } from "../../components/teacher/externalValidation";
 import type { Exam } from "../../api/types";
 import { KIND_LABEL, kindOf } from "./examDraft";
 import { QuestionImages, TopicChips } from "../../components/QuestionImages";
@@ -22,8 +22,8 @@ export function QuestionsView({ exam }: { exam: Exam }) {
         <div>
           <strong style={{ fontSize: 14 }}>Websites students may open</strong>
           <ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
-            {(sites.length ? sites : [urlHost(exam.external_url) ?? ""]).map((d) => (
-              <li key={d}>{d} and its sub-sites</li>
+            {effectiveAllowedSites(exam.external_url, sites).map((d) => (
+              <li key={d}>{describeEntry(d)}</li>
             ))}
           </ul>
         </div>

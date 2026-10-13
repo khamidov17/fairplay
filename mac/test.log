@@ -1,0 +1,64 @@
+Building for debugging...
+[Pre-planning 1 / 95]
+[Planning deferred tasks]
+[1 / 14]
+[3 / 16] Proctora
+[12 / 34] Proctora-product
+[16 / 34] Proctora
+[19 / 36] Proctora
+[22 / 36] Proctora
+[25 / 36] Proctora
+[25 / 36]
+[25 / 36] Proctora
+[27 / 36] Proctora
+/Users/macbook/code/fairplay/mac/Package.swift: Proctora: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+/Users/macbook/code/fairplay/mac/Package.swift: Proctora-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/macbook/code/fairplay/mac/Package.swift: Proctora-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+[29 / 36] Proctora-product
+[32 / 37] ProctoraTests-product
+[35 / 40] ProctoraTests-product
+[39 / 42] ProctoraTests-product
+/Users/macbook/code/fairplay/mac/Package.swift: ProctoraTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/usr/lib' not found
+/Users/macbook/code/fairplay/mac/Package.swift: ProctoraTests-product: ld: warning: search path '/Library/Developer/CommandLineTools/Developer/Library/Frameworks' not found
+/Users/macbook/code/fairplay/mac/Package.swift: ProctoraTests-product: ld: warning: building for macOS-13.0, but linking with dylib '@rpath/Testing.framework/Versions/A/Testing' which was built for newer version 14.0
+[41 / 42] ProctoraTests-product
+Build complete! (7,54 secs)
+◇ Test run started.
+↳ Testing Library Version: 2084
+↳ Target Platform: arm64e-apple-macos14.0
+◇ Suite SiteRuleTests started.
+◇ Suite TokenTests started.
+◇ Suite TeacherPathTests started.
+◇ Test devCodeNeverWorksInReleaseBuilds() started.
+◇ Test teacherPagesAreRecognised() started.
+◇ Test badEntriesAreRefused() started.
+◇ Test wildcardAndPathPrefix() started.
+◇ Test exactHostDoesNotOpenSubdomains() started.
+◇ Test hexDecoding() started.
+◇ Test constantTimeEqual() started.
+◇ Test safeTokens() started.
+◇ Test offlineExitVectorMatchesServer() started.
+◇ Suite KeyFilterTests started.
+◇ Test typingPasses() started.
+✔ Test hexDecoding() passed after 0.001 seconds.
+✔ Test exactHostDoesNotOpenSubdomains() passed after 0.001 seconds.
+✔ Test safeTokens() passed after 0.001 seconds.
+✔ Test constantTimeEqual() passed after 0.001 seconds.
+✔ Test wildcardAndPathPrefix() passed after 0.001 seconds.
+✔ Test badEntriesAreRefused() passed after 0.001 seconds.
+✔ Suite SiteRuleTests passed after 0.001 seconds.
+✔ Test teacherPagesAreRecognised() passed after 0.001 seconds.
+✔ Suite TeacherPathTests passed after 0.001 seconds.
+✔ Test devCodeNeverWorksInReleaseBuilds() passed after 0.003 seconds.
+✔ Test offlineExitVectorMatchesServer() passed after 0.003 seconds.
+✔ Suite TokenTests passed after 0.003 seconds.
+✔ Test typingPasses() passed after 0.017 seconds.
+◇ Test escapesAreSwallowed() started.
+✔ Test escapesAreSwallowed() passed after 0.001 seconds.
+◇ Test userShortcutsFromSystemSettingsAreSwallowed() started.
+✔ Test userShortcutsFromSystemSettingsAreSwallowed() passed after 0.001 seconds.
+◇ Test voiceOverChordsPassOnlyWithVoiceOver() started.
+✔ Test voiceOverChordsPassOnlyWithVoiceOver() passed after 0.001 seconds.
+✔ Suite KeyFilterTests passed after 0.018 seconds.
+✔ Test run with 13 tests in 4 suites passed after 0.018 seconds.
+EXIT 0

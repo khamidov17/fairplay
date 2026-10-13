@@ -4,6 +4,8 @@ this teacher's exams; pending essays are excluded. Weak = < 60 % with >= 2 answe
 if a student has none, the lowest-scoring topics are used instead (`fallback`)."""
 from __future__ import annotations
 
+import asyncio
+
 from collections import defaultdict
 
 from sqlalchemy import select
@@ -51,9 +53,15 @@ async def topic_stats_by_student(session: AsyncSession, teacher_id: int,
         if not student_ids:
             return {}
         stmt = stmt.where(Attempt.student_id.in_(student_ids))
+    attempts = (await session.scalars(stmt)).all()
+    # Audit L-11: regrading every attempt is CPU work: off the event loop.
+    return await asyncio.to_thread(_topic_stats, attempts, by_id)
+
+
+def _topic_stats(attempts, by_id: dict) -> dict[int, dict]:
     acc: dict[int, dict[str, list[float]]] = defaultdict(lambda: defaultdict(lambda: [0.0, 0.0, 0]))
     wrong: dict[int, set] = defaultdict(set)
-    for a in (await session.scalars(stmt)).all():
+    for a in attempts:
         e = by_id[a.exam_id]
         qs = exam_questions(e)
         qmap = {q["id"]: q for q in qs}

@@ -1,0 +1,52 @@
+name: windows
+
+# Builds the whole Windows solution and runs the protocol tests on a real Windows runner.
+# This is how FairPlay.Guard / FairPlay.Shell / FairPlay.Watchdog (net10.0-windows) are
+# verified — they can't be built on Linux. The Core tests also run on Linux via the main CI.
+
+on:
+  push:
+    paths: ["windows/**", ".github/workflows/windows.yml"]
+  pull_request:
+    paths: ["windows/**"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Restore
+        run: dotnet restore FairPlay.sln
+
+      - name: Build (Release)
+        run: dotnet build FairPlay.sln -c Release --no-restore
+
+      - name: Protocol tests
+        run: dotnet run --project tests/FairPlay.Tests -c Release --no-build
+
+      # Smoke-check that the shell and watchdog produced an exe.
+      - name: Check outputs
+        shell: pwsh
+        run: |
+          $shell = "src/FairPlay.Shell/bin/Release/net10.0-windows/FairPlay.Shell.exe"
+          $wd    = "src/FairPlay.Watchdog/bin/Release/net10.0-windows/FairPlay.Watchdog.exe"
+          if (-not (Test-Path $shell)) { throw "missing $shell" }
+          if (-not (Test-Path $wd))    { throw "missing $wd" }
+          Write-Host "Shell and watchdog built."
+
+      - name: Upload build
+        uses: actions/upload-artifact@v4
+        with:
+          name: fairplay-windows-dev
+          path: windows/src/FairPlay.Shell/bin/Release/net10.0-windows/
+          retention-days: 7

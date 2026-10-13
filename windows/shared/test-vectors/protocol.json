@@ -1,0 +1,23 @@
+{
+  "_comment": "Shared protocol vectors so the server (Python), Mac (Swift) and Windows (C#) stay in lock-step. Generated from server/app/app_client.py. Each client's tests assert against these.",
+  "app_key": "fairplay-dev-app-key-not-secret",
+  "signatures": [
+    { "message": "start|abc12345|dev-device-01", "hex": "2bc5022f3b5508331cb77ab76ee63ea56d3609e758e25f0fa554248cb1485916" },
+    { "message": "beat|a1|sess12345|dev-device-01|1700000000000|1|vm=0,disp=1", "hex": "513583f7356f7958e901070516942935c8f5f6d5f2d33793740f031b6a4a73dd" },
+    { "message": "offkey|a1|sess12345|dev-device-01|1700000000000", "hex": "5298c407a1db0b18fb95f68fc08e4da866d86233272595d4f28a372ce14c43de" },
+    { "message": "handin|a1|sess12345|submitted|nonce0001", "hex": "1fd0854dcc5cda10c44223c6a7b19ffd6961b6d5103a0f23819642409b246ca2" }
+  ],
+  "offline_exit": [
+    { "key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "mac_code": "K7QM3XPA", "code": "06710479" },
+    { "key_is_app_key": true, "mac_code": "K7QM3XPA", "code": "37496243" }
+  ],
+  "site_rules": [
+    { "rule": "canvas.dku.edu",                       "host": "canvas.dku.edu",     "path": "/x",                    "match": true },
+    { "rule": "canvas.dku.edu",                       "host": "x.canvas.dku.edu",   "path": "/",                     "match": false },
+    { "rule": "*.dku.edu",                            "host": "x.dku.edu",          "path": "/",                     "match": true },
+    { "rule": "*.dku.edu",                            "host": "dku.edu",            "path": "/",                     "match": true },
+    { "rule": "*.dku.edu",                            "host": "evil.com",           "path": "/",                     "match": false },
+    { "rule": "docs.google.com/forms/d/e/1FAIpQL/",   "host": "docs.google.com",    "path": "/forms/d/e/1FAIpQL/x",  "match": true },
+    { "rule": "docs.google.com/forms/d/e/1FAIpQL/",   "host": "docs.google.com",    "path": "/spreadsheets/",        "match": false }
+  ]
+}

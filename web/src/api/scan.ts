@@ -1,7 +1,6 @@
 // Slice 6 D — Scan & Grade (paper exams): types + API calls. Kept in its own module so
 // the shared types.ts / client.ts stay untouched by this feature.
 import { ApiError, NetworkError, getToken, request } from "./client";
-import type { Criterion, GradeFields, ReviewSave, SuggestionFields } from "./scanAi";
 
 const enc = encodeURIComponent;
 
@@ -13,8 +12,9 @@ export interface ScanStudent {
 
 export interface Roster {
   exam_id: string;
-  /** picked = chosen by the teacher; classes = union of the exam's classes; course = linked LMS course; all = every student */
-  source: "picked" | "classes" | "course" | "all";
+  /** picked = chosen by the teacher; course = linked LMS course; class = the exam's class;
+   *  all = every student (booklets can't be printed for that: pick students first) */
+  source: "picked" | "course" | "class" | "all";
   students: ScanStudent[];
   all_students: ScanStudent[];
 }
@@ -37,6 +37,11 @@ export interface PrintInfo {
   layout_changed: boolean;
   roster_source: Roster["source"];
   student_count: number;
+  /** Audit L-10: booklets download in parts of at most booklets_per_part students. */
+  booklet_parts?: number;
+  booklets_per_part?: number;
+  /** The roster is "every student in FairPlay": pick students (or use a class) first. */
+  needs_roster?: boolean;
   questions: PrintQuestion[];
 }
 
@@ -56,9 +61,6 @@ export interface ScanBatch {
   error: string | null;
   created_at: string;
   finished_at: string | null;
-  /** phase 2: "printed" (QR booklets) | "unprinted" (own sheets, mapped by hand) */
-  mode?: "printed" | "unprinted";
-  origin?: "upload" | "phone";
 }
 
 export interface ScanStatus {
@@ -87,23 +89,27 @@ export interface UnmatchedPage {
   can_crop: boolean;
 }
 
-export interface AiDraft extends SuggestionFields {
+export interface AiDraft {
   points: number;
   comment: string;
   confidence: number;
   transcript: string;
   mistake_tags: string[];
+  /** "key" only on drafts made before audit L-07. */
   source: "ai" | "fallback" | "blank" | "bubbles" | "key";
   low_confidence: boolean;
+  /** Numeric/short: what the AI read matches the answer key. A hint; it never sets points. */
+  key_match?: boolean;
   created_at: string;
 }
 
-export interface PaperGrade extends GradeFields {
+export interface PaperGrade {
   points: number;
   comment: string;
   rubric_scores: number[] | null;
   graded_at: string;
   transcript?: string;
+  source?: string;
 }
 
 export type QueueItemStatus = "needs_review" | "approved" | "auto";
@@ -124,17 +130,6 @@ export interface QueueItem {
   auto_points: number | null;
   low_confidence: boolean;
   group: string;
-  /** phase 2: preview of the whole scanned page this answer is on */
-  page_image?: string | null;
-  /** any paper (no QR): where the answer was found; null for QR booklets / hand mapping */
-  found?: {
-    by: "ai" | "teacher";
-    confidence: number | null;
-    not_found: boolean;
-    regions: { page: number; page_id: number; box: [number, number, number, number] }[];
-  } | null;
-  /** homework: every picture of this answer (the first one is `image`) */
-  images?: string[] | null;
 }
 
 export interface QueueQuestion {
@@ -151,11 +146,6 @@ export interface QueueQuestion {
   approved: number;
   auto: number;
   low_confidence: number;
-  /** phase 2: rubric criteria used for grading (answer key, else essay rubric) */
-  criteria?: Criterion[];
-  solution?: string;
-  /** graph / diagram question: its checklist (the criteria are its features), else null */
-  diagram?: import("./diagrams").DiagramSpec | null;
 }
 
 export interface QueueGroup {
@@ -266,7 +256,8 @@ export const scanApi = {
   printInfo: (id: string) => request<PrintInfo>("teacher", "GET", `/api/exams/${enc(id)}/print`),
   saveAnswerLines: (id: string, answerLines: Record<string, number | null>) =>
     request<PrintInfo>("teacher", "PUT", `/api/exams/${enc(id)}/print-settings`, { answer_lines: answerLines }),
-  printPdf: (id: string, blank = false) => downloadBlob(`/api/exams/${enc(id)}/print.pdf${blank ? "?blank=1" : ""}`),
+  printPdf: (id: string, blank = false, part = 1) =>
+    downloadBlob(`/api/exams/${enc(id)}/print.pdf${blank ? "?blank=1" : part > 1 ? `?part=${part}` : ""}`),
   upload: (id: string, files: File[], onProgress?: (p: number) => void) =>
     uploadFiles(`/api/exams/${enc(id)}/scans`, files, onProgress),
   status: (id: string) => request<ScanStatus>("teacher", "GET", `/api/exams/${enc(id)}/scans`),
@@ -280,7 +271,7 @@ export const scanApi = {
   rerunAi: (id: string, batchId: string) =>
     request<{ batch_id: string; queued: number }>("teacher", "POST", `/api/exams/${enc(id)}/scans/${enc(batchId)}/rerun-ai`),
   queue: (id: string) => request<ScanQueue>("teacher", "GET", `/api/exams/${enc(id)}/scan/queue`),
-  approve: (id: string, aid: string, qid: string, edit?: ReviewSave) =>
+  approve: (id: string, aid: string, qid: string, edit?: { points: number; comment: string }) =>
     request<ApproveResponse>("teacher", "POST", `/api/exams/${enc(id)}/scan/answers/${enc(aid)}/${enc(qid)}/approve`, edit ?? {}),
   regrade: (id: string, aid: string, qid: string, hint = "") =>
     request<{ attempt_id: string; question_id: string; draft: AiDraft }>(

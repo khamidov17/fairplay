@@ -53,7 +53,7 @@ function Boxes({ onComplete }: { onComplete?: (c: string) => void }) {
   );
 }
 
-const box = (n: number) => screen.getByRole("textbox", { name: `Digit ${n} of 4` }) as HTMLInputElement;
+const box = (n: number) => screen.getByRole("textbox", { name: `Digit ${n} of 6` }) as HTMLInputElement;
 
 describe("start code boxes", () => {
   it("typing a digit moves to the next box, and completes the code", async () => {
@@ -64,9 +64,9 @@ describe("start code boxes", () => {
     await user.keyboard("4");
     expect(box(1).value).toBe("4");
     expect(box(2)).toHaveFocus();
-    await user.keyboard("729");
-    expect(screen.getByTestId("code").textContent).toBe("4729");
-    expect(done).toHaveBeenCalledWith("4729");
+    await user.keyboard("72951");
+    expect(screen.getByTestId("code").textContent).toBe("472951");
+    expect(done).toHaveBeenCalledWith("472951");
   });
 
   it("ignores letters", async () => {
@@ -94,20 +94,20 @@ describe("start code boxes", () => {
     expect(screen.getByTestId("code").textContent).toBe("");
   });
 
-  it("pasting a 4-digit code fills all boxes", async () => {
+  it("pasting a 6-digit code fills all boxes", async () => {
     const user = userEvent.setup();
     const done = vi.fn();
     render(<Boxes onComplete={done} />);
     await user.click(box(3));
-    await user.paste("Code: 4 7 2 9");
-    expect([1, 2, 3, 4].map((n) => box(n).value).join("")).toBe("4729");
-    expect(done).toHaveBeenCalledWith("4729");
+    await user.paste("Code: 4 7 2 9 5 1");
+    expect([1, 2, 3, 4, 5, 6].map((n) => box(n).value).join("")).toBe("472951");
+    expect(done).toHaveBeenCalledWith("472951");
   });
 
   it("accepts a fill() style change event per box (Playwright e2e path)", () => {
     render(<Boxes />);
-    "4729".split("").forEach((d, i) => fireEvent.change(box(i + 1), { target: { value: d } }));
-    expect(screen.getByTestId("code").textContent).toBe("4729");
+    "472951".split("").forEach((d, i) => fireEvent.change(box(i + 1), { target: { value: d } }));
+    expect(screen.getByTestId("code").textContent).toBe("472951");
   });
 });
 
@@ -128,11 +128,23 @@ describe("start code form", () => {
     api.start.mockRejectedValueOnce(new ApiError(403, "Wrong start code"));
     renderForm();
     await user.click(box(1));
-    await user.keyboard("1111");
+    await user.keyboard("111111");
     await user.click(screen.getByRole("button", { name: "Start exam" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/Wrong start code/);
     expect(box(1).value).toBe("");
-    expect(api.start).toHaveBeenCalledWith("e_1", "1111");
+    expect(api.start).toHaveBeenCalledWith("e_1", "111111");
+  });
+
+  it("shows the app-only message instead of 'wrong code'", async () => {
+    const user = userEvent.setup();
+    api.start.mockRejectedValueOnce(
+      new ApiError(403, "Open this exam in the FairPlay app. It cannot be taken in a web browser."),
+    );
+    renderForm();
+    await user.click(box(1));
+    await user.keyboard("111111");
+    await user.click(screen.getByRole("button", { name: "Start exam" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/FairPlay app/);
   });
 
   it("shows the server detail on 429 lockout", async () => {
@@ -140,7 +152,7 @@ describe("start code form", () => {
     api.start.mockRejectedValueOnce(new ApiError(429, "Too many wrong codes, wait 60 seconds"));
     renderForm();
     await user.click(box(1));
-    await user.keyboard("1234");
+    await user.keyboard("123456");
     await user.click(screen.getByRole("button", { name: "Start exam" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Too many wrong codes, wait 60 seconds");
   });
@@ -150,7 +162,7 @@ describe("start code form", () => {
     api.start.mockResolvedValueOnce({ attempt_id: "a_1" });
     renderForm();
     await user.click(box(1));
-    await user.keyboard("4729");
+    await user.keyboard("472951");
     await user.click(screen.getByRole("button", { name: "Start exam" }));
     expect(await screen.findByText("exam page")).toBeInTheDocument();
   });

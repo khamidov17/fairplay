@@ -30,7 +30,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import (GradeError, GradeRow, LmsAuthError, LmsCourse, LmsError, LmsIdentity,
+from .base import (GradeError, GradeRow, LmsAuthError, LmsCourse, LmsError, LmsIdentity, dicts, json_as,
                    LmsProvider, LmsStudent, ProviderInfo, short)
 
 ENDPOINT = "/webservice/rest/server.php"
@@ -121,8 +121,8 @@ class MoodleProvider(LmsProvider):
                                 existing_id: str | None = None) -> str:
         data = await self.call("mod_assign_get_assignments", courseids=[int(course_id)])
         assignments = []
-        for c in (data or {}).get("courses") or []:
-            assignments.extend(c.get("assignments") or [])
+        for c in dicts((data if isinstance(data, dict) else {}).get("courses")):
+            assignments.extend(dicts(c.get("assignments")))
         if existing_id and any(str(a.get("id")) == str(existing_id) for a in assignments):
             return str(existing_id)
         wanted = name.strip().lower()

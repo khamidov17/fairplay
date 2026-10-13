@@ -15,7 +15,10 @@ class Store(Protocol):
     async def set(self, key: str, value: str, ttl: int | None = None) -> None: ...
     async def delete(self, *keys: str) -> None: ...
     async def incr(self, key: str, ttl: int) -> int: ...
-    async def getset(self, key: str, value: str, ttl: int | None = None) -> str | None: ...
+    async def getdel(self, key: str) -> str | None: ...
+    async def setnx(self, key: str, value: str, ttl: int) -> bool: ...
+    async def incrby(self, key: str, amount: int, ttl: int) -> int: ...
+    async def hdel(self, key: str, field: str) -> None: ...
     async def ttl(self, key: str) -> int: ...
     async def hset(self, key: str, field: str, value: str, ttl: int) -> None: ...
     async def hgetall(self, key: str) -> dict[str, str]: ...
@@ -60,10 +63,30 @@ class MemoryStore:
             self._data.pop(k, None)
             self._exp.pop(k, None)
 
-    async def getset(self, key, value, ttl=None):
-        old = await self.get(key)
-        await self.set(key, value, ttl)
-        return old
+    async def incrby(self, key, amount, ttl):
+        n = (int(self._data[key]) if self._alive(key) else 0) + amount
+        fresh = not self._alive(key)
+        self._data[key] = str(n)
+        if fresh:
+            self._expire(key, ttl)
+        return n
+
+    async def setnx(self, key, value, ttl):
+        if self._alive(key):
+            return False
+        self._data[key] = value
+        self._expire(key, ttl)
+        return True
+
+    async def getdel(self, key):
+        v = await self.get(key)
+        self._data.pop(key, None)
+        self._exp.pop(key, None)
+        return v
+
+    async def hdel(self, key, field):
+        if self._alive(key) and isinstance(self._data.get(key), dict):
+            self._data[key].pop(field, None)  # type: ignore[union-attr]
 
     async def incr(self, key, ttl):
         n = (int(self._data[key]) if self._alive(key) else 0) + 1
@@ -113,11 +136,8 @@ class MemoryStore:
 class RedisStore:
     def __init__(self, url: str):
         import redis.asyncio as aioredis
-        # Blocking pool: under a burst (end-of-exam submit storm) a request waits up to 10 s
-        # for a free connection instead of failing with MaxConnectionsError (HTTP 500).
-        pool = aioredis.BlockingConnectionPool.from_url(
-            url, decode_responses=True, max_connections=200, timeout=10, socket_timeout=30)
-        self.r = aioredis.Redis(connection_pool=pool)
+        self.r = aioredis.from_url(url, decode_responses=True, max_connections=200,
+                                   socket_timeout=30)
 
     async def get(self, key):
         return await self.r.get(key)
@@ -129,8 +149,21 @@ class RedisStore:
         if keys:
             await self.r.delete(*keys)
 
-    async def getset(self, key, value, ttl=None):
-        return await self.r.set(key, value, ex=ttl, get=True)
+    async def setnx(self, key, value, ttl):
+        return bool(await self.r.set(key, value, ex=ttl, nx=True))
+
+    async def getdel(self, key):
+        return await self.r.getdel(key)          # atomic (Redis >= 6.2)
+
+    async def incrby(self, key, amount, ttl):
+        pipe = self.r.pipeline()
+        pipe.incrby(key, amount)
+        pipe.expire(key, ttl, nx=True)
+        n, _ = await pipe.execute()
+        return int(n)
+
+    async def hdel(self, key, field):
+        await self.r.hdel(key, field)
 
     async def incr(self, key, ttl):
         pipe = self.r.pipeline()

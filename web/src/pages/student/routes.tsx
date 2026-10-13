@@ -1,6 +1,8 @@
 // Student routes (owned by the student UI). Mounted at /student/* in App.tsx.
 import { Navigate, Route, Routes } from "react-router-dom";
 import { RequireAuth } from "../../components/RequireAuth";
+import { FeatureGate } from "../../components/FeatureGate";
+import JoinLinkPage from "./JoinLinkPage";
 import LoginPage from "../LoginPage";
 import StudentHome from "./StudentHome";
 import ExamsPage from "./ExamsPage";
@@ -12,10 +14,6 @@ import FeedbackPage from "./FeedbackPage";
 import StudentPracticePage from "./PracticePage";
 import ExternalExamPage from "./ExternalExamPage";
 import ExternalDonePage from "./ExternalDonePage";
-import ClassesPage from "./ClassesPage";
-import StudentHomeworkListPage from "./homework/HomeworkListPage";
-import HomeworkUploadPage from "./homework/HomeworkUploadPage";
-import MyProgressPage from "./homework/MyProgressPage";
 
 export default function StudentRoutes() {
   return (
@@ -30,12 +28,10 @@ export default function StudentRoutes() {
       <Route path="done/:attemptId" element={<RequireAuth role="student"><DonePage /></RequireAuth>} />
       <Route path="grades" element={<RequireAuth role="student"><GradesPage /></RequireAuth>} />
       <Route path="grades/:examId" element={<RequireAuth role="student"><FeedbackPage /></RequireAuth>} />
-      <Route path="practice" element={<RequireAuth role="student"><StudentPracticePage /></RequireAuth>} />
-      <Route path="practice/:setId" element={<RequireAuth role="student"><StudentPracticePage /></RequireAuth>} />
-      <Route path="classes" element={<RequireAuth role="student"><ClassesPage /></RequireAuth>} />
-      <Route path="homework" element={<RequireAuth role="student"><StudentHomeworkListPage /></RequireAuth>} />
-      <Route path="homework/:id" element={<RequireAuth role="student"><HomeworkUploadPage /></RequireAuth>} />
-      <Route path="progress" element={<RequireAuth role="student"><MyProgressPage /></RequireAuth>} />
+      <Route path="practice" element={<RequireAuth role="student"><FeatureGate feature="practice" fallback="/student"><StudentPracticePage /></FeatureGate></RequireAuth>} />
+      <Route path="practice/:setId" element={<RequireAuth role="student"><FeatureGate feature="practice" fallback="/student"><StudentPracticePage /></FeatureGate></RequireAuth>} />
+      {/* 2026-10-13: the class link a teacher shares (works signed in or not). */}
+      <Route path="join/:code" element={<JoinLinkPage />} />
       <Route path="*" element={<Navigate to="/student" replace />} />
     </Routes>
   );

@@ -37,6 +37,14 @@ final class MainWindowController: NSWindowController, LockSurface,
     private var blockingView: NSView?
     private var blockingLabel: NSTextField?
     private var trustPoll: Timer?
+    private var unlockRetry: Timer?
+    private var urlWatch: NSKeyValueObservation?
+    /// Audit M-18: set only while WE load an about:/data: page (loadOwnHTML); a link or
+    /// script on a page can never set it. (WKNavigationAction.sourceFrame is declared
+    /// non-optional, so a nil check on it is compiled away and can't be used.)
+    private var ownPageLoadPending = false
+    /// Audit W-10: per-launch nonce stamped on every message to the page.
+    private let bridgeNonce = UUID().uuidString.replacingOccurrences(of: "-", with: "")
     private var normalFrame = NSRect(x: 0, y: 0, width: 1280, height: 820)
     private let server = Config.serverURL
     private let external = ExternalExamController(server: Config.serverURL)
@@ -48,7 +56,7 @@ final class MainWindowController: NSWindowController, LockSurface,
                              styleMask: MainWindowController.normalStyle, backing: .buffered, defer: false)
         win.title = "FairPlay"
         win.minSize = NSSize(width: 900, height: 600)
-        win.sharingType = .none                 // excluded from screenshots / screen recording
+        win.sharingType = .none                 // excluded from screenshots / screen recording (verify on macOS 15+)
         win.isReleasedWhenClosed = false
         win.collectionBehavior = [.fullScreenNone]
         win.center()
@@ -64,6 +72,11 @@ final class MainWindowController: NSWindowController, LockSurface,
         config.websiteDataStore = .default()    // keeps localStorage: offline answers survive a crash
         config.applicationNameForUserAgent = "FairPlay/\(Config.version)"
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
+        #if compiler(>=6.0)
+        if #available(macOS 15.0, *) {
+            config.writingToolsBehavior = NSWritingToolsBehavior.none // no Apple Intelligence rewrite/proofread in answers
+        }
+        #endif
 
         let ucc = WKUserContentController()
         ucc.add(WeakScriptHandler(self), name: "proctora")
@@ -75,6 +88,14 @@ final class MainWindowController: NSWindowController, LockSurface,
         })();
         """
         ucc.addUserScript(WKUserScript(source: guardJS, injectionTime: .atDocumentStart, forMainFrameOnly: false))
+        // Audit W-10: the page drops 'proctora-native' events that lack this nonce, so page
+        // JS can't fake "locked"/"unlocked" to its own UI.
+        ucc.addUserScript(WKUserScript(source: "window.__fairplayNonce = '\(bridgeNonce)';",
+                                       injectionTime: .atDocumentStart, forMainFrameOnly: true))
+        if DebugLog.isOn {   // dev builds: page clicks + JS errors into logs/events.log
+            ucc.addUserScript(WKUserScript(source: DebugLog.pageScript, injectionTime: .atDocumentStart,
+                                           forMainFrameOnly: false))
+        }
         config.userContentController = ucc
 
         let wv = ExamWebView(frame: content.bounds, configuration: config)
@@ -86,17 +107,38 @@ final class MainWindowController: NSWindowController, LockSurface,
         wv.allowsLinkPreview = false
         content.addSubview(wv)
         webView = wv
+        // In-page (pushState) route changes never reach decidePolicyFor, so also watch the
+        // URL itself: a teacher page inside the student app goes back to the student login.
+        urlWatch = wv.observe(\.url, options: [.new]) { [weak self] view, _ in
+            DispatchQueue.main.async {
+                guard let self, let u = view.url, self.isServerURL(u),
+                      MainWindowController.isTeacherPath(u.path) else { return }
+                EventLog.shared.record(.blockedNavigation("teacher page \(u.path)"))
+                DebugLog.log("web", "teacher page opened in-page, sent back: \(u.path)")
+                view.load(URLRequest(url: Config.startURL))
+            }
+        }
         external.attach(webView: wv, container: content, window: window)
     }
 
     func start() {
         showWindow(nil)
         takeFocus()
-        webView.load(URLRequest(url: Config.startURL))
+        guard Config.serverIsAcceptable else {
+            // Release builds never talk to a plain-http server (audit #11).
+            loadOwnHTML("""
+            <!doctype html><meta charset="utf-8"><body style="font:16px -apple-system;padding:40px">
+            <h1>This copy of FairPlay is not set up</h1>
+            <p>It has no secure (https) exam server. Ask your school for the correct FairPlay app.</p>
+            """)
+            return
+        }
+        webView.load(URLRequest(url: MainWindowController.launchURL()))
         if !EventTap.isTrusted { showPermission() }
     }
 
     func reload() {
+        guard Config.serverIsAcceptable else { return }
         if webView.url == nil || webView.url?.scheme == "about" {
             webView.load(URLRequest(url: Config.startURL))
         } else {
@@ -106,28 +148,56 @@ final class MainWindowController: NSWindowController, LockSurface,
 
     // MARK: - Bridge (JS <-> native)
 
+    private func defaultPort(_ scheme: String?) -> Int { scheme?.lowercased() == "https" ? 443 : 80 }
+
     private func isServerURL(_ url: URL?) -> Bool {
         guard let url, let host = url.host else { return false }
-        let port = url.port ?? (url.scheme == "https" ? 443 : 80)
-        let serverPort = server.port ?? (server.scheme == "https" ? 443 : 80)
-        return host == server.host && port == serverPort && url.scheme == server.scheme
+        let port = url.port ?? defaultPort(url.scheme)
+        let serverPort = server.port ?? defaultPort(server.scheme)
+        return host == server.host && port == serverPort && url.scheme?.lowercased() == server.scheme?.lowercased()
     }
 
     func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
-        // Only the exam server's own pages may drive the lock.
+        // Dev trace lines from any page (exam page or website exam). Never drive anything.
+        if let body = message.body as? [String: Any], body["action"] as? String == "log" {
+            let host: String = message.frameInfo.securityOrigin.host
+            let kind: String = (body["kind"] as? String) ?? "?"
+            let text: String = String(((body["msg"] as? String) ?? "").prefix(600))
+            let from: String = host.isEmpty ? "local" : host
+            DebugLog.log("js", kind + " [" + from + "] " + text)
+            return
+        }
+        // Only the exam server's own pages (same scheme, host and port) may drive the lock.
         let origin = message.frameInfo.securityOrigin
-        let originPort = origin.port == 0 ? (origin.protocol == "https" ? 443 : 80) : origin.port
-        let serverPort = server.port ?? (server.scheme == "https" ? 443 : 80)
-        guard origin.host == server.host, originPort == serverPort else { return }
+        let originPort = origin.port == 0 ? defaultPort(origin.protocol) : origin.port
+        let serverPort = server.port ?? defaultPort(server.scheme)
+        guard message.frameInfo.isMainFrame,
+              origin.protocol.lowercased() == server.scheme?.lowercased(),
+              origin.host == server.host, originPort == serverPort else { return }
         guard let body = message.body as? [String: Any], let action = body["action"] as? String else { return }
+        DebugLog.log("bridge", "page -> app: \(action)")
 
         switch action {
         case "hello":
             sendState()
-        case "examSession":
-            // phase 1a: attempt id, token and exit-code verifier for the invigilator exit
-            ExitCodeVerifier.shared.update(from: body)
+        case "attest":
+            send(AppSession.shared.attestation(nonce: (body["nonce"] as? String) ?? ""))
+        case "session":
+            AppSession.shared.setExam(attemptId: body["attempt_id"] as? String, token: body["token"] as? String,
+                                      session: body["session"] as? String)
         case "lock":
+            // Audit M-06: lock only for a valid exam session -- or an explicit offline start
+            // (no server session yet; then only the invigilator or a hand-in that reaches the
+            // server ends the lock).
+            let offlineStart = (body["offline"] as? Bool) == true
+                && body["attempt_id"] == nil && body["session"] == nil
+            if !offlineStart && !AppSession.shared.setExam(attemptId: body["attempt_id"] as? String,
+                                                          token: body["token"] as? String,
+                                                          session: body["session"] as? String) {
+                send(["type": "lockFailed", "reason": "bad_session"])
+                return
+            }
+            if offlineStart { DebugLog.log("lock", "offline start: locking without a server session") }
             if LockdownController.shared.lock() {
                 hidePermission()
                 send(["type": "locked"])
@@ -136,7 +206,11 @@ final class MainWindowController: NSWindowController, LockSurface,
                 send(["type": "lockFailed", "reason": "accessibility"])
             }
         case "openExternal":
-            ExitCodeVerifier.shared.update(from: body)
+            guard AppSession.shared.setExam(attemptId: body["attempt_id"] as? String, token: body["token"] as? String,
+                                            session: body["session"] as? String) else {
+                send(["type": "externalFailed", "reason": "bad_session"])
+                return
+            }
             if !LockdownController.shared.isLocked {
                 guard LockdownController.shared.lock() else {
                     showPermission()
@@ -149,14 +223,61 @@ final class MainWindowController: NSWindowController, LockSurface,
             if let problem = external.start(body: body) {
                 send(["type": "externalFailed", "reason": problem])
             }
+        case "preflight":
+            // Audit M-11: before locking, list what must be fixed outside the lock.
+            send(["type": "preflight", "problems": LockdownController.shared.preflight()])
         case "unlock":
-            if LockdownController.shared.isLocked {
-                LockdownController.shared.unlock()   // onUnlocked sends "unlocked"
-            } else {
-                send(["type": "unlocked"])
-            }
+            requestUnlock()
         default:
             break
+        }
+    }
+
+    /// The page asks to unlock after handing in. Audit #11: the page alone can no longer
+    /// unlock -- the server must confirm the attempt is submitted. Retries every 3 s.
+    private func requestUnlock() {
+        guard LockdownController.shared.isLocked else {
+            send(["type": "unlocked"])
+            return
+        }
+        AppSession.shared.confirmHandIn { [weak self] result in
+            guard let self, LockdownController.shared.isLocked else { return }
+            switch result {
+            case .confirmed:
+                self.unlockRetry?.invalidate(); self.unlockRetry = nil
+                AppSession.shared.clearExam()
+                LockdownController.shared.unlock()       // onUnlocked sends "unlocked"
+            case .notYet, .unreachable:
+                self.send(["type": "unlockPending",
+                           "reason": result == .unreachable ? "offline" : "not_submitted"])
+                if self.unlockRetry == nil {
+                    let t = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
+                        guard LockdownController.shared.isLocked else {
+                            self?.unlockRetry?.invalidate(); self?.unlockRetry = nil
+                            return
+                        }
+                        self?.requestUnlockOnce()
+                    }
+                    RunLoop.main.add(t, forMode: .common)
+                    self.unlockRetry = t
+                }
+            }
+        }
+    }
+
+    private func requestUnlockOnce() {
+        AppSession.shared.confirmHandIn { [weak self] result in
+            guard let self, result == .confirmed, LockdownController.shared.isLocked else { return }
+            self.unlockRetry?.invalidate(); self.unlockRetry = nil
+            AppSession.shared.clearExam()
+            LockdownController.shared.unlock()
+        }
+    }
+
+    /// Server status from the app's own beats: a teacher close also unlocks.
+    func handleServerStatus(_ status: String) {
+        if status == "submitted", LockdownController.shared.isLocked, !external.isActive {
+            requestUnlockOnce()
         }
     }
 
@@ -177,9 +298,14 @@ final class MainWindowController: NSWindowController, LockSurface,
     }
 
     func send(_ detail: [String: Any]) {
-        guard let webView,
-              let data = try? JSONSerialization.data(withJSONObject: detail),
+        guard let webView, isServerURL(webView.url),
+              let data = try? JSONSerialization.data(withJSONObject: detail.merging(["bridge_nonce": bridgeNonce]) { _, b in b }),
               let json = String(data: data, encoding: .utf8) else { return }
+        if let t = detail["type"] as? String, t != "event" {
+            var extra = ""
+            if let r = detail["reason"] { extra = " reason=\(r)" }
+            DebugLog.log("bridge", "app -> page: \(t)\(extra)")
+        }
         let js = "window.dispatchEvent(new CustomEvent('proctora-native', { detail: \(json) }));"
         webView.evaluateJavaScript(js, completionHandler: nil)
     }
@@ -189,13 +315,51 @@ final class MainWindowController: NSWindowController, LockSurface,
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
-        if url.scheme == "about" || url.scheme == "data" || isServerURL(url) || external.allows(url) {
+        // Audit M-15: the student app never opens teacher pages or the API docs on the
+        // exam server (a teacher login there shows start codes, exit codes, answer keys).
+        if isServerURL(url) && MainWindowController.isTeacherPath(url.path) {
+            EventLog.shared.record(.blockedNavigation("teacher page \(url.path)"))
+            DebugLog.log("web", "navigation BLOCKED (teacher page): \(url.path)")
+            decisionHandler(.cancel)
+            return
+        }
+        // Audit M-18: about:/data: pages only when WE load them (loadOwnHTML sets the flag;
+        // navigation type "other", main frame), never from a link or script on a page.
+        let isLocal = url.scheme == "about" || url.scheme == "data"
+        let ownLocalPage = isLocal && ownPageLoadPending && navigationAction.navigationType == .other
+            && (navigationAction.targetFrame?.isMainFrame ?? true)
+        if ownLocalPage { ownPageLoadPending = false }
+        if ownLocalPage || isServerURL(url) || external.allows(url) {
             if navigationAction.targetFrame?.isMainFrame ?? true { external.checkFinishURL(url) }
             decisionHandler(.allow)
         } else {
             EventLog.shared.record(.blockedNavigation(url.host ?? url.absoluteString))
+            DebugLog.log("web", "navigation BLOCKED: \(url.scheme ?? "")://\(url.host ?? "")\(url.path)")
             decisionHandler(.cancel)
         }
+    }
+
+    /// Audit M-17: relaunched by the watchdog after the app ended while locked -> straight
+    /// back into that attempt (the page resumes it and asks to lock again).
+    static func launchURL() -> URL {
+        let args = CommandLine.arguments
+        if let i = args.firstIndex(of: "--resume-attempt"), i + 1 < args.count,
+           AppSession.isSafeToken(args[i + 1], min: 3, max: 32) {
+            DebugLog.log("app", "relaunched after ending while locked: resuming \(args[i + 1])")
+            return Config.serverURL.appendingPathComponent("student/exam/\(args[i + 1])")
+        }
+        return Config.startURL
+    }
+
+    static func isTeacherPath(_ path: String) -> Bool {
+        let p = path.lowercased()
+        return ["/teacher", "/docs", "/redoc", "/openapi.json"].contains { p == $0 || p.hasPrefix($0 + "/") }
+    }
+
+    /// TLS: normal validation plus the optional server pin (audit #11).
+    func webView(_ webView: WKWebView, didReceive challenge: URLAuthenticationChallenge,
+                 completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        Pinning.handle(challenge, completionHandler)
     }
 
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
@@ -209,14 +373,23 @@ final class MainWindowController: NSWindowController, LockSurface,
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        let ns = error as NSError
+        DebugLog.log("web", "page load failed: \(ns.domain) \(ns.code) \(ns.localizedDescription)")
         showOffline(error)
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        let ns = error as NSError
+        DebugLog.log("web", "page failed: \(ns.domain) \(ns.code) \(ns.localizedDescription)")
         showOffline(error)
     }
 
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if let u = webView.url { DebugLog.log("web", "page shown: \(u.host ?? u.scheme ?? "")\(u.path)") }
+    }
+
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        DebugLog.log("crash", "exam page process crashed; reloading")
         reload()
     }
 
@@ -229,6 +402,8 @@ final class MainWindowController: NSWindowController, LockSurface,
         let target = retry.absoluteString
             .replacingOccurrences(of: "\\", with: "")
             .replacingOccurrences(of: "'", with: "")
+            .replacingOccurrences(of: "<", with: "")
+            .replacingOccurrences(of: "\"", with: "")
         let html = """
         <!doctype html><html><head><meta charset="utf-8"><style>
         body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;
@@ -244,12 +419,18 @@ final class MainWindowController: NSWindowController, LockSurface,
         <button onclick="location.href='\(target)'">Try again now</button>
         </div><script>setTimeout(function(){ location.href='\(target)'; }, 3000);</script></body></html>
         """
+        loadOwnHTML(html)
+    }
+
+    private func loadOwnHTML(_ html: String) {
+        ownPageLoadPending = true
         webView.loadHTMLString(html, baseURL: nil)
     }
 
     // MARK: - Accessibility permission panel (shown on top until granted)
 
     private func showPermission() {
+        DebugLog.log("lock", "Accessibility permission screen shown")
         guard permissionView == nil, let content = window?.contentView else {
             startTrustPoll(); return
         }
@@ -324,7 +505,7 @@ final class MainWindowController: NSWindowController, LockSurface,
     // MARK: - LockSurface
 
     private var lockedLevel: NSWindow.Level {
-        if UserDefaults.standard.string(forKey: "WindowLevel") == "floating" { return .floating }
+        if Config.floatingLockedWindow { return .floating }   // dev builds only
         return NSWindow.Level(rawValue: Int(CGWindowLevelForKey(.maximumWindow)))
     }
 
@@ -363,26 +544,49 @@ final class MainWindowController: NSWindowController, LockSurface,
         win.setFrame(union.isEmpty ? (NSScreen.main?.frame ?? win.frame) : union, display: true)
     }
 
-    func showBlocking(reason: String) {
-        if blockingView != nil { blockingLabel?.stringValue = reason; return }
+    private var blockingAction: (() -> Void)?
+    private var blockingButton: NSButton?
+
+    func showBlocking(reason: String, quitAction: (() -> Void)?) {
+        blockingAction = quitAction
+        if blockingView == nil { DebugLog.log("lock", "red blocking screen shown") }
+        if blockingView != nil {
+            blockingLabel?.stringValue = reason
+            blockingButton?.isHidden = quitAction == nil
+            return
+        }
         guard let content = window?.contentView else { return }
         let v = NSView(frame: content.bounds)
         v.autoresizingMask = [.width, .height]
         v.wantsLayer = true
         v.layer?.backgroundColor = NSColor(calibratedRed: 0.55, green: 0.15, blue: 0.05, alpha: 0.97).cgColor
         let l = label(reason, size: 22, weight: .semibold)
-        v.addSubview(l)
+        l.preferredMaxLayoutWidth = 760
+        let b = NSButton(title: "Quit these apps now", target: self, action: #selector(blockingButtonPressed))
+        b.bezelStyle = .rounded
+        b.controlSize = .large
+        b.isHidden = quitAction == nil
+        let stack = NSStackView(views: [l, b])
+        stack.orientation = .vertical; stack.spacing = 24; stack.alignment = .centerX
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        v.addSubview(stack)
         content.addSubview(v)   // topmost
         NSLayoutConstraint.activate([
-            l.centerXAnchor.constraint(equalTo: v.centerXAnchor),
-            l.centerYAnchor.constraint(equalTo: v.centerYAnchor)
+            stack.centerXAnchor.constraint(equalTo: v.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: v.centerYAnchor),
+            stack.widthAnchor.constraint(lessThanOrEqualTo: v.widthAnchor, constant: -80)
         ])
-        blockingView = v; blockingLabel = l
+        blockingView = v; blockingLabel = l; blockingButton = b
+    }
+
+    @objc private func blockingButtonPressed() {
+        blockingAction?()
     }
 
     func hideBlocking() {
+        if blockingView != nil { DebugLog.log("lock", "red blocking screen hidden") }
         blockingView?.removeFromSuperview()
-        blockingView = nil; blockingLabel = nil
+        blockingView = nil; blockingLabel = nil; blockingButton = nil; blockingAction = nil
     }
 
     /// Emergency exit or safety unlock while a website exam is open: leave it without submitting.
@@ -392,45 +596,132 @@ final class MainWindowController: NSWindowController, LockSurface,
 
     // MARK: - Invigilator emergency exit (Ctrl-Opt-Cmd-E while locked)
 
+    /// Audit #5: the normal code is per exam, lives only on the server (shown in the
+    /// teacher's live room) and has an attempt limit there.
+    /// 2026-10-12: when the server cannot answer (offline, server error, exam never reached
+    /// it) the invigilator uses the offline code instead (OfflineExit.swift), so a stuck
+    /// lock never needs a Mac restart.
     func promptEmergencyExit() {
+        DebugLog.log("exit", "Ctrl-Opt-Cmd-E pressed (locked=\(LockdownController.shared.isLocked))")
         guard LockdownController.shared.isLocked, let win = window, win.attachedSheet == nil else { return }
         let alert = NSAlert()
         alert.messageText = "Invigilator exit"
-        alert.informativeText = "Enter the invigilator code to end locked mode. The teacher will see this."
-        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        alert.informativeText = "Enter the invigilator code from the teacher's live room to end locked mode. "
+            + "The teacher will see this.\n\nNo connection or an error? Choose \"Offline code\"."
+            + (Config.isDevBuild ? "\n\nDev build: 0000 also works." : "")
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
         field.placeholderString = "Invigilator code"
         alert.accessoryView = field
         alert.addButton(withTitle: "End locked mode")
         alert.addButton(withTitle: "Cancel")
+        alert.addButton(withTitle: "Offline code…")
         alert.window.initialFirstResponder = field
+        LockdownController.shared.ownSecureField = true
         alert.beginSheetModal(for: win) { [weak self] response in
+            LockdownController.shared.ownSecureField = false
+            let choice: String
+            if response == .alertFirstButtonReturn { choice = "End locked mode" }
+            else if response == .alertThirdButtonReturn { choice = "Offline code" }
+            else { choice = "Cancel" }
+            DebugLog.log("exit", "exit dialog: " + choice)
+            if response == .alertThirdButtonReturn {
+                DispatchQueue.main.async { self?.promptOfflineExit(reason: nil) }
+                return
+            }
             guard response == .alertFirstButtonReturn else { return }
-            // phase 1a: per-exam code, checked by the server (offline verifier as fallback)
-            ExitCodeVerifier.shared.verify(field.stringValue) { result in
+            let typed = field.stringValue
+            guard !typed.isEmpty else { return }
+            // Dev builds: the fixed test code ("0000") ends locked mode right here, no server
+            // and no second dialog. Release builds compile this out (always false).
+            if OfflineExit.devCodeMatches(typed.filter { !$0.isWhitespace && $0 != "-" }) {
+                DebugLog.log("exit", "dev test code accepted (dev build only)")
+                EventLog.shared.record(.offlineExit)
+                AppSession.shared.clearExam()
+                LockdownController.shared.unlock()
+                return
+            }
+            AppSession.shared.checkExitCode(typed) { result in
+                DebugLog.log("exit", "server exit-code result: \(result)")
+                guard LockdownController.shared.isLocked else { return }
                 switch result {
-                case .accepted(let how):
-                    EventLog.shared.record(.emergencyExitAccepted(how))
+                case .ok:
+                    AppSession.shared.clearExam()
                     LockdownController.shared.unlock()
-                case .rejected:
-                    EventLog.shared.record(.emergencyExitRejected)
+                case .wrong:
                     NSSound.beep()
-                case .tooManyTries:
-                    EventLog.shared.record(.emergencyExitRejected)
-                    self?.showExitMessage("Too many wrong codes. Wait 5 minutes, then try again.")
-                case .unavailable:
-                    self?.showExitMessage("No exit code is known for this computer yet. Ask the teacher to check the live room.")
+                    self?.notice("Wrong invigilator code. Press Ctrl-Opt-Cmd-E to try again.")
+                case .tooMany:
+                    self?.notice("Too many wrong codes. Wait 5 minutes.")
+                case .unreachable:
+                    self?.promptOfflineExit(reason: "The exam server cannot be reached.")
+                case .noSession:
+                    self?.promptOfflineExit(reason: "This exam has not reached the server yet.")
+                case .serverError(let status):
+                    self?.promptOfflineExit(reason: "The exam server answered with an error (\(status)).")
                 }
             }
         }
     }
 
-    private func showExitMessage(_ text: String) {
-        guard let win = window, win.attachedSheet == nil else { NSSound.beep(); return }
+    /// Offline exit: show the Mac code, check the invigilator's answer locally.
+    func promptOfflineExit(reason: String?) {
+        guard LockdownController.shared.isLocked, let win = window, win.attachedSheet == nil else { return }
+        guard OfflineExit.isAvailable else {
+            DebugLog.log("exit", "offline exit not available: no offline key for this exam")
+            notice((reason.map { $0 + "\n\n" } ?? "")
+                   + "Offline exit is not available: this Mac never reached the exam server for this exam. "
+                   + "If you must end the exam here, restart the Mac. Answers are saved on it.")
+            return
+        }
         let alert = NSAlert()
-        alert.messageText = "Invigilator exit"
-        alert.informativeText = text
-        alert.addButton(withTitle: "OK")
-        alert.beginSheetModal(for: win, completionHandler: nil)
+        alert.messageText = "Offline invigilator exit"
+        var info = ""
+        if let reason { info += reason + "\n\n" }
+        info += "Mac code:  \(OfflineExit.challengeForDisplay)\n\n"
+            + "Invigilator: in the teacher's live room choose \"Mac offline or stuck?\", pick this "
+            + "student, type the Mac code and enter the 8-digit code here. "
+            + "Answers stay saved on this Mac. This is logged."
+        alert.informativeText = info
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 220, height: 24))
+        field.placeholderString = "8-digit offline code"
+        alert.accessoryView = field
+        alert.addButton(withTitle: "End locked mode")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        LockdownController.shared.ownSecureField = true
+        alert.beginSheetModal(for: win) { [weak self] response in
+            LockdownController.shared.ownSecureField = false
+            guard response == .alertFirstButtonReturn, LockdownController.shared.isLocked else {
+                DebugLog.log("exit", "offline dialog cancelled")
+                return
+            }
+            let result = OfflineExit.check(field.stringValue)
+            DebugLog.log("exit", "offline code result: \(result) (Mac code \(OfflineExit.challengeForDisplay))")
+            switch result {
+            case .ok:
+                EventLog.shared.record(.offlineExit)
+                AppSession.shared.clearExam()
+                LockdownController.shared.unlock()
+            case .wrong:
+                NSSound.beep()
+                EventLog.shared.record(.offlineExitRejected)
+                DispatchQueue.main.async { self?.promptOfflineExit(reason: "Wrong code, try again.") }
+            case .tooMany:
+                EventLog.shared.record(.offlineExitRejected)
+                DispatchQueue.main.async { self?.notice("Too many wrong codes. Wait 5 minutes, then press Ctrl-Opt-Cmd-E.") }
+            case .unavailable:
+                DispatchQueue.main.async { self?.promptOfflineExit(reason: nil) }   // shows why
+            }
+        }
+    }
+
+    private func notice(_ text: String) {
+        guard let win = window, win.attachedSheet == nil else { return }
+        let a = NSAlert()
+        a.messageText = "Invigilator exit"
+        a.informativeText = text
+        a.addButton(withTitle: "OK")
+        a.beginSheetModal(for: win, completionHandler: nil)
     }
 
     // MARK: - Helpers

@@ -2,12 +2,19 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, NetworkError, studentApi } from "../../api/client";
 import { CODE_LENGTH, StartCodeBoxes, emptyCode, type StartCodeBoxesHandle } from "./StartCodeBoxes";
-import { WrongCodeError, canStartOffline, startOffline } from "../../lib/offline";
+import { PackageLockedError, WrongCodeError, startOffline, storedPackage } from "../../lib/offline";
 
 /** Turns a start error into a clear sentence for the student. */
 export function startErrorMessage(err: unknown): string {
+  if (err instanceof PackageLockedError)
+    return "No connection, and this exam's offline copy is still locked on this computer. It unlocks when you are online once after your teacher opens the exam. Ask your teacher.";
   if (err instanceof NetworkError) return "Cannot reach the server. Check the connection and try again.";
   if (err instanceof ApiError) {
+    // audit 2026-10-12: app-only start and one computer per attempt
+    if (err.status === 403 && /FairPlay app/i.test(err.detail)) return err.detail;
+    // audit S-03: not in the exam's class
+    if (err.status === 403 && /is for .* students|not for your class/i.test(err.detail)) return err.detail;
+    if (err.status === 409 && /another computer|somewhere else/i.test(err.detail)) return err.detail;
     if (err.status === 403) return "Wrong start code. Check the code your teacher gave and try again.";
     if (err.status === 429) return err.detail || "Too many wrong codes. Wait 60 seconds, then try again.";
     if (err.status === 409 && /submitted/i.test(err.detail)) return "You have already submitted this exam.";
@@ -19,7 +26,7 @@ export function startErrorMessage(err: unknown): string {
 }
 
 /**
- * Four start-code boxes + "Start exam". On success navigates to the exam
+ * Start-code boxes (CODE_LENGTH digits) + "Start exam". On success navigates to the exam
  * (the attempt goes along in router state so the exam opens without a second request).
  */
 export function StartCodeForm({
@@ -53,7 +60,7 @@ export function StartCodeForm({
   async function submit(e: FormEvent) {
     e.preventDefault();
     if (!complete) {
-      setError("The start code has 4 digits.");
+      setError(`The start code has ${CODE_LENGTH} digits.`);
       boxes.current?.focus(digits.indexOf("") === -1 ? 0 : digits.indexOf(""));
       return;
     }
@@ -65,10 +72,11 @@ export function StartCodeForm({
         attempt = await studentApi.start(examId, code);
       } catch (err) {
         // Slice 6: no network at start -> open the package downloaded at check-in.
-        if (!(err instanceof NetworkError) || !canStartOffline(examId)) throw err;
+        if (!(err instanceof NetworkError) || !storedPackage(examId)) throw err;
         try {
           attempt = await startOffline(examId, code);
         } catch (offErr) {
+          if (offErr instanceof PackageLockedError) throw offErr;
           throw offErr instanceof WrongCodeError ? new ApiError(403, "Wrong start code") : err;
         }
       }

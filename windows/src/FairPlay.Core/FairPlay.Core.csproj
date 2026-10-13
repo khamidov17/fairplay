@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Platform-neutral core: protocol signing, allowed-site rules, offline exit codes,
+    config, event model. Targets net10.0 (NOT net10.0-windows) so it builds and unit-tests
+    on any OS, including the CI Linux box and this cloud container. No Windows P/Invoke here.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>FairPlay.Core</AssemblyName>
+    <RootNamespace>FairPlay.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="FairPlay.Tests" />
+  </ItemGroup>
+
+</Project>
