@@ -22,7 +22,7 @@ from __future__ import annotations
 import httpx
 
 from . import base
-from .base import (GradeError, GradeRow, LmsAuthError, LmsCourse, LmsError, LmsIdentity,
+from .base import (GradeError, GradeRow, LmsAuthError, LmsCourse, LmsError, LmsIdentity, dicts, json_as,
                    LmsProvider, LmsStudent, ProviderInfo, short)
 
 LP = "1.43"
@@ -47,8 +47,8 @@ class BrightspaceProvider(LmsProvider):
         if resp.status_code == 403:
             raise LmsAuthError(f"Brightspace says you are not allowed to {what} (403)", 403)
         if resp.status_code >= 400:
-            raise LmsError(f"Brightspace error while {what} (HTTP {resp.status_code})"
-                           + (f": {short(resp.text, 200)}" if resp.text else ""), resp.status_code)
+            # Audit L-01: never echo a raw upstream body (only its status).
+            raise LmsError(f"Brightspace error while {what} (HTTP {resp.status_code})", resp.status_code)
 
     async def whoami(self) -> LmsIdentity:
         resp = await self.request("GET", f"/d2l/api/lp/{LP}/users/whoami")
@@ -70,13 +70,13 @@ class BrightspaceProvider(LmsProvider):
             resp = await self.request("GET", f"/d2l/api/lp/{LP}/enrollments/myenrollments/",
                                       params=params)
             self._check(resp, "listing your courses")
-            body = self.json_or_error(resp, "listing your courses")
-            for item in body.get("Items") or []:
-                ou = item.get("OrgUnit") or {}
+            body = json_as(resp, "listing your courses", dict)
+            for item in dicts(body.get("Items")):
+                ou = item.get("OrgUnit") if isinstance(item.get("OrgUnit"), dict) else {}
                 if "Id" in ou:
                     out.append(LmsCourse(id=str(ou["Id"]), name=ou.get("Name") or "",
                                          code=ou.get("Code") or ""))
-            paging = body.get("PagingInfo") or {}
+            paging = body.get("PagingInfo") if isinstance(body.get("PagingInfo"), dict) else {}
             if not paging.get("HasMoreItems"):
                 break
             bookmark = paging.get("Bookmark")
@@ -85,9 +85,9 @@ class BrightspaceProvider(LmsProvider):
     async def list_students(self, course_id: str) -> list[LmsStudent]:
         resp = await self.request("GET", f"/d2l/api/le/{LE}/{course_id}/classlist/")
         self._check(resp, "reading the class list")
-        rows = self.json_or_error(resp, "reading the class list")
+        rows = json_as(resp, "reading the class list", list)
         out = []
-        for u in rows or []:
+        for u in dicts(rows):
             role = str(u.get("ClasslistRoleDisplayName") or "").lower()
             if "student" not in role and "learner" not in role:
                 continue

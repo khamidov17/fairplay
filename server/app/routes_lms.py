@@ -7,6 +7,7 @@ only on teacher requests — never on the student hot path.
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -48,6 +49,16 @@ class ExamLmsIn(BaseModel):
 # ---------------------------------------------------------------- helpers
 def _allow_private() -> bool:
     return os.environ.get("PROCTORA_LMS_ALLOW_PRIVATE") == "1"
+
+
+def lms_host_allowed(base_url: str) -> bool:
+    """Audit L-01 (optional): FAIRPLAY_LMS_HOSTS=dku.instructure.com,moodle.example.edu
+    limits LMS connections to those hosts and their subdomains. Unset = any public host."""
+    allowed = [h.strip().lower().lstrip(".") for h in os.environ.get("FAIRPLAY_LMS_HOSTS", "").split(",") if h.strip()]
+    if not allowed:
+        return True
+    host = (urlsplit(base_url).hostname or "").lower()
+    return any(host == a or host.endswith("." + a) for a in allowed)
 
 
 def _secret(request: Request) -> str:
@@ -102,7 +113,7 @@ def _provider_for(c: LmsConnection, secret: str) -> LmsProvider:
     except (ValueError, UnicodeDecodeError):
         raise HTTPException(409, "The saved token can no longer be read. Remove this "
                                  "connection and connect again.")
-    return make_provider(c.provider, c.base_url, token)
+    return make_provider(c.provider, c.base_url, token, allow_private=_allow_private())
 
 
 async def _fail(session: AsyncSession, exc: LmsError, *objs) -> HTTPException:
@@ -150,56 +161,90 @@ async def course_gate(session: AsyncSession, link_id: int, user_id: int) -> None
 
 
 # ---------------------------------------------------------------- roster sync
+CHUNK = 1000   # audit L-09: keeps IN (...) lists under SQLite's variable limit
+
+
+def _chunks(xs: list, n: int = CHUNK):
+    for i in range(0, len(xs), n):
+        yield xs[i:i + n]
+
+
+def binding_trusted(base_url: str) -> bool:
+    """Audit L-14: an LMS login id may be matched to an EXISTING FairPlay student only for
+    LMS hosts the server admin vouches for (FAIRPLAY_LMS_HOSTS). Otherwise any teacher's
+    own Canvas could claim real students by inventing matching login ids."""
+    return bool(os.environ.get("FAIRPLAY_LMS_HOSTS", "").strip()) and lms_host_allowed(base_url)
+
+
 async def sync_roster(session: AsyncSession, provider: LmsProvider, conn: LmsConnection,
-                      link: CourseLink) -> dict:
+                      link: CourseLink, lock_key: str | None = None) -> dict:
     students = await provider.list_students(link.lms_course_id)
     lms_ids = [s.lms_user_id for s in students]
+    if lock_key:                                  # audit L-09: the LMS call can be slow
+        await get_store().set(lock_key, "1", LOCK_TTL_S)
 
     members = {m.lms_user_id: m for m in (await session.execute(
         select(CourseMember).where(CourseMember.course_link_id == link.id))).scalars()}
 
     # Same person already imported through another course of the same LMS -> same user.
     known: dict[str, int] = {}
-    if lms_ids:
+    for part in _chunks(lms_ids):
         rows = await session.execute(
             select(CourseMember.lms_user_id, CourseMember.user_id)
             .join(CourseLink, CourseLink.id == CourseMember.course_link_id)
             .join(LmsConnection, LmsConnection.id == CourseLink.connection_id)
             .where(LmsConnection.provider == conn.provider, LmsConnection.base_url == conn.base_url,
-                   CourseMember.lms_user_id.in_(lms_ids)))
-        known = {lid: uid for lid, uid in rows.all()}
+                   CourseMember.lms_user_id.in_(part)))
+        known.update({lid: uid for lid, uid in rows.all()})
     claimed_uids = set(known.values())  # local users already bound to some LMS identity
 
     wanted = {s.lms_user_id: username_from(s.login_id, s.email, f"{conn.provider}{s.lms_user_id}")
               for s in students}
-    by_name = {u.username: u for u in (await session.execute(
-        select(User).where(User.username.in_(set(wanted.values()))))).scalars()} if wanted else {}
-    user_ids = {m.user_id for m in members.values()} | set(known.values())
-    users = {u.id: u for u in (await session.execute(
-        select(User).where(User.id.in_(user_ids)))).scalars()} if user_ids else {}
+    by_name: dict[str, User] = {}
+    for part in _chunks(sorted(set(wanted.values()))):
+        by_name.update({u.username: u for u in (await session.execute(
+            select(User).where(User.username.in_(part)))).scalars()})
+    user_ids = sorted({m.user_id for m in members.values()} | set(known.values()))
+    users: dict[int, User] = {}
+    for part in _chunks(user_ids):
+        users.update({u.id: u for u in (await session.execute(
+            select(User).where(User.id.in_(part)))).scalars()})
+    trusted = binding_trusted(conn.base_url)
 
     added = updated = 0
-    taken: set[str] = set()
+    taken: set[str] = set(by_name)               # names already in use: never reused
+    new_users: list[tuple[str, User]] = []       # (lms_user_id, user) inserted in one flush
+    uid_of: dict[str, int] = {}
     for s in students:
         m = members.get(s.lms_user_id)
         uid = m.user_id if m else known.get(s.lms_user_id)
         if uid is None:
             base_name = wanted[s.lms_user_id]
             u = by_name.get(base_name)
-            if (u is not None and u.role == "student" and u.id not in claimed_uids
-                    and base_name not in taken):
-                uid = u.id   # existing FairPlay student with the same login id
+            if (trusted and u is not None and u.role == "student" and u.id not in claimed_uids
+                    and base_name not in {n for n, _ in new_users}):
+                uid = u.id   # existing FairPlay student with the same login id (trusted LMS)
+                claimed_uids.add(uid)
             else:
-                username = await _free_username(session, base_name, taken)
+                username = base_name[:58] or "student"
+                if username in taken:
+                    username = await _free_username(session, username, taken)
+                taken.add(username)
                 u = User(username=username, name=(s.name or username)[:200], role="student",
                          password_hash=IMPORTED_PASSWORD, created_at=utcnow())
                 session.add(u)
-                await session.flush()
-                uid = u.id
-                users[uid] = u
-            taken.add(base_name)
-            claimed_uids.add(uid)
-        if m is None:
+                new_users.append((s.lms_user_id, u))
+                continue
+        uid_of[s.lms_user_id] = uid
+    if new_users:
+        await session.flush()                    # one round trip for every new account
+        for lid, u in new_users:
+            uid_of[lid] = u.id
+            users[u.id] = u
+            claimed_uids.add(u.id)
+    for i, s in enumerate(students):
+        uid = uid_of[s.lms_user_id]
+        if members.get(s.lms_user_id) is None:
             session.add(CourseMember(course_link_id=link.id, user_id=uid, lms_user_id=s.lms_user_id))
             added += 1
         u = users.get(uid)
@@ -207,10 +252,13 @@ async def sync_roster(session: AsyncSession, provider: LmsProvider, conn: LmsCon
                 and u.name != s.name[:200]):
             u.name = s.name[:200]
             updated += 1
+        if lock_key and i and i % CHUNK == 0:
+            await get_store().set(lock_key, "1", LOCK_TTL_S)
 
-    gone = [m.id for lid, m in members.items() if lid not in set(lms_ids)]
-    if gone:
-        await session.execute(delete(CourseMember).where(CourseMember.id.in_(gone)))
+    present = set(lms_ids)
+    gone = [m.id for lid, m in members.items() if lid not in present]
+    for part in _chunks(gone):
+        await session.execute(delete(CourseMember).where(CourseMember.id.in_(part)))
     now = utcnow()
     link.last_sync_at = conn.last_sync_at = now
     link.last_error = conn.last_error = None
@@ -258,11 +306,13 @@ async def create_connection(body: ConnectionIn, request: Request,
         base_url = normalize_base_url(body.base_url, _allow_private())
     except LmsError as exc:
         raise HTTPException(422, exc.message)
+    if not lms_host_allowed(base_url):
+        raise HTTPException(422, "This server only connects to your school's LMS. Ask the admin which address to use.")
     token = body.token.strip()
     if not token:
         raise HTTPException(422, "Paste the access token")
     try:
-        async with make_provider(body.provider, base_url, token) as prov:
+        async with make_provider(body.provider, base_url, token, allow_private=_allow_private()) as prov:
             me = await prov.whoami()
     except LmsError as exc:
         raise HTTPException(422, exc.message)
@@ -362,7 +412,7 @@ async def link_course(cid: int, lms_course_id: str, request: Request,
                     select(CourseLink).where(CourseLink.connection_id == c.id,
                                              CourseLink.lms_course_id == lms_course_id))).scalar_one()
             try:
-                result = await sync_roster(session, prov, c, link)
+                result = await sync_roster(session, prov, c, link, lock_key=lock)
             except LmsError as exc:  # raised before any roster change is made
                 raise await _fail(session, exc, c, link)
     finally:
@@ -380,7 +430,7 @@ async def resync_course(link_id: int, request: Request, p: Principal = Depends(r
     try:
         async with _provider_for(c, _secret(request)) as prov:
             try:
-                result = await sync_roster(session, prov, c, link)
+                result = await sync_roster(session, prov, c, link, lock_key=lock)
             except LmsError as exc:  # raised before any roster change is made
                 raise await _fail(session, exc, c, link)
     finally:
@@ -443,11 +493,16 @@ async def push_grades(exam_id: str, request: Request, p: Principal = Depends(req
     grade_rows: list[GradeRow] = []
     names: dict[str, str] = {}
     skipped = 0
+    pending_students: list[str] = []
     for a, name, lms_uid in rows:
         if a.status != "submitted" or not lms_uid:
             skipped += 1
             continue
-        score, _pending, _ = grade_attempt(qs, a.answers, a.grades)
+        score, pending, _ = grade_attempt(qs, a.answers, a.grades)
+        if pending:
+            # Audit L-15: answers still to grade would go to the LMS as 0 points.
+            pending_students.append(name)
+            continue
         grade_rows.append(GradeRow(lms_user_id=lms_uid, score=num(score),
                                    comment=(a.overall_comment or "").strip()))
         names[lms_uid] = name
@@ -475,6 +530,7 @@ async def push_grades(exam_id: str, request: Request, p: Principal = Depends(req
     c.last_error = None
     await session.commit()
     return {"pushed": len(grade_rows) - failed, "skipped": skipped,
+            "not_graded_yet": pending_students,
             "errors": [{"student": names.get(x.lms_user_id, x.lms_user_id), "detail": x.detail}
                        for x in errs],
             "lms_assignment_id": aid}

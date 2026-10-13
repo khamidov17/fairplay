@@ -57,14 +57,14 @@ def test_edit_only_draft_and_delete_rules(client, teacher):
     opened = client.post(f"/api/exams/{e['id']}/open", headers=teacher).json()
     assert opened["status"] == "live"
     code = opened["start_code"]
-    assert isinstance(code, str) and len(code) == 4 and code.isdigit() and code[0] != "0"
+    assert isinstance(code, str) and len(code) == 6 and code.isdigit()
     r = client.put(f"/api/exams/{e['id']}", json=SAMPLE_EXAM, headers=teacher)
     assert r.status_code == 409 and r.json() == {"detail": "Exam is not a draft"}
     assert client.delete(f"/api/exams/{e['id']}", headers=teacher).status_code == 409
     closed = client.post(f"/api/exams/{e['id']}/close", headers=teacher).json()
     assert closed["status"] == "closed" and closed["start_code"] is None
     reopened = client.post(f"/api/exams/{e['id']}/open", headers=teacher).json()
-    assert reopened["status"] == "live" and len(reopened["start_code"]) == 4
+    assert reopened["status"] == "live" and len(reopened["start_code"]) == 6
     client.post(f"/api/exams/{e['id']}/close", headers=teacher)
     assert client.delete(f"/api/exams/{e['id']}", headers=teacher).status_code == 204
     assert client.get(f"/api/exams/{e['id']}", headers=teacher).status_code == 404

@@ -58,7 +58,7 @@ export function buildGrade(form: GradeForm, q: GradingQuestion): BuildResult {
       return { ok: false, error: "Pick a level for every criterion." };
     const scores = form.scores as number[];
     for (let i = 0; i < rubric.length; i++)
-      if (scores[i] < 0 || scores[i] > rubric[i].points) return { ok: false, error: `Criterion ${i + 1} is out of range.` };
+      if ((scores[i] ?? -1) < 0 || (scores[i] ?? 0) > (rubric[i]?.points ?? 0)) return { ok: false, error: `Criterion ${i + 1} is out of range.` };
     const total = rubricTotal(scores);
     return { ok: true, total, input: { points: total, comment, rubric_scores: scores } };
   }
@@ -81,7 +81,8 @@ export function nextPendingIndex(
   const n = list.length;
   for (let step = 1; step <= n; step++) {
     const i = (current + step) % n;
-    if (isPending(list[i], q)) return i;
+    const item = list[i];
+    if (item && isPending(item, q)) return i;
   }
   return null;
 }

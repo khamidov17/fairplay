@@ -1,8 +1,8 @@
 """End-to-end: teacher builds + opens an exam, two students take it, teacher sees live room and results."""
-import os, re, sys
+import re, sys
 from playwright.sync_api import sync_playwright, expect
 
-BASE = os.environ.get("FAIRPLAY_BASE", "http://127.0.0.1:8000").rstrip("/")
+BASE = "http://127.0.0.1:8000"
 
 def login(pg, role, user, pw):
     pg.goto(f"{BASE}/{role}/login")
@@ -35,6 +35,9 @@ with sync_playwright() as p:
         box.fill(topic)
         box.press("Enter")
     T.screenshot(path="shots/10-editor-filled.png", full_page=True)
+    # audit S-03: every exam needs a class (dev servers have "Demo class")
+    T.wait_for_function("!document.querySelector('#exam-class').disabled")
+    T.locator("#exam-class").select_option(index=1)
     T.get_by_role("button", name="Save exam").click()
     T.wait_for_url(re.compile(r".*/teacher/exams/e_[A-Za-z0-9_-]+$"))
     exam_url = T.url
@@ -43,11 +46,11 @@ with sync_playwright() as p:
     # some UIs confirm
     confirm = T.get_by_role("button", name=re.compile("^(Open|Yes, open|Open now)", re.I))
     T.wait_for_timeout(600)
-    if T.get_by_text(re.compile(r"\b\d{4}\b")).count() == 0 and confirm.count():
+    if T.get_by_text(re.compile(r"\b\d{6}\b")).count() == 0 and confirm.count():
         confirm.last.click()
     T.wait_for_timeout(1200)
     body = T.locator("body").inner_text()
-    m = re.search(r"(?m)^\s*(\d{4})\s*$", body) or re.search(r"\b(\d{4})\b", body)
+    m = re.search(r"(?m)^\s*(\d{6})\s*$", body) or re.search(r"\b(\d{6})\b", body)
     code = m.group(1)
     print("start code:", code)
     T.screenshot(path="shots/11-live-room-empty.png", full_page=True)
@@ -62,7 +65,7 @@ with sync_playwright() as p:
         S.get_by_role("button", name="Enter start code").first.click()
         S.wait_for_timeout(400)
         inputs = S.locator("input")
-        if inputs.count() == 4:
+        if inputs.count() == 6:
             for i, d in enumerate(code): inputs.nth(i).fill(d)
         else:
             inputs.first.fill(code)

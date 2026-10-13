@@ -29,8 +29,8 @@ def test_missing_and_tampered_token(client):
     # Forge the payload to claim the teacher role, keep the old signature.
     import base64
     raw = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4)).decode()
-    uid, _, exp, ver = raw.split(":")  # phase 1a: user_id:role:exp:token_version
-    forged = base64.urlsafe_b64encode(f"{uid}:teacher:{exp}:{ver}".encode()).rstrip(b"=").decode()
+    uid, _, exp, ver, kid = raw.split(":")
+    forged = base64.urlsafe_b64encode(f"{uid}:teacher:{exp}:{ver}:{kid}".encode()).rstrip(b"=").decode()
     for bad in (f"{forged}.{sig}", token[:-2] + ("AA" if token[-2:] != "AA" else "BB"), "garbage"):
         r = client.get("/api/exams", headers={"Authorization": f"Bearer {bad}"})
         assert r.status_code == 401, bad

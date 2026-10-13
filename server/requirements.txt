@@ -1,19 +1,19 @@
-fastapi>=0.110
-uvicorn[standard]>=0.29
-sqlalchemy[asyncio]>=2.0
-aiosqlite>=0.19
-asyncpg>=0.29
-redis>=5.0
-httpx>=0.27
-pymupdf>=1.24
-qrcode>=7.4
-sympy>=1.12
-opencv-python-headless>=4.8
-numpy>=1.26
-reportlab>=4.0
-Pillow>=10.0
-openpyxl>=3.1  # phase 2: Excel export of grades
-python-multipart>=0.0.9
-cryptography>=42
-antlr4-python3-runtime==4.11  # sympy.parsing.latex (step verification; built-in fallback without it)
-pint>=0.23  # physical units in step verification
+# Audit 2026-10-13 (hardening): every dependency bounded to the major line the test suite
+# runs on (no surprise major upgrades). Exact pins don't fit: the same file serves Python
+# 3.10 to 3.14 (Docker 3.12, the Mac demo 3.14), and wheels differ per version.
+fastapi>=0.110,<1
+uvicorn[standard]>=0.29,<1
+sqlalchemy[asyncio]>=2.0,<2.2
+aiosqlite>=0.19,<1
+asyncpg>=0.29,<1
+redis>=5.0,<9
+httpx>=0.27,<1
+pymupdf>=1.24,<2
+qrcode>=7.4,<9
+sympy>=1.12,<2
+opencv-python-headless>=4.8,<5
+numpy>=1.26,<3
+reportlab>=4.0,<6
+Pillow>=10.0,<13
+python-multipart>=0.0.9,<0.1
+cryptography>=42,<51

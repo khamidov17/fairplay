@@ -22,11 +22,16 @@ from __future__ import annotations
 import httpx
 
 from . import base
-from .base import (GradeError, GradeRow, LmsAuthError, LmsCourse, LmsError, LmsIdentity,
+from .base import (GradeError, GradeRow, LmsAuthError, LmsCourse, LmsError, LmsIdentity, dicts, json_as,
                    LmsProvider, LmsStudent, ProviderInfo, short)
 
 API = "/learn/api/public"
 TEACHING_ROLES = {"instructor", "teachingassistant", "coursebuilder"}
+
+
+def _obj(v):
+    """Audit L-16: a nested JSON object, or {} when the LMS sent something else."""
+    return v if isinstance(v, dict) else {}
 
 
 class BlackboardProvider(LmsProvider):
@@ -64,9 +69,10 @@ class BlackboardProvider(LmsProvider):
             resp = await self.request("GET", url, params=params if first else None)
             first = False
             self._check(resp, what)
-            body = self.json_or_error(resp, what)
-            out.extend(body.get("results") or [])
-            url = (body.get("paging") or {}).get("nextPage")
+            body = json_as(resp, what, dict)
+            out.extend(dicts(body.get("results")))
+            paging = body.get("paging")
+            url = paging.get("nextPage") if isinstance(paging, dict) else None
         return out
 
     async def whoami(self) -> LmsIdentity:
@@ -76,7 +82,7 @@ class BlackboardProvider(LmsProvider):
         if not isinstance(me, dict) or "id" not in me:
             raise LmsError("That address does not look like Blackboard Learn")
         self._uid = me["id"]
-        n = me.get("name") or {}
+        n = _obj(me.get("name"))
         return LmsIdentity(id=str(me["id"]),
                            name=" ".join(x for x in (n.get("given"), n.get("family")) if x),
                            login=me.get("userName") or "")
@@ -89,7 +95,7 @@ class BlackboardProvider(LmsProvider):
         for m in rows:
             if str(m.get("courseRoleId", "")).lower() not in TEACHING_ROLES:
                 continue
-            c = m.get("course") or {}
+            c = _obj(m.get("course"))
             cid = c.get("id") or m.get("courseId")
             if cid:
                 out.append(LmsCourse(id=str(cid), name=c.get("name") or str(cid),
@@ -103,8 +109,8 @@ class BlackboardProvider(LmsProvider):
         for m in rows:
             if str(m.get("courseRoleId", "")).lower() != "student":
                 continue
-            u = m.get("user") or {}
-            n = u.get("name") or {}
+            u = _obj(m.get("user"))
+            n = _obj(u.get("name"))
             name = " ".join(x for x in (n.get("given"), n.get("family")) if x)
             out.append(LmsStudent(lms_user_id=str(m.get("userId") or u.get("id")),
                                   name=name or u.get("userName") or "Student",

@@ -146,6 +146,7 @@ export function ReviewPanel({ questions, answers, marked, onGoTo, onKeepWorking,
               const btns = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("button"));
               const first = btns[0];
               const last = btns[btns.length - 1];
+              if (!first || !last) return;
               if (e.shiftKey && document.activeElement === first) {
                 e.preventDefault();
                 last.focus();

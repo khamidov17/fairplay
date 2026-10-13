@@ -4,8 +4,11 @@ services:
     image: postgres:16
     environment:
       POSTGRES_USER: proctora
-      POSTGRES_PASSWORD: proctora
+      # Audit S-17: no default password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD to a long random string}
       POSTGRES_DB: proctora
+    # Pool budget (audit S-17): replicas x WEB_CONCURRENCY x (DB_POOL_SIZE + DB_MAX_OVERFLOW)
+    # must stay below max_connections. Defaults: 4 x 4 x (5 + 10) = 240 < 500.
     command: ["postgres", "-c", "max_connections=500", "-c", "shared_buffers=512MB"]
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck:
@@ -20,18 +23,20 @@ services:
   api:
     build: .
     environment:
-      DATABASE_URL: postgresql+asyncpg://proctora:proctora@postgres/proctora
+      DATABASE_URL: postgresql+asyncpg://proctora:${POSTGRES_PASSWORD}@postgres/proctora
       REDIS_URL: redis://redis:6379/0
-      FAIRPLAY_ENV: production
-      PROCTORA_SECRET: ${PROCTORA_SECRET:?set PROCTORA_SECRET to a long random string (openssl rand -hex 32)}
-      # Only if another site must call the API from a browser (comma-separated origins):
-      FAIRPLAY_CORS_ORIGINS: ${FAIRPLAY_CORS_ORIGINS:-}
-      # Trust nginx's X-Forwarded-For (the api is not published; only nginx reaches it), so audit
-      # rows and sign-in limits see the real client IP.
-      FORWARDED_ALLOW_IPS: "*"
+      PROCTORA_SECRET: ${PROCTORA_SECRET:?set PROCTORA_SECRET to a long random string}
+      # Same value as mac/build.sh FAIRPLAY_APP_KEY (comma-separated during key rotation)
+      FAIRPLAY_APP_KEY: ${FAIRPLAY_APP_KEY:?set FAIRPLAY_APP_KEY (see mac/build.sh)}
       WEB_CONCURRENCY: ${WEB_CONCURRENCY:-4}
-      DB_POOL_SIZE: "10"
-      DB_MAX_OVERFLOW: "20"
+      # Only nginx reaches the api containers (their port is not published), so its
+      # X-Forwarded-For is trusted from any address on this network. The image default is
+      # 127.0.0.1 (audit 2026-10-13): never trust client-sent headers by accident.
+      FORWARDED_ALLOW_IPS: "*"
+      DB_POOL_SIZE: "5"
+      DB_MAX_OVERFLOW: "10"
+      FAIRPLAY_DB_MAX_CONNECTIONS: "450"        # 500 minus room for admin tools
+      FAIRPLAY_REPLICAS: ${API_REPLICAS:-4}     # keep equal to --scale api=N
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_started}

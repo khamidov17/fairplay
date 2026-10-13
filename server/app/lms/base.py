@@ -15,10 +15,12 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+import socket
 from dataclasses import dataclass
 from typing import Any, Callable
 from urllib.parse import urlencode, urlsplit
 
+import httpcore
 import httpx
 
 log = logging.getLogger("proctora.lms")
@@ -115,10 +117,85 @@ def set_sleep(fn: Callable[[float], Any] | None) -> None:
 
 
 # ---------------------------------------------------------------- URL checks
+PRIVATE_DETAIL = "That LMS address points to a private network"
+
+
+def blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    """Anything that is not a public internet address (audit L-01)."""
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    return (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+            or ip.is_multicast or ip.is_unspecified or not ip.is_global)
+
+
+def literal_ip(host: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+    """The address a host string means *as an IP*, including the old forms browsers and
+    libc still accept: 127.1, 2130706433, 0x7f000001, 0177.0.0.1 (audit L-01)."""
+    h = host.strip("[]")
+    try:
+        return ipaddress.ip_address(h)
+    except ValueError:
+        pass
+    try:
+        return ipaddress.IPv4Address(socket.inet_aton(h))
+    except (OSError, ValueError):
+        return None
+
+
+async def resolve_public(host: str, port: int) -> str:
+    """Resolve once, refuse if ANY address is private, return the address to connect to.
+    Connecting to exactly this address (not resolving again) stops DNS rebinding."""
+    ip = literal_ip(host)
+    if ip is not None:
+        if blocked_ip(ip):
+            raise LmsError(PRIVATE_DETAIL)
+        return str(ip)
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    except OSError:
+        raise LmsError("The LMS address could not be found. Check the spelling.") from None
+    addrs = [info[4][0] for info in infos]
+    if not addrs:
+        raise LmsError("The LMS address could not be found. Check the spelling.")
+    for a in addrs:
+        if blocked_ip(ipaddress.ip_address(a.split("%", 1)[0])):
+            raise LmsError(PRIVATE_DETAIL)
+    return addrs[0]
+
+
+class _PublicOnlyBackend(httpcore.AsyncNetworkBackend):
+    """httpcore network backend that connects only to checked public addresses. TLS still
+    uses the LMS hostname (SNI + certificate check): httpcore takes it from the URL."""
+
+    def __init__(self) -> None:
+        self._inner = httpcore.AnyIOBackend()
+
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):
+        ip = await resolve_public(host, port)
+        return await self._inner.connect_tcp(ip, port, timeout=timeout, local_address=local_address,
+                                             socket_options=socket_options)
+
+    async def connect_unix_socket(self, path, timeout=None, socket_options=None):  # pragma: no cover
+        raise LmsError(PRIVATE_DETAIL)
+
+    async def sleep(self, seconds: float) -> None:
+        await self._inner.sleep(seconds)
+
+
+def public_only_transport() -> httpx.AsyncHTTPTransport:
+    t = httpx.AsyncHTTPTransport()
+    pool = getattr(t, "_pool", None)
+    if not isinstance(pool, httpcore.AsyncConnectionPool):   # httpx internals changed
+        raise RuntimeError("httpx version not supported by the LMS address guard")
+    t._pool = httpcore.AsyncConnectionPool(ssl_context=httpx.create_ssl_context(),
+                                           network_backend=_PublicOnlyBackend())
+    return t
+
+
 def normalize_base_url(raw: str, allow_private: bool = False) -> str:
     """https://school.instructure.com/ -> https://school.instructure.com (no path suffixes
-    like /api/v1). Rejects non-http(s) URLs and, unless allow_private, IP literals in
-    private/loopback ranges. (Hostnames resolving to private IPs are NOT checked.)"""
+    like /api/v1). Rejects non-http(s) URLs and, unless allow_private, private addresses in
+    any IP notation. Hostnames are checked again at connect time (public_only_transport)."""
     url = (raw or "").strip()
     if not url:
         raise LmsError("Enter your LMS web address, for example https://school.instructure.com")
@@ -133,13 +210,9 @@ def normalize_base_url(raw: str, allow_private: bool = False) -> str:
         raise LmsError("Do not put a user name or password in the LMS address")
     host = parts.hostname
     if not allow_private:
-        try:
-            ip = ipaddress.ip_address(host)
-        except ValueError:
-            ip = None
-        if host == "localhost" or (ip is not None and (ip.is_private or ip.is_loopback
-                                                       or ip.is_link_local or ip.is_reserved)):
-            raise LmsError("That LMS address points to a private network")
+        ip = literal_ip(host)
+        if host == "localhost" or host.endswith(".localhost") or (ip is not None and blocked_ip(ip)):
+            raise LmsError(PRIVATE_DETAIL)
     path = parts.path.rstrip("/")
     for suffix in ("/api/v1", "/webservice/rest/server.php", "/learn/api/public/v1", "/d2l/home",
                    "/login"):
@@ -153,10 +226,12 @@ def normalize_base_url(raw: str, allow_private: bool = False) -> str:
 class LmsProvider:
     info: ProviderInfo
 
-    def __init__(self, base_url: str, credential: str):
+    def __init__(self, base_url: str, credential: str, allow_private: bool = False):
         self.base_url = base_url.rstrip("/")
         self.credential = credential
         transport = _transport_factory(self.info.id, self.base_url) if _transport_factory else None
+        if transport is None and not allow_private:
+            transport = public_only_transport()     # audit L-01: no private addresses, ever
         self._client = httpx.AsyncClient(
             timeout=httpx.Timeout(TIMEOUT_S), transport=transport, follow_redirects=False,
             headers={"Accept": "application/json", "User-Agent": "FairPlay-LMS-Sync/1.0"})
@@ -257,6 +332,20 @@ class LmsProvider:
         except ValueError:
             raise LmsError(f"The LMS sent an unexpected answer while {what} "
                            f"(HTTP {resp.status_code}, not JSON). Check the web address.")
+
+
+def json_as(resp: httpx.Response, what: str, kind: type) -> Any:
+    """Audit L-16: JSON of the expected shape (dict / list) or a clear LmsError, never a
+    500 from .get() on a list."""
+    value = LmsProvider.json_or_error(resp, what)
+    if not isinstance(value, kind):
+        raise LmsError(f"The LMS sent an unexpected answer while {what} "
+                       f"(HTTP {resp.status_code}). Check the web address.")
+    return value
+
+
+def dicts(items: Any) -> list[dict]:
+    return [x for x in items if isinstance(x, dict)] if isinstance(items, list) else []
 
 
 def short(text: Any, n: int = 300) -> str:

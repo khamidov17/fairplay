@@ -21,15 +21,8 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(16), nullable=False)
     password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
-    # phase 1a: bumped on password change / "sign out everywhere"; tokens carry the version
-    # they were issued with and older ones are refused (app.security.current_principal).
+    # Audit S-15: bumped to sign this user out everywhere (tokens carry the version).
     token_version: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
-    # registration + superadmin (routes_register.py, routes_admin.py). Email is stored
-    # lowercased; unique index (NULLs allowed). status: active | pending | disabled.
-    email: Mapped[str | None] = mapped_column(String(254), unique=True, index=True, nullable=True)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active",
-                                        server_default="active")
-    last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class Exam(Base):
@@ -65,16 +58,20 @@ class Exam(Base):
     finish_url_contains: Mapped[str | None] = mapped_column(String(200), nullable=True)
     # slice 5: LMS sync. Plain (non-FK) columns so db._add_missing_columns can ALTER them in.
     course_link_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    # Audit S-03: the class whose students see and may take this exam (or course_link_id).
+    # Plain column (not FK) so db._add_missing_columns can add it to older databases.
+    class_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
+    # Audit S-03: 32 random bytes (hex) mixed into the offline-package key. Handed to class
+    # members only while the exam is live, so a package downloaded early can't be opened by
+    # guessing the 6-digit start code.
+    package_secret: Mapped[str | None] = mapped_column(String(64), nullable=True)
     lms_assignment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     # slice 6: "computer" | "paper" | "website". NULL on rows from before slice 6: derived
     # from mode by services.exam_delivery (external -> website, else computer).
     delivery: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    # phase 1a: per-exam invigilator exit code (teacher-only, issued at open), its offline
-    # verifier for the Mac app (JSON {alg,iterations,salt,hash}), and the offline-package
-    # content key (base64, 32 bytes; see app.offline).
-    exit_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    exit_check: Mapped[str | None] = mapped_column(String(300), nullable=True)
-    package_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Audit 2026-10-12: per-exam invigilator code (emergency exit in the app), checked by
+    # the server with an attempt limit. New on every open.
+    invigilator_code: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
 
 class Attempt(Base):
@@ -92,6 +89,12 @@ class Attempt(Base):
     receipt: Mapped[str | None] = mapped_column(String(16), nullable=True)
     auto_submitted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     late: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Audit S-02: answers that arrived with a submit after the deadline. Kept for the
+    # teacher to look at, never graded (the graded set is what was saved in time).
+    late_answers: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Audit S-10: answered-question count kept with every save, so the live room (polled
+    # every 3 s) never loads the answers themselves. NULL on rows from before.
+    answered: Mapped[int | None] = mapped_column(Integer, nullable=True)
     score: Mapped[float | None] = mapped_column(Float, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     # slice 2: teacher grades {qid: {points, comment, rubric_scores, graded_at}} + overall comment.
@@ -106,6 +109,15 @@ class Attempt(Base):
                                         server_default="computer")
     ai_drafts: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict,
                                             server_default=text("'{}'"))
+    # Audit 2026-10-12 #1-#3, #6: the app install that started the attempt and the current
+    # session (sent as X-FairPlay-Session on every write). A start from another device is
+    # refused until the teacher releases the device; a re-start on the same device rotates
+    # the session and is flagged. client = "app" | "browser" (browser only when
+    # FAIRPLAY_REQUIRE_APP=0).
+    device_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    session_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    entries: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    client: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
 
 class IntegrityEvent(Base):
@@ -167,3 +179,26 @@ class CourseMember(Base):
         ForeignKey("lms_course_links.id", ondelete="CASCADE"), index=True, nullable=False)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
     lms_user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class SchoolClass(Base):
+    """Audit S-03: a teacher's class. Students join with its code (or are added by
+    username); an exam belongs to one class and only its members see it."""
+    __tablename__ = "classes"
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    teacher_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    # 2026-10-13: shown on the class card, e.g. "Fall 2026 · Section 2" (free text).
+    term: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    join_code: Mapped[str] = mapped_column(String(16), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
+
+
+class ClassMember(Base):
+    __tablename__ = "class_members"
+    __table_args__ = (UniqueConstraint("class_id", "user_id", name="uq_class_member"),)
+    id: Mapped[int] = mapped_column(BigIntPK, primary_key=True, autoincrement=True)
+    class_id: Mapped[int] = mapped_column(ForeignKey("classes.id", ondelete="CASCADE"),
+                                          index=True, nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True, nullable=False)
+    joined_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)

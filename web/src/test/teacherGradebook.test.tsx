@@ -7,11 +7,21 @@ import type { Gradebook } from "../api/types";
 const api = vi.hoisted(() => ({
   gradebook: vi.fn(),
   gradebookCsv: vi.fn(),
+  gradingSummary: vi.fn(),
+  release: vi.fn(),
+  classList: vi.fn(),
 }));
 
 vi.mock("../api/client", async (importOriginal) => {
   const orig = await importOriginal<typeof import("../api/client")>();
-  return { ...orig, teacherApi: { ...orig.teacherApi, ...api } };
+  return {
+    ...orig,
+    teacherApi: { ...orig.teacherApi, ...api },
+    classesApi: {
+      ...orig.classesApi,
+      list: api.classList,
+    },
+  };
 });
 
 import GradebookPage, { cellText } from "../pages/teacher/GradebookPage";
@@ -73,6 +83,15 @@ describe("GradebookPage", () => {
 
   beforeEach(() => {
     api.gradebook.mockReset().mockResolvedValue(book);
+    api.gradingSummary.mockReset().mockResolvedValue([
+      { exam_id: "e1", title: "Quiz 1", course: "", class_id: 3, status: "closed", pending: 0, submitted: 2, grades_released: false },
+      { exam_id: "e2", title: "Midterm", course: "", class_id: 3, status: "closed", pending: 4, submitted: 2, grades_released: false },
+    ]);
+    api.release.mockReset().mockResolvedValue({});
+    api.classList.mockReset().mockResolvedValue([
+      { id: 3, name: "Calc A", join_code: "K7QM-3XPA", member_count: 3, exam_count: 2, created_at: "2026-10-12T00:00:00Z" },
+      { id: 4, name: "Stats B", join_code: "K7QM-3XPB", member_count: 1, exam_count: 0, created_at: "2026-10-12T00:00:00Z" },
+    ]);
     api.gradebookCsv.mockReset().mockResolvedValue(new Blob(["Student,Username\n"], { type: "text/csv" }));
     Object.defineProperty(URL, "createObjectURL", { value: createObjectURL, configurable: true, writable: true });
     Object.defineProperty(URL, "revokeObjectURL", { value: revokeObjectURL, configurable: true, writable: true });
@@ -83,7 +102,7 @@ describe("GradebookPage", () => {
 
   it("renders students by exams with cell states and averages", async () => {
     renderPage();
-    const table = await screen.findByRole("table");
+    const table = within(await screen.findByRole("region", { name: "Marks" })).getByRole("table");
     expect(within(table).getByRole("columnheader", { name: /Quiz 1/ })).toBeInTheDocument();
     expect(within(table).getByRole("columnheader", { name: /Midterm/ })).toBeInTheDocument();
 
@@ -102,28 +121,38 @@ describe("GradebookPage", () => {
     expect(screen.getByText("3 students · 2 exams")).toBeInTheDocument();
   });
 
-  it("filters by course", async () => {
+  it("filters by class", async () => {
     const user = userEvent.setup();
     renderPage();
-    await screen.findByRole("table");
-    expect(api.gradebook).toHaveBeenLastCalledWith("");
-    await user.selectOptions(screen.getByLabelText("Course"), "STATS 302");
-    await waitFor(() => expect(api.gradebook).toHaveBeenLastCalledWith("STATS 302"));
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Gradebook · STATS 302");
+    await waitFor(() => expect(api.gradebook).toHaveBeenLastCalledWith("", null));
+    await waitFor(() => expect(screen.getByRole("option", { name: "Stats B" })).toBeInTheDocument());
+    await user.selectOptions(screen.getByLabelText("Class"), "4");
+    await waitFor(() => expect(api.gradebook).toHaveBeenLastCalledWith("", 4));
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Grades · Stats B");
   });
 
-  it("exports the CSV as proctora-gradebook.csv", async () => {
+  it("releases grades only when everything is graded", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const btn = await screen.findByRole("button", { name: "Release grades for Quiz 1" });
+    expect(screen.queryByRole("button", { name: "Release grades for Midterm" })).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Grade Midterm" })).toHaveAttribute("href", "/teacher/exams/e2/grading");
+    await user.click(btn);
+    await waitFor(() => expect(api.release).toHaveBeenCalledWith("e1"));
+  });
+
+  it("exports the CSV as fairplay-grades.csv", async () => {
     const user = userEvent.setup();
     const clicked: HTMLAnchorElement[] = [];
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
       clicked.push(this);
     });
     renderPage();
-    await screen.findByRole("table");
+    await screen.findByRole("region", { name: "Marks" });
     await user.click(screen.getByRole("button", { name: /Export CSV/ }));
     await waitFor(() => expect(clicked).toHaveLength(1));
-    expect(api.gradebookCsv).toHaveBeenCalledWith("");
-    expect(clicked[0].download).toBe("proctora-gradebook.csv");
+    expect(api.gradebookCsv).toHaveBeenCalledWith("", null);
+    expect(clicked[0].download).toBe("fairplay-grades.csv");
     expect(clicked[0].getAttribute("href")).toBe("blob:fake");
   });
 
@@ -131,6 +160,6 @@ describe("GradebookPage", () => {
     const { ApiError } = await import("../api/client");
     api.gradebook.mockReset().mockRejectedValue(new ApiError(500, "Gradebook is broken"));
     renderPage();
-    expect(await screen.findByRole("alert")).toHaveTextContent("Gradebook is broken");
+    expect(await screen.findByText("Gradebook is broken")).toBeInTheDocument();
   });
 });

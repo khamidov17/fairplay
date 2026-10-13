@@ -7,12 +7,25 @@ from dataclasses import dataclass, field
 
 log = logging.getLogger("proctora")
 
-DEV_SECRET = "proctora-dev-secret-change-me"
-MIN_SECRET_LEN = 32
+DEV_SECRET = "proctora-dev-secret-change-me"   # never accepted any more (audit 2026-10-12 #12)
+# Shared with dev builds of the Mac app (mac/build.sh without FAIRPLAY_APP_KEY). Only
+# accepted when FAIRPLAY_DEV=1; production must set FAIRPLAY_APP_KEY.
+DEV_APP_KEY = "fairplay-dev-app-key-not-secret"
 
 
-class ConfigError(RuntimeError):
-    """Unsafe production configuration: the server refuses to start."""
+# Parts of FairPlay that are switched off unless FAIRPLAY_FEATURES lists them.
+OPTIONAL_FEATURES = ("scan", "lms", "practice")
+
+
+def _flag(name: str, default: bool) -> bool:
+    v = os.environ.get(name)
+    if v is None or v.strip() == "":
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
+
+def _list(name: str) -> list[str]:
+    return [x.strip() for x in os.environ.get(name, "").split(",") if x.strip()]
 
 
 def _int(name: str, default: int) -> int:
@@ -22,105 +35,123 @@ def _int(name: str, default: int) -> int:
         return default
 
 
-def _env_mode() -> str:
-    v = (os.environ.get("FAIRPLAY_ENV") or "development").strip().lower()
-    return "production" if v in ("production", "prod") else "development"
-
-
-def _csv(name: str) -> list[str] | None:
-    raw = os.environ.get(name)
-    if raw is None:
-        return None
-    return [x.strip() for x in raw.split(",") if x.strip()]
-def _teacher_signup_default() -> str:
-    v = (os.environ.get("FAIRPLAY_TEACHER_SIGNUP") or "").strip().lower()
-    if v in ("open", "approval", "closed"):
-        return v
-    # Unset or invalid: open in development, approval in production.
-    return "approval" if os.environ.get("FAIRPLAY_ENV", "").lower() == "production" else "open"
-
-
 @dataclass
 class Settings:
-    # "development" (default: demo users, permissive CORS, dev secret allowed) or "production"
-    env: str = field(default_factory=_env_mode)
     database_url: str = field(default_factory=lambda: os.environ.get(
         "DATABASE_URL", "sqlite+aiosqlite:///./data/proctora.db"))
     redis_url: str | None = field(default_factory=lambda: os.environ.get("REDIS_URL") or None)
-    secret: str = field(default_factory=lambda: os.environ.get("PROCTORA_SECRET") or DEV_SECRET)
-    token_ttl_s: int = 43200
+    # Token/LMS sealing secret. Empty -> resolved at startup by check_secure(): a random
+    # secret persisted under data/ in dev (FAIRPLAY_DEV=1), otherwise the server refuses to start.
+    secret: str = field(default_factory=lambda: os.environ.get("PROCTORA_SECRET")
+                        or os.environ.get("FAIRPLAY_SECRET") or "")
+    # FAIRPLAY_DEV=1: local laptop demo (Run Server.command). Relaxes the startup checks only.
+    dev: bool = field(default_factory=lambda: _flag("FAIRPLAY_DEV", False))
+    # Audit #1-#3: exams can only be started from the FairPlay app (signed proof) and every
+    # attempt is bound to one app session. Off only for local tests / browser demos.
+    require_app: bool = field(default_factory=lambda: _flag("FAIRPLAY_REQUIRE_APP", True))
+    # HMAC keys compiled into the Mac app (comma-separated; several = key rotation).
+    app_keys: list[str] = field(default_factory=lambda: _list("FAIRPLAY_APP_KEY"))
+    # Extra browser origins allowed to call the API (the UI itself is same-origin).
+    cors_origins: list[str] = field(default_factory=lambda: _list("FAIRPLAY_CORS_ORIGINS"))
+    token_ttl_s: int = 43200                 # teachers: 12 h
+    # Audit S-15: student tokens travel through the exam page and the app; shorter life.
+    student_token_ttl_s: int = field(default_factory=lambda: _int("FAIRPLAY_STUDENT_TOKEN_TTL_S", 8 * 3600))
     db_pool_size: int = field(default_factory=lambda: _int("DB_POOL_SIZE", 10))
     db_max_overflow: int = field(default_factory=lambda: _int("DB_MAX_OVERFLOW", 20))
     pbkdf2_iterations: int = field(default_factory=lambda: _int("PROCTORA_PBKDF2_ITERATIONS", 200000))
     seed_loadtest_users: int = field(default_factory=lambda: _int("PROCTORA_SEED_LOADTEST_USERS", 0))
+    # Audit 2026-10-12 S-01: the demo logins (teacher/teacher123, alice/alice123 ...) exist
+    # only on a dev server (FAIRPLAY_DEV=1) or when asked for explicitly (tests, a demo box).
+    seed_demo: bool = field(default_factory=lambda: _flag("FAIRPLAY_SEED_DEMO", False))
+    # Audit S-08: without Redis every worker has its own memory store (exam-cache
+    # invalidation, nonces, lockouts, beat replay guard all break with >1 process). A real
+    # server needs REDIS_URL, or must say it runs one process (FAIRPLAY_SINGLE_PROCESS=1).
+    single_process: bool = field(default_factory=lambda: _flag("FAIRPLAY_SINGLE_PROCESS", False))
+    workers: int = field(default_factory=lambda: _int("WEB_CONCURRENCY", 1))
+    # Audit S-17: Postgres max_connections and how many API containers share it (0 = unchecked).
+    db_max_connections: int = field(default_factory=lambda: _int("FAIRPLAY_DB_MAX_CONNECTIONS", 0))
+    replicas: int = field(default_factory=lambda: _int("FAIRPLAY_REPLICAS", 1))
+    # Sign-in tries per IP per minute (audit S-05). Raise it for load tests from one machine.
+    login_ip_limit: int = field(default_factory=lambda: _int("FAIRPLAY_LOGIN_IP_LIMIT", 300))
     static_dir: str = field(default_factory=lambda: os.environ.get(
         "PROCTORA_STATIC_DIR",
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "static")))
     sql_echo: bool = field(default_factory=lambda: os.environ.get("SQL_ECHO") == "1")
+    # 2026-10-13: optional parts, off unless listed (FAIRPLAY_FEATURES=scan,lms,practice).
+    # Off = their API routes are not mounted and the teacher UI hides them.
+    features: list[str] = field(default_factory=lambda: [
+        f for f in _list("FAIRPLAY_FEATURES") if f in OPTIONAL_FEATURES])
     # slice 6: question images and other uploads (local disk; S3-compatible later)
     uploads_dir: str = field(default_factory=lambda: os.environ.get(
         "FAIRPLAY_UPLOADS_DIR",
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "uploads")))
 
-    # CORS: None = default for the mode ("*" in development, same-origin only in production).
-    cors_origins: list[str] | None = field(default_factory=lambda: _csv("FAIRPLAY_CORS_ORIGINS"))
-    # Demo users (teacher/teacher123, alice/alice123 ...): development only, never in production.
-    seed_demo_users: bool | None = None
-    # Production also needs this second, explicit switch before load-test users are created.
-    allow_loadtest_users_in_production: bool = field(
-        default_factory=lambda: os.environ.get("FAIRPLAY_ALLOW_LOADTEST_USERS") == "1")
+    def feature(self, name: str) -> bool:
+        return name in self.features
 
     @property
-    def production(self) -> bool:
-        return self.env == "production"
+    def demo_logins(self) -> bool:
+        """Demo accounts are created and the login page may show their passwords."""
+        return self.dev or self.seed_demo
 
-    def allowed_origins(self) -> list[str]:
-        if self.cors_origins is not None:
-            return self.cors_origins
-        return [] if self.production else ["*"]
-
-    def should_seed_demo_users(self) -> bool:
-        if self.production:
-            return False
-        return True if self.seed_demo_users is None else self.seed_demo_users
-
-    def loadtest_users_to_seed(self) -> int:
-        if self.production and not self.allow_loadtest_users_in_production:
-            return 0
-        return max(0, self.seed_loadtest_users)
-
-    def validate(self) -> None:
-        """Production refuses to start with unsafe settings (raises ConfigError)."""
-        if not self.production:
-            return
-        problems = []
-        if not self.secret or self.secret == DEV_SECRET:
-            problems.append("PROCTORA_SECRET is not set (or is the dev value)")
-        elif len(self.secret) < MIN_SECRET_LEN:
-            problems.append(f"PROCTORA_SECRET is shorter than {MIN_SECRET_LEN} characters "
-                            "(use: openssl rand -hex 32)")
-        if "*" in (self.cors_origins or []):
-            problems.append("FAIRPLAY_CORS_ORIGINS must list origins, not '*', in production")
-        if problems:
-            raise ConfigError("Refusing to start in production: " + "; ".join(problems))
-    # Teacher self-registration: open | approval | closed (students can always sign up).
-    teacher_signup: str = field(default_factory=lambda: _teacher_signup_default())
+    def check_secure(self) -> None:
+        """Startup checks. Raises RuntimeError instead of running with public defaults."""
+        if self.secret in ("", DEV_SECRET) or len(self.secret) < 16:
+            if not self.dev:
+                raise RuntimeError(
+                    "PROCTORA_SECRET is missing, too short (<16 chars) or the old public default. "
+                    "Set it to a long random string (python3 -c 'import secrets;print(secrets.token_urlsafe(48))'), "
+                    "or set FAIRPLAY_DEV=1 for a local demo.")
+            self.secret = _dev_secret(os.path.dirname(self.uploads_dir))
+            log.warning("FAIRPLAY_DEV=1: using a random local secret stored in data/secret.key")
+        if not self.app_keys:
+            if self.dev:
+                self.app_keys = [DEV_APP_KEY]
+                log.warning("FAIRPLAY_DEV=1: accepting the public dev app key; set FAIRPLAY_APP_KEY for real exams")
+            elif self.require_app:
+                raise RuntimeError(
+                    "FAIRPLAY_APP_KEY is not set. Use the same value you pass to mac/build.sh "
+                    "(or FAIRPLAY_REQUIRE_APP=0 to allow exams in a normal browser).")
+        elif DEV_APP_KEY in self.app_keys and not self.dev:
+            raise RuntimeError("FAIRPLAY_APP_KEY contains the public dev key")
+        if not self.require_app:
+            log.warning("FAIRPLAY_REQUIRE_APP=0: exams can be taken in a normal browser")
+        need = max(1, self.replicas) * max(1, self.workers) * (self.db_pool_size + self.db_max_overflow)
+        if self.db_max_connections and need > self.db_max_connections:
+            raise RuntimeError(
+                f"Database pools can open {need} connections ({self.replicas} containers x "
+                f"{self.workers} workers x {self.db_pool_size}+{self.db_max_overflow}) but Postgres "
+                f"allows {self.db_max_connections}. Lower DB_POOL_SIZE / DB_MAX_OVERFLOW.")
+        if not self.redis_url and not self.dev and (self.workers > 1 or not self.single_process):
+            raise RuntimeError(
+                "REDIS_URL is not set. With more than one worker the in-memory store breaks "
+                "exam-cache invalidation, single-use challenges, code lockouts and the beat "
+                "replay guard. Set REDIS_URL, or run ONE process with FAIRPLAY_SINGLE_PROCESS=1 "
+                "(and WEB_CONCURRENCY=1).")
+        self.warn_insecure()
 
     def warn_insecure(self) -> None:
-        self.validate()
-        if self.secret == DEV_SECRET:
-            log.warning("PROCTORA_SECRET is not set; using an insecure dev secret")
         if not self.redis_url:
-            if self.production:
-                log.warning("!!! REDIS_URL is not set in production: rate limits, live room and "
-                            "token revocation live in this process only. Run ONE worker, or set "
-                            "REDIS_URL. !!!")
-            else:
-                log.warning("REDIS_URL is not set; using in-memory store (single process, dev only)")
-        if self.production and self.seed_loadtest_users:
-            if self.allow_loadtest_users_in_production:
-                log.warning("Creating %d load-test users in production (password 'loadtest')",
-                            self.seed_loadtest_users)
-            else:
-                log.warning("PROCTORA_SEED_LOADTEST_USERS ignored in production "
-                            "(also set FAIRPLAY_ALLOW_LOADTEST_USERS=1 to really create them)")
+            log.warning("REDIS_URL is not set; using in-memory store (single process, dev only)")
+
+
+def _dev_secret(data_dir: str) -> str:
+    """Random secret kept in <data>/secret.key so dev tokens survive restarts."""
+    import secrets as _secrets
+    path = os.path.join(data_dir or ".", "secret.key")
+    try:
+        with open(path) as f:
+            v = f.read().strip()
+            if len(v) >= 32:
+                return v
+    except OSError:
+        pass
+    v = _secrets.token_urlsafe(48)
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            f.write(v)
+    except OSError:
+        log.warning("could not store %s; dev tokens end when the server stops", path)
+    return v

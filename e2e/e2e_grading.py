@@ -1,11 +1,10 @@
 """E2E slice 2: essay exam -> students write -> teacher closes, grades essays with
 the rubric, releases -> students see feedback -> gradebook. Server on :8000."""
-import os
 import re
 import sys
 from playwright.sync_api import sync_playwright, expect
 
-BASE = os.environ.get("FAIRPLAY_BASE", "http://127.0.0.1:8000").rstrip("/")
+BASE = "http://127.0.0.1:8000"
 TITLE = "E2E History Essay"
 ESSAY = ("Overland trade declined because the Ottoman expansion raised tolls and risks on the "
          "caravan routes. At the same time Portuguese sailors opened sea routes to India, which "
@@ -58,12 +57,15 @@ def main():
             box.fill(topic)
             box.press("Enter")
         shot(T, "50-essay-editor")
+        # audit S-03: every exam needs a class (dev servers have "Demo class")
+        T.wait_for_function("!document.querySelector('#exam-class').disabled")
+        T.locator("#exam-class").select_option(index=1)
         T.get_by_role("button", name="Save exam").click()
         T.wait_for_url(re.compile(r".*/teacher/exams/e_[A-Za-z0-9_-]+"))
         exam_url = T.url.split("?")[0]
         T.get_by_role("button", name=re.compile("Open exam", re.I)).first.click()
         T.wait_for_timeout(1500)
-        code = re.search(r"(?m)^\s*(\d{4})\s*$", T.locator("body").inner_text()).group(1)
+        code = re.search(r"(?m)^\s*(\d{6})\s*$", T.locator("body").inner_text()).group(1)
         print("exam", exam_url.rsplit("/", 1)[-1], "code", code)
 
         # ---- students ----

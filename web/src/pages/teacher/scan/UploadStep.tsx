@@ -1,12 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { scanApi, type BatchStatus, type ScanBatch, type ScanStatus, type ScanStudent, type UnmatchedPage } from "../../../api/scan";
-import { scanAiApi } from "../../../api/scanAi";
 import { Loading } from "../../../components/Loading";
 import { Pill } from "../../../components/teacher/TeacherLayout";
 import { errorText, formatWhen } from "../../../components/teacher/util";
-import { MapPages } from "./MapPages";
-import { RegionCheck } from "./RegionCheck";
-import { PhoneCapture } from "./PhoneCapture";
 
 const ACTIVE: BatchStatus[] = ["queued", "reading", "grading"];
 
@@ -34,8 +30,6 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
-  // phase 2: answer sheets not printed by FairPlay (no QR codes) are mapped by hand
-  const [unprinted, setUnprinted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -70,8 +64,7 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
     setError(null);
     setProgress(0);
     try {
-      if (unprinted) await scanAiApi.uploadUnprinted(examId, files, setProgress);
-      else await scanApi.upload(examId, files, setProgress);
+      await scanApi.upload(examId, files, setProgress);
       await refresh();
     } catch (e) {
       setError(errorText(e));
@@ -82,11 +75,6 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
   }
 
   if (!status) return error ? <div className="alert alert-error" role="alert">{error}</div> : <Loading label="Loading scans…" />;
-
-  // phase 2: pages of sheets not printed by FairPlay are mapped in "Map pages", not fixed one by one
-  const unprintedBatches = new Set(status.batches.filter((b) => b.mode === "unprinted").map((b) => b.batch_id));
-  const toFix = pages.filter((p) => !unprintedBatches.has(p.batch_id));
-  const mapKey = status.batches.filter((b) => b.mode === "unprinted" && b.status === "done").length;
 
   return (
     <div className="sc-step-body">
@@ -109,17 +97,7 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
         }}
       >
         <p className="sc-drop-title">Drop the scanned PDF here</p>
-        <p className="t-muted">
-          {unprinted
-            ? status.ai_enabled
-              ? "Any paper, any order: the AI sorts the pages by student (from the names written on them) and finds each answer. You check the result after the upload."
-              : "Pages in order, one student after another. You assign students and questions to pages after the upload."
-            : "One big PDF from the copier is fine — pages can be in any order or upside down. Photos (JPEG/PNG) work too."}
-        </p>
-        <label className="sc-check">
-          <input type="checkbox" checked={unprinted} onChange={(e) => setUnprinted(e.target.checked)} />
-          These answer sheets were not printed by FairPlay (no codes)
-        </label>
+        <p className="t-muted">One big PDF from the copier is fine — pages can be in any order or upside down. Photos (JPEG/PNG) work too.</p>
         <label className="btn btn-primary sc-file-btn">
           Choose files
           <input
@@ -127,7 +105,7 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
             type="file"
             className="sr-only"
             multiple
-            accept="application/pdf,image/png,image/jpeg,image/tiff,image/webp,image/heic,.heic"
+            accept="application/pdf,image/png,image/jpeg,image/tiff,image/webp"
             onChange={(e) => upload(Array.from(e.target.files ?? []))}
             disabled={progress !== null}
           />
@@ -138,8 +116,6 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
           </div>
         )}
       </div>
-
-      <PhoneCapture examId={examId} unprinted={unprinted} />
 
       <div className="t-stats">
         <div className="t-stat">
@@ -221,24 +197,12 @@ export function UploadStep({ examId, onChanged }: { examId: string; onChanged?: 
         )}
       </section>
 
-      {/* any paper: the AI groups pages into students and finds the answers; the teacher checks */}
-      {unprintedBatches.size > 0 && <RegionCheck examId={examId} refreshKey={mapKey} onChanged={onChanged} />}
-      {unprintedBatches.size > 0 &&
-        (status.ai_enabled ? (
-          <details className="sc-small">
-            <summary>Map pages by hand instead (pages per student, question per page)</summary>
-            <MapPages examId={examId} refreshKey={mapKey} onChanged={onChanged} />
-          </details>
-        ) : (
-          <MapPages examId={examId} refreshKey={mapKey} onChanged={onChanged} />
-        ))}
-
-      {toFix.length > 0 && (
+      {pages.length > 0 && (
         <section className="t-card" aria-labelledby="sc-unmatched-h">
-          <h3 id="sc-unmatched-h">Pages to fix ({toFix.length})</h3>
+          <h3 id="sc-unmatched-h">Pages to fix ({pages.length})</h3>
           <p className="t-muted">FairPlay could not tell whose page this is. Pick the student and page number.</p>
           <ul className="sc-unmatched">
-            {toFix.map((p) => (
+            {pages.map((p) => (
               <UnmatchedCard
                 key={p.page_id}
                 page={p}

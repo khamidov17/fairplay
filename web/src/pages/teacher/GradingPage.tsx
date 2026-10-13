@@ -173,7 +173,7 @@ function GradingWorkspace({ examId, queue, exam, qid, pos, hideNames, onHideName
           <nav aria-labelledby="qpick-h" className="t-qpicker">
             <h2 id="qpick-h">Needs grading</h2>
             {pickable.map((q) => {
-              const qc = counts[q.question_id];
+              const qc = counts[q.question_id] ?? { pending: 0 };
               const qList = queue.items.filter((it) => it.question_id === q.question_id);
               const firstPending = qList.findIndex((it) => isPending(it, q));
               return (

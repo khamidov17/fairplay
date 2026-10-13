@@ -14,6 +14,9 @@ fi
 echo "==> Checking Python packages (first time after an update takes a minute)..."
 .venv/bin/python -m pip install -q -r requirements.txt || { echo "pip install failed"; read -n1; exit 1; }
 HOST="${HOST:-127.0.0.1}"
+# Local demo: random secret kept in data/secret.key, public dev app key (matches a
+# dev build of the Mac app). Never use FAIRPLAY_DEV=1 for real exams.
+export FAIRPLAY_DEV="${FAIRPLAY_DEV:-1}"
 echo "==> FairPlay server on http://$HOST:8000   teacher UI: http://127.0.0.1:8000/teacher"
 echo "    Demo: teacher/teacher123  alice/alice123  bob/bob123  carol/carol123   (Ctrl-C to stop)"
 ( sleep 2; open "http://127.0.0.1:8000/teacher" ) &

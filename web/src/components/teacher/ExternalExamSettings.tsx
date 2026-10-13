@@ -4,9 +4,11 @@
 import { useEffect, useId, useState } from "react";
 import type { Delivery, ExamMode } from "../../api/types";
 import {
-  normalizeDomains,
   splitDomainText,
-  urlHost,
+  describeEntry,
+  effectiveAllowedSites,
+  broadDomainWarnings,
+  externalUrlWarning,
   type ExternalSettingsErrors,
   type ExternalSettingsValue,
 } from "./externalValidation";
@@ -24,6 +26,8 @@ export interface ExternalExamSettingsProps {
    * sets mode "external"; "computer" / "paper" set mode "questions".
    */
   delivery?: Delivery;
+  /** 2026-10-13: paper needs Scan & Grade, which is off unless the server switches it on. */
+  allowPaper?: boolean;
   onDeliveryChange?: (next: Delivery) => void;
 }
 
@@ -65,6 +69,7 @@ export function ExternalExamSettings({
   disabled,
   delivery,
   onDeliveryChange,
+  allowPaper = true,
 }: ExternalExamSettingsProps) {
   const uid = useId();
   const name = `exam-mode-${uid}`;
@@ -82,15 +87,17 @@ export function ExternalExamSettings({
 
   const set = (patch: Partial<ExternalSettingsValue>) => onChange({ ...value, ...patch });
   const external = value.mode === "external";
-  const host = urlHost(value.external_url);
-  const preview = normalizeDomains([...(host ? [host] : []), ...value.allowed_domains]);
+  // Audit W-09: the same list the app enforces (the exam address may open only its folder).
+  const preview = effectiveAllowedSites(value.external_url, value.allowed_domains);
+  const warnings = external ? broadDomainWarnings(value.allowed_domains) : [];
+  const urlWarning = external ? externalUrlWarning(value.external_url) : null;
 
   return (
     <fieldset className="ext-settings" disabled={disabled}>
       <legend>Where do students answer?</legend>
       {delivery !== undefined && onDeliveryChange ? (
-        <div className="ext-choices three">
-          {DELIVERY_CHOICES.map((c) => {
+        <div className={`ext-choices${allowPaper ? " three" : ""}`}>
+          {DELIVERY_CHOICES.filter((c) => allowPaper || c.delivery !== "paper" || delivery === "paper").map((c) => {
             const current: Delivery = value.mode === "external" ? "website" : delivery === "paper" ? "paper" : "computer";
             const selected = current === c.delivery;
             return (
@@ -163,6 +170,7 @@ export function ExternalExamSettings({
                 {errors.external_url}
               </p>
             )}
+            {!errors.external_url && urlWarning && <p className="ext-hint ext-warn">{urlWarning}</p>}
           </div>
 
           <div className="ext-field">
@@ -185,14 +193,22 @@ export function ExternalExamSettings({
               }}
             />
             <p id="exam-allowed-domains-hint" className="ext-hint">
-              Add every website the exam needs, including the sign-in page (e.g. login.microsoftonline.com). A
-              name also allows its sub-sites: dku.edu allows canvas.dku.edu. Everything else is blocked and shown
-              to you in the live room.
+              Add every website the exam needs, including the sign-in page (e.g. login.microsoftonline.com). Each
+              line opens exactly that site: dku.edu does not open canvas.dku.edu — write *.dku.edu for all
+              sub-sites. Add a path to open only part of a site (docs.google.com/forms/d/e/…/). Everything else
+              is blocked and shown to you in the live room.
             </p>
             {errors.allowed_domains && (
               <p className="ext-error" role="alert">
                 {errors.allowed_domains}
               </p>
+            )}
+            {warnings.length > 0 && (
+              <ul className="ext-hint ext-warn" aria-label="Check these websites">
+                {warnings.map((w) => (
+                  <li key={w}>{w}</li>
+                ))}
+              </ul>
             )}
             {preview.length > 0 && (
               <>
@@ -201,7 +217,9 @@ export function ExternalExamSettings({
                 </p>
                 <ul className="ext-chips" aria-labelledby="exam-allowed-preview">
                   {preview.map((d) => (
-                    <li key={d}>{d}</li>
+                    <li key={d} title={describeEntry(d)}>
+                      {d}
+                    </li>
                   ))}
                 </ul>
               </>

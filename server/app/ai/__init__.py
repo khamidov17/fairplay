@@ -30,14 +30,6 @@ def enabled() -> bool:
     return provider() in ("anthropic", "openai") and bool(os.environ.get("FAIRPLAY_AI_KEY"))
 
 
-def model_name() -> str:
-    """Model recorded with every AI draft (FAIRPLAY_AI_MODEL or the provider default)."""
-    m = os.environ.get("FAIRPLAY_AI_MODEL")
-    if m:
-        return m
-    return {"anthropic": "claude-sonnet-5-5", "openai": "gpt-4o-mini"}.get(provider(), "none")
-
-
 _transport: httpx.AsyncBaseTransport | None = None
 
 
@@ -72,7 +64,7 @@ async def complete_json(system: str, prompt: str, images: list[bytes] | None = N
         raise AIUnavailable("AI is off")
     images = images or []
     key = os.environ["FAIRPLAY_AI_KEY"]
-    model = model_name()
+    model = os.environ.get("FAIRPLAY_AI_MODEL")
     try:
         async with httpx.AsyncClient(timeout=60, transport=_transport) as client:
             if provider() == "anthropic":
@@ -83,7 +75,7 @@ async def complete_json(system: str, prompt: str, images: list[bytes] | None = N
                 base = os.environ.get("FAIRPLAY_AI_BASE_URL") or "https://api.anthropic.com"
                 r = await client.post(f"{base.rstrip('/')}/v1/messages", headers={
                     "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"},
-                    json={"model": model, "max_tokens": max_tokens, "system": system,
+                    json={"model": model or "claude-sonnet-5-5", "max_tokens": max_tokens, "system": system,
                           "messages": [{"role": "user", "content": content}]})
                 r.raise_for_status()
                 text = "".join(b.get("text", "") for b in r.json().get("content", []))
@@ -94,7 +86,7 @@ async def complete_json(system: str, prompt: str, images: list[bytes] | None = N
                 base = os.environ.get("FAIRPLAY_AI_BASE_URL") or "https://api.openai.com/v1"
                 r = await client.post(f"{base.rstrip('/')}/chat/completions", headers={
                     "Authorization": f"Bearer {key}", "content-type": "application/json"},
-                    json={"model": model, "max_tokens": max_tokens,
+                    json={"model": model or "gpt-4o-mini", "max_tokens": max_tokens,
                           "messages": [{"role": "system", "content": system},
                                        {"role": "user", "content": parts}]})
                 r.raise_for_status()

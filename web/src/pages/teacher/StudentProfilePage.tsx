@@ -7,6 +7,7 @@ import type { ProfilePractice, StudentProfile } from "../../api/types";
 import { Loading } from "../../components/Loading";
 import { errorText, num, pct, plural } from "../../components/teacher/util";
 import { Icon } from "../../components/ui/Icon";
+import { useFeatures } from "../../lib/features";
 import { Sparkline, practiceForStudent, shortDate } from "../../components/teacher/insights/viz";
 
 export const TIME_NOTE = "context only — not a cheating signal";
@@ -21,6 +22,7 @@ export function minutesText(min: number | null | undefined): string {
 
 export default function StudentProfilePage() {
   const { username = "" } = useParams();
+  const features = useFeatures();
   const [data, setData] = useState<StudentProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
@@ -86,11 +88,13 @@ export default function StudentProfilePage() {
             {data.student.username} · {plural(data.exams.length, "exam")} · average {pct(data.average_percent)}
           </p>
         </div>
-        <div className="t-head-actions">
-          <Link className="btn btn-primary" to={practiceForStudent(data.student.username)}>
-            Make practice for weak topics
-          </Link>
-        </div>
+        {features.has("practice") && (
+          <div className="t-head-actions">
+            <Link className="btn btn-primary" to={practiceForStudent(data.student.username)}>
+              Make practice for weak topics
+            </Link>
+          </div>
+        )}
       </header>
 
       <div className="ins-stack">

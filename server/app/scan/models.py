@@ -47,10 +47,12 @@ class ScanBatch(Base):
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    # phase 2: "printed" (FairPlay booklets, QR matched) | "unprinted" (own answer sheets,
-    # mapped by hand); origin "upload" | "phone" (photos from the phone capture page)
-    mode: Mapped[str] = mapped_column(String(16), nullable=False, default="printed", server_default="printed")
-    origin: Mapped[str] = mapped_column(String(16), nullable=False, default="upload", server_default="upload")
+    # Audit L-06: the worker running this batch refreshes heartbeat_at; a batch whose
+    # heartbeat went stale (server restarted or crashed) is picked up again. source_counts
+    # holds the pages per uploaded file (-1 = unreadable) so a resumed run skips pages it
+    # already stored.
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    source_counts: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class ScanPage(Base):

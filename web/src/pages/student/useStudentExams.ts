@@ -1,3 +1,4 @@
+import { pruneExamData, refreshPackageIfChanged, unlockStoredPackages } from "../../lib/offline";
 import { useCallback, useEffect, useState } from "react";
 import { ApiError, studentApi } from "../../api/client";
 import type { StudentExamSummary } from "../../api/types";
@@ -11,11 +12,18 @@ export function useStudentExams(pollMs = STUDENT_LIST_POLL_MS) {
 
   const reload = useCallback(async () => {
     try {
-      setExams(await studentApi.listExams());
+      const list = await studentApi.listExams();
+      setExams(list);
       setError(null);
+      // Audit S-03: packages on this computer get their key while we are online.
+      void unlockStoredPackages(list.filter((x) => x.status === "live").map((x) => x.id));
+      // Audit W-03: data of handed-in / closed exams leaves this computer.
+      pruneExamData(list);
+      // Audit W-02: a new start code means a new package.
+      for (const x of list) if (x.status === "live") void refreshPackageIfChanged(x.id, x.package_id);
     } catch (e) {
       setError(e instanceof ApiError ? e.detail : "Cannot reach the server. Retrying…");
-      setExams((x) => x ?? []);
+      // Audit W-11: keep "not loaded" (null) so pages show the error, not "no exams".
     }
   }, []);
 

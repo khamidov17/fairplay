@@ -5,9 +5,9 @@ import { errorText, formatWhen, plural } from "../../../components/teacher/util"
 
 const SOURCE_TEXT: Record<Roster["source"], string> = {
   picked: "Students you picked",
-  classes: "Everyone in the exam's classes",
   course: "Everyone in the linked LMS course",
-  all: "All students in FairPlay",
+  class: "Everyone in the exam's class",
+  all: "Nobody picked yet (pick students, or put the exam in a class)",
 };
 
 function saveBlob(blob: Blob, name: string) {
@@ -98,11 +98,13 @@ export function PrintStep({ examId, title }: { examId: string; title: string }) 
     });
   };
 
-  const download = (blank: boolean) =>
-    act(blank ? "blank" : "pdf", async () => {
-      const blob = await scanApi.printPdf(examId, blank);
+  const parts = info.booklet_parts ?? 1;
+  const download = (blank: boolean, part = 1) =>
+    act(blank ? "blank" : `pdf${part}`, async () => {
+      const blob = await scanApi.printPdf(examId, blank, part);
       const safe = title.replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-|-$/g, "") || "exam";
-      saveBlob(blob, `${safe}-${blank ? "blank" : "booklets"}.pdf`);
+      const suffix = blank ? "blank" : parts > 1 ? `booklets-part${part}-of-${parts}` : "booklets";
+      saveBlob(blob, `${safe}-${suffix}.pdf`);
       setInfo(await scanApi.printInfo(examId));
     });
 
@@ -170,7 +172,7 @@ export function PrintStep({ examId, title }: { examId: string; title: string }) 
           <button type="button" className="btn btn-secondary" onClick={saveRoster} disabled={!rosterChanged || busy !== null}>
             {busy === "roster" ? "Saving…" : picked.size === 0 ? "Use the default list" : `Save list (${picked.size})`}
           </button>
-          {picked.size === 0 && <span className="t-muted">With nobody picked, the exam's classes (else the linked course, else everyone) are used.</span>}
+          {picked.size === 0 && <span className="t-muted">With nobody picked, the linked course (or everyone) is used.</span>}
         </div>
       </section>
 
@@ -221,13 +223,42 @@ export function PrintStep({ examId, title }: { examId: string; title: string }) 
           {info.printed_at ? `Last printed ${formatWhen(info.printed_at)}.` : "Not printed yet."}
         </p>
         <div className="sc-inline">
-          <button type="button" className="btn btn-primary" onClick={() => download(false)} disabled={busy !== null || info.student_count === 0}>
-            {busy === "pdf" ? "Preparing PDF…" : `Download booklets (${plural(info.student_count, "student")})`}
-          </button>
+          {parts <= 1 ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => download(false)}
+              disabled={busy !== null || info.student_count === 0 || info.needs_roster}
+            >
+              {busy === "pdf1" ? "Preparing PDF…" : `Download booklets (${plural(info.student_count, "student")})`}
+            </button>
+          ) : (
+            Array.from({ length: parts }, (_, i) => i + 1).map((n) => (
+              <button
+                key={n}
+                type="button"
+                className="btn btn-primary"
+                onClick={() => download(false, n)}
+                disabled={busy !== null || info.needs_roster}
+              >
+                {busy === `pdf${n}` ? "Preparing PDF…" : `Booklets part ${n} of ${parts}`}
+              </button>
+            ))
+          )}
           <button type="button" className="t-btn-outline" onClick={() => download(true)} disabled={busy !== null}>
             {busy === "blank" ? "Preparing…" : "Download a blank copy"}
           </button>
         </div>
+        {info.needs_roster && (
+          <p className="sc-small" role="note">
+            Pick the students who get a booklet above (or put this exam in a class) before printing named booklets.
+          </p>
+        )}
+        {parts > 1 && (
+          <p className="t-muted sc-small">
+            {plural(info.student_count, "student")}: booklets come in {parts} PDFs of up to {info.booklets_per_part} students each.
+          </p>
+        )}
         <p className="t-muted sc-small">
           A blank copy has a Name box instead of a printed name. You pick the student when its scan comes in.
         </p>

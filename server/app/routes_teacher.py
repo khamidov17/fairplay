@@ -6,18 +6,20 @@ import statistics
 import time
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from sqlalchemy import delete, func, select, update
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from sqlalchemy import and_, case, delete, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import audit
 from .db import get_session
 from .grading import exam_questions, auto_points, external_question, grade_attempt, is_answered, num, percent, word_count
 from .models import Attempt, Exam, IntegrityEvent, User
-from .schemas import QID_RE, CommentIn, ExamIn, ExtendIn, GradeIn, ReleaseIn, ReviewIn
+from .schemas import QID_RE, CommentIn, ExamIn, ExtendIn, GradeIn, OfflineExitIn, ReleaseIn, ReviewIn
 from .security import Principal, require_teacher
 from .services import (attempt_key, exam_delivery, exam_out, exam_out_full, invalidate_exam,
-                       new_id, new_receipt, new_start_code, pending_by_exam)
+                       new_id, new_invigilator_code, new_receipt, new_session_id,
+                       new_start_code, pending_by_exam)
+from . import app_client as ac
+from .routes_classes import check_class_for_exam
 from .store import get_store
 from .timeutil import iso, iso_from_epoch, utcnow
 
@@ -26,7 +28,10 @@ router = APIRouter(prefix="/api/exams", tags=["teacher"])
 ONLINE_WINDOW_S = 15
 LATE_GRACE = timedelta(seconds=60)
 # Integrity events that are bookkeeping, not "flags" a teacher should look at.
-NON_FLAG_TYPES = ("lock_started", "lock_ended")
+NON_FLAG_TYPES = ("lock_started", "lock_ended", "device_released", "device_bound",
+                  "offline_exit_code_issued")
+# The app's own signal counts as "app online" for this long (beats every 5 s).
+APP_ONLINE_WINDOW_S = 15
 MAX_LIVE_FLAGS = 50
 EXTERNAL_GRADES_DETAIL = "This exam is graded on the other website"
 
@@ -57,7 +62,7 @@ def _apply(e: Exam, body: ExamIn, creating: bool = False) -> None:
     e.total_points = float(sum(q["points"] for q in qs))
     e.updated_at = utcnow()
     # Optional slice-2 fields: on PUT, a field the client did not send keeps its value.
-    for f in ("course", "room", "scheduled_at", "shuffle_questions"):
+    for f in ("course", "room", "scheduled_at", "shuffle_questions", "class_id"):
         if creating or f in body.model_fields_set:
             setattr(e, f, getattr(body, f))
     # Slice 3: mode and its fields always come from the body (already normalised by
@@ -69,9 +74,10 @@ def _apply(e: Exam, body: ExamIn, creating: bool = False) -> None:
     # Slice 6: delivery (ExamIn keeps it consistent with mode). The hidden website-exam
     # grading item gets a topic so insights can place it: the course, else "general".
     e.delivery = body.delivery
-    if body.mode == "external":
-        for q in qs:
-            q["topics"] = [(e.course or "").strip().lower()[:60] or "general"]
+    default_topic = (e.course or "").strip().lower()[:60] or "general"
+    for q in qs:
+        if body.mode == "external" or not q.get("topics"):   # 2026-10-13: topics optional
+            q["topics"] = [default_topic]
 
 
 async def _own_exam(session: AsyncSession, exam_id: str, p: Principal) -> Exam:
@@ -91,9 +97,17 @@ async def list_exams(p: Principal = Depends(require_teacher),
     return [exam_out(e, pending.get(e.id, 0)) for e in exams]
 
 
+def _check_delivery(request: Request, body: ExamIn) -> None:
+    """2026-10-13: paper exams need Scan & Grade, which is off unless switched on."""
+    if body.delivery == "paper" and not ac.settings_of(request).feature("scan"):
+        raise HTTPException(400, "Paper exams are switched off on this server")
+
+
 @router.post("", status_code=201)
-async def create_exam(body: ExamIn, p: Principal = Depends(require_teacher),
+async def create_exam(body: ExamIn, request: Request, p: Principal = Depends(require_teacher),
                       session: AsyncSession = Depends(get_session)):
+    _check_delivery(request, body)
+    await check_class_for_exam(session, body.class_id, p)
     now = utcnow()
     e = Exam(id=new_id("e"), teacher_id=p.user_id, status="draft", created_at=now)
     _apply(e, body, creating=True)
@@ -109,11 +123,16 @@ async def get_exam(exam_id: str, p: Principal = Depends(require_teacher),
 
 
 @router.put("/{exam_id}")
-async def update_exam(exam_id: str, body: ExamIn, p: Principal = Depends(require_teacher),
+async def update_exam(exam_id: str, body: ExamIn, request: Request,
+                      p: Principal = Depends(require_teacher),
                       session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
+    if body.delivery == "paper" and exam_delivery(e) != "paper":
+        _check_delivery(request, body)
     if e.status != "draft":
         raise HTTPException(409, "Exam is not a draft")
+    if "class_id" in body.model_fields_set:
+        await check_class_for_exam(session, body.class_id, p)
     _apply(e, body)
     await session.commit()
     await invalidate_exam(get_store(), exam_id)
@@ -133,25 +152,24 @@ async def delete_exam(exam_id: str, p: Principal = Depends(require_teacher),
     await session.commit()
     store = get_store()
     await invalidate_exam(store, exam_id)
-    await store.delete(f"hb:{exam_id}", f"evc:{exam_id}", f"evl:{exam_id}",
+    await store.delete(f"hb:{exam_id}", f"evc:{exam_id}", f"evl:{exam_id}", f"ab:{exam_id}",
                        *[attempt_key(a) for a in aids])
     return Response(status_code=204)
 
 
 @router.post("/{exam_id}/open")
-async def open_exam(exam_id: str, request: Request, p: Principal = Depends(require_teacher),
+async def open_exam(exam_id: str, p: Principal = Depends(require_teacher),
                     session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     if e.status == "live":
         raise HTTPException(409, "Exam is already live")
     if exam_delivery(e) == "paper":  # slice 6: printed, scanned and graded; never opened
         raise HTTPException(409, "Paper exams are printed, not opened in the app")
-    from .exitcode import issue
-    e.exit_code, e.exit_check = await issue()  # phase 1a: per-exam invigilator exit code
-    audit.add(session, "exam_opened", request=request, actor_id=p.user_id, actor_role=p.role,
-              exam_id=e.id, detail={"from": e.status})
+    if e.class_id is None and e.course_link_id is None:   # audit S-03
+        raise HTTPException(409, "Choose the class that takes this exam before opening it")
     e.status = "live"
     e.start_code = new_start_code()
+    e.invigilator_code = new_invigilator_code()
     e.closed_at = None
     e.updated_at = utcnow()
     await session.commit()
@@ -160,7 +178,7 @@ async def open_exam(exam_id: str, request: Request, p: Principal = Depends(requi
 
 
 @router.post("/{exam_id}/close")
-async def close_exam(exam_id: str, request: Request, p: Principal = Depends(require_teacher),
+async def close_exam(exam_id: str, p: Principal = Depends(require_teacher),
                      session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     if e.status == "closed":
@@ -172,7 +190,8 @@ async def close_exam(exam_id: str, request: Request, p: Principal = Depends(requ
     now = utcnow()
     e.status = "closed"
     e.start_code = None
-    e.package_key = None  # phase 1a: the next open gets a new offline-package key
+    e.invigilator_code = None
+    e.package_secret = None          # audit S-03: offline packages of this run stop opening
     e.closed_at = now
     e.updated_at = now
     # Flip the exam first so no new attempts start, then auto-submit stragglers.
@@ -180,32 +199,90 @@ async def close_exam(exam_id: str, request: Request, p: Principal = Depends(requ
     store = get_store()
     await invalidate_exam(store, exam_id)
 
-    rows = (await session.execute(
-        select(Attempt.id, Attempt.answers, Attempt.deadline_at)
-        .where(Attempt.exam_id == exam_id, Attempt.status == "in_progress"))).all()
-    n_auto = 0
-    for aid, answers, deadline in rows:
-        score, pending, _ = grade_attempt(exam_questions(e), answers or {}, None)
-        receipt = new_receipt()
-        # Conditional: a student submit racing with close keeps its own receipt.
-        res = await session.execute(
-            update(Attempt).where(Attempt.id == aid, Attempt.status == "in_progress").values(
-                status="submitted", submitted_at=now, auto_submitted=True, receipt=receipt,
-                score=score, needs_grading=pending, late=now > deadline + LATE_GRACE,
-                updated_at=now))
-        if res.rowcount:
-            n_auto += 1
-            audit.add_many(session, await audit.flush_answer_saves(store, aid))
-            audit.add(session, "auto_submitted", actor_role="system", exam_id=exam_id,
-                      attempt_id=aid, at=now, ip="", ua="",
-                      detail={"receipt": receipt, "answered": len(answers or {}),
-                              "late": now > deadline + LATE_GRACE})
-    audit.add(session, "exam_closed", request=request, actor_id=p.user_id, actor_role=p.role,
-              exam_id=exam_id, at=now, detail={"auto_submitted": n_auto})
-    await session.commit()
+    rows = await _sweep_in_progress(session, e, now)
+    # Audit S-07: a start that raced the status change commits its INSERT after the first
+    # SELECT; one more pass catches it.
+    rows += await _sweep_in_progress(session, e, now)
     if rows:
         await store.delete(*[attempt_key(r[0]) for r in rows])
     return await exam_out_full(session, e)
+
+
+async def _sweep_in_progress(session: AsyncSession, e: Exam, now) -> list:
+    """Auto-submit every in-progress attempt of a closed exam; returns the rows."""
+    rows = (await session.execute(
+        select(Attempt.id, Attempt.answers, Attempt.deadline_at)
+        .where(Attempt.exam_id == e.id, Attempt.status == "in_progress"))).all()
+    for aid, answers, deadline in rows:
+        score, pending, _ = grade_attempt(exam_questions(e), answers or {}, None)
+        # Conditional: a student submit racing with close keeps its own receipt.
+        await session.execute(
+            update(Attempt).where(Attempt.id == aid, Attempt.status == "in_progress").values(
+                status="submitted", submitted_at=now, auto_submitted=True, receipt=new_receipt(),
+                score=score, needs_grading=pending, late=now > deadline + LATE_GRACE,
+                updated_at=now))
+    await session.commit()
+    return list(rows)
+
+
+@router.post("/{exam_id}/rotate-code")
+async def rotate_code(exam_id: str, p: Principal = Depends(require_teacher),
+                      session: AsyncSession = Depends(get_session)):
+    """Audit #13: new start code on demand (e.g. after it was seen outside the room).
+    Students already writing are not affected; offline packages need the new code."""
+    e = await _own_exam(session, exam_id, p)
+    if e.status != "live":
+        raise HTTPException(409, "Exam is not live")
+    e.start_code = new_start_code()
+    e.updated_at = utcnow()
+    await session.commit()
+    await invalidate_exam(get_store(), exam_id)
+    return await exam_out_full(session, e)
+
+
+@router.post("/{exam_id}/attempts/{aid}/offline-exit")
+async def offline_exit(exam_id: str, aid: str, body: OfflineExitIn, request: Request,
+                       p: Principal = Depends(require_teacher),
+                       session: AsyncSession = Depends(get_session)):
+    """Answer for a locked Mac that cannot reach the server (OfflineExit.swift). The
+    invigilator picks the student and types the Mac code shown on their screen. The code
+    only works on that student's Mac for its current app session, and is logged."""
+    e = await _own_exam(session, exam_id, p)    # any of the teacher's exams, also just closed
+    a = await session.get(Attempt, aid)
+    if a is None or a.exam_id != e.id:
+        raise HTTPException(404, "Attempt not found")
+    mac_code = ac.normalize_mac_code(body.mac_code)
+    if mac_code is None:
+        raise HTTPException(422, "A Mac code has 8 letters and digits, like K7QM-3XPA")
+    if not a.session_id:
+        raise HTTPException(409, "This student's app has no session yet. Restart their Mac; answers are saved on it.")
+    code = ac.offline_exit_code(ac.offline_key(ac.settings_of(request).secret, aid, a.session_id), mac_code)
+    await ac.add_event(session, get_store(), aid, exam_id, "offline_exit_code_issued",
+                       f"teacher gave an offline exit code for Mac code {mac_code[:4]}-{mac_code[4:]}")
+    return {"code": code}
+
+
+@router.post("/{exam_id}/attempts/{aid}/release-device")
+async def release_device(exam_id: str, aid: str, p: Principal = Depends(require_teacher),
+                         session: AsyncSession = Depends(get_session)):
+    """Let a student continue on another computer (broken laptop): the old app session
+    stops working and the next start from any FairPlay app binds the attempt again."""
+    e = await _own_exam(session, exam_id, p)
+    a = await session.get(Attempt, aid)
+    if a is None or a.exam_id != e.id:
+        raise HTTPException(404, "Attempt not found")
+    if a.status != "in_progress":
+        raise HTTPException(409, "Attempt already submitted")
+    a.device_id = None
+    a.session_id = new_session_id()   # nobody holds this one: the old device is cut off
+    a.updated_at = utcnow()
+    await session.commit()
+    store = get_store()
+    await store.delete(attempt_key(aid), f"abt:{aid}")
+    await store.hdel(f"ab:{exam_id}", aid)       # audit S-13: old device's beats go too
+    await ac.add_event(session, store, aid, exam_id, "device_released",
+                       "teacher allowed this exam to move to another computer")
+    return {"ok": True}
 
 
 @router.get("/{exam_id}/live")
@@ -215,11 +292,14 @@ async def live(exam_id: str, p: Principal = Depends(require_teacher),
     qids = [q["id"] for q in exam_questions(e)]
     rows = (await session.execute(
         select(Attempt.id, Attempt.status, Attempt.started_at, Attempt.submitted_at,
-               Attempt.deadline_at, Attempt.answers, User.username, User.name)
+               Attempt.deadline_at, Attempt.answered, User.username, User.name,
+               Attempt.client, Attempt.entries, Attempt.late)
         .join(User, User.id == Attempt.student_id)
         .where(Attempt.exam_id == exam_id)
         .order_by(User.name, User.username))).all()
-    hb, evc, evl = await get_store().live_snapshot(exam_id)
+    store = get_store()
+    hb, evc, evl = await store.live_snapshot(exam_id)
+    ab = await store.hgetall(f"ab:{exam_id}")   # signed app beats (audit #2)
     # Open flags: indexed on (exam_id, review); only this exam's open events are touched.
     open_flag = (IntegrityEvent.exam_id == exam_id, IntegrityEvent.review == "open",
                  IntegrityEvent.type.not_in(NON_FLAG_TYPES))
@@ -234,21 +314,35 @@ async def live(exam_id: str, p: Principal = Depends(require_teacher),
         .order_by(IntegrityEvent.id.desc()).limit(MAX_LIVE_FLAGS))).all()
     now = time.time()
     students = []
-    for aid, status, started, submitted, deadline, answers, username, name in rows:
+    legacy = [aid for aid, _, _, _, _, n, *_ in rows if n is None]
+    old_answers = dict((await session.execute(
+        select(Attempt.id, Attempt.answers).where(Attempt.id.in_(legacy)))).all()) if legacy else {}
+    for aid, status, started, submitted, deadline, answered, username, name, client, entries, late in rows:
         h = json.loads(hb[aid]) if aid in hb else None
-        answers = answers or {}
+        b = json.loads(ab[aid]) if aid in ab else None
+        app_online = bool(b) and now - b["t"] <= APP_ONLINE_WINDOW_S
+        if answered is None:            # rows saved before S-10: count once from the answers
+            answers = old_answers.get(aid) or {}
+            answered = sum(1 for q in qids if is_answered(answers.get(q)))
         students.append({
             "attempt_id": aid, "username": username, "name": name, "status": status,
             "started_at": iso(started), "submitted_at": iso(submitted), "deadline_at": iso(deadline),
-            "answered": sum(1 for q in qids if is_answered(answers.get(q))),
+            "answered": min(int(answered), len(qids)),
             "question_count": len(qids),
             "current_question": h["cq"] if h else 0,
-            "locked": bool(h["locked"]) if h else False,
+            # Only a fresh, signed beat from the app counts as locked (audit #2).
+            "locked": app_online and bool(b.get("locked")),
+            "app_online": app_online,
+            "last_app_signal_at": iso_from_epoch(b["t"]) if b else None,
+            "app_checks": b.get("checks", "") if b else "",
+            "client": client or "app",
+            "entries": int(entries or 0),
             "last_heartbeat_at": iso_from_epoch(h["t"]) if h else None,
             "online": bool(h) and now - h["t"] <= ONLINE_WINDOW_S,
             "event_count": int(evc.get(aid, 0)),
             "last_event": evl.get(aid),
             "needs_look": aid in needs_look,
+            "late": bool(late),
         })
     counts = {"writing": 0, "submitted": 0, "offline": 0, "needs_look": 0}
     for st in students:
@@ -264,9 +358,36 @@ async def live(exam_id: str, p: Principal = Depends(require_teacher),
              for eid, aid, typ, detail, st_time, username, name in flag_rows]
     return {"exam_id": e.id, "status": e.status,
             "start_code": e.start_code if e.status == "live" else None,
-            "exit_code": e.exit_code if e.status != "draft" else None,  # phase 1a
+            "invigilator_code": e.invigilator_code if e.status == "live" else None,
             "duration_min": e.duration_min, "students": students,
-            "flags": flags, "counts": counts}
+            "flags": flags, "counts": counts,
+            "server_time": iso(utcnow())}      # audit W-13: countdown on the server clock
+
+
+RESULTS_EVENTS_PER_ATTEMPT = 200
+
+
+def _event_out(ev: IntegrityEvent) -> dict:
+    return {"event_id": ev.id, "type": ev.type, "detail": ev.detail,
+            "client_time": ev.client_time, "server_time": iso(ev.server_time),
+            "review": ev.review or "open", "note": ev.note or ""}
+
+
+@router.get("/{exam_id}/attempts/{aid}/events")
+async def attempt_events(exam_id: str, aid: str, offset: int = Query(default=0, ge=0),
+                         limit: int = Query(default=200, ge=1, le=1000),
+                         p: Principal = Depends(require_teacher),
+                         session: AsyncSession = Depends(get_session)):
+    """Every event of one attempt, oldest first, a page at a time (audit S-06)."""
+    e = await _own_exam(session, exam_id, p)
+    a = await session.get(Attempt, aid)
+    if a is None or a.exam_id != e.id:
+        raise HTTPException(404, "Attempt not found")
+    q = select(IntegrityEvent).where(IntegrityEvent.attempt_id == aid)
+    total = (await session.execute(select(func.count()).select_from(q.subquery()))).scalar_one()
+    rows = (await session.execute(q.order_by(IntegrityEvent.server_time, IntegrityEvent.id)
+                                  .offset(offset).limit(limit))).scalars().all()
+    return {"total": int(total), "offset": offset, "events": [_event_out(ev) for ev in rows]}
 
 
 @router.get("/{exam_id}/results")
@@ -278,21 +399,30 @@ async def results(exam_id: str, p: Principal = Depends(require_teacher),
         .join(User, User.id == Attempt.student_id)
         .where(Attempt.exam_id == exam_id)
         .order_by(User.name, User.username))).all()
+    # Audit S-06: counts come from SQL; each attempt lists only its newest
+    # RESULTS_EVENTS_PER_ATTEMPT events (all of them: GET .../attempts/{aid}/events).
+    is_open = or_(IntegrityEvent.review.is_(None), IntegrityEvent.review == "open")
+    flag_q = IntegrityEvent.type.not_in(NON_FLAG_TYPES)
+    counts = (await session.execute(
+        select(IntegrityEvent.attempt_id, func.count(),
+               func.sum(case((flag_q, 1), else_=0)),
+               func.sum(case((and_(flag_q, is_open), 1), else_=0)))
+        .where(IntegrityEvent.exam_id == exam_id)
+        .group_by(IntegrityEvent.attempt_id))).all()
+    event_total = {aid: int(n) for aid, n, _, _ in counts}
+    flag_count = {aid: int(f or 0) for aid, _, f, _ in counts}
+    flags_total = sum(int(f or 0) for _, _, f, _ in counts)
+    flags_open = sum(int(o or 0) for _, _, _, o in counts)
+    rn = func.row_number().over(partition_by=IntegrityEvent.attempt_id,
+                                order_by=(IntegrityEvent.server_time.desc(), IntegrityEvent.id.desc())).label("rn")
+    newest = (select(IntegrityEvent.id, rn).where(IntegrityEvent.exam_id == exam_id)).subquery()
     evrows = (await session.execute(
-        select(IntegrityEvent).where(IntegrityEvent.exam_id == exam_id)
+        select(IntegrityEvent).join(newest, newest.c.id == IntegrityEvent.id)
+        .where(newest.c.rn <= RESULTS_EVENTS_PER_ATTEMPT)
         .order_by(IntegrityEvent.server_time, IntegrityEvent.id))).scalars().all()
     events: dict[str, list] = {}
-    flag_count: dict[str, int] = {}
-    flags_total = flags_open = 0
     for ev in evrows:
-        events.setdefault(ev.attempt_id, []).append(
-            {"event_id": ev.id, "type": ev.type, "detail": ev.detail,
-             "client_time": ev.client_time, "server_time": iso(ev.server_time),
-             "review": ev.review or "open", "note": ev.note or ""})
-        if is_flag(ev.type):
-            flag_count[ev.attempt_id] = flag_count.get(ev.attempt_id, 0) + 1
-            flags_total += 1
-            flags_open += (ev.review or "open") == "open"
+        events.setdefault(ev.attempt_id, []).append(_event_out(ev))
 
     qs = exam_questions(e)
     total = e.total_points
@@ -322,13 +452,16 @@ async def results(exam_id: str, p: Principal = Depends(require_teacher),
                 q_correct[qid] += bool(r["correct"])
         attempts.append({
             "attempt_id": a.id, "username": username, "name": name, "status": a.status,
-            "auto_submitted": a.auto_submitted, "late": bool(a.late),
+            "auto_submitted": a.auto_submitted,
+            # Audit S-02: handed in after time; answers sent after time are shown, not graded.
+            "late": bool(a.late), "late_answers": a.late_answers or {},
             "score": None if external else num(score), "total_points": num(total),
             "percent": None if external else pct,
             "submitted_at": iso(a.submitted_at), "receipt": a.receipt,
             "needs_grading": pending, "overall_comment": a.overall_comment or "",
             "flag_count": flag_count.get(a.id, 0),
             "answers": ans_rows, "events": events.get(a.id, []),
+            "events_total": event_total.get(a.id, 0),
         })
 
     buckets = [0] * 10
@@ -364,15 +497,12 @@ async def results(exam_id: str, p: Principal = Depends(require_teacher),
 
 # ---------------------------------------------------------------- slice 2
 @router.post("/{exam_id}/extend")
-async def extend_exam(exam_id: str, body: ExtendIn, request: Request,
-                      p: Principal = Depends(require_teacher),
+async def extend_exam(exam_id: str, body: ExtendIn, p: Principal = Depends(require_teacher),
                       session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
     if e.status != "live":
         raise HTTPException(409, "Exam is not live")
     delta = timedelta(minutes=body.minutes)
-    audit.add(session, "deadline_extended", request=request, actor_id=p.user_id,
-              actor_role=p.role, exam_id=exam_id, detail={"minutes": body.minutes})
     e.duration_min += body.minutes
     e.updated_at = utcnow()
     rows = (await session.execute(
@@ -483,15 +613,8 @@ def _question(e: Exam, qid: str) -> dict:
 
 
 async def _save_grades(session: AsyncSession, e: Exam, a: Attempt, qid: str,
-                       grade: dict | None, request: Request | None = None,
-                       p: Principal | None = None) -> dict:
+                       grade: dict | None) -> dict:
     grades = dict(a.grades or {})
-    old = (grades.get(qid) or {}).get("points")
-    qidx = next((i for i, q in enumerate(exam_questions(e)) if q["id"] == qid), None)
-    audit.add(session, "grade_changed", request=request, actor_id=p.user_id if p else None,
-              actor_role=p.role if p else "system", exam_id=e.id, attempt_id=a.id,
-              detail={"question_id": qid, "question_index": qidx, "old_points": old,
-                      "points": grade.get("points") if grade else None})
     if grade is None:
         grades.pop(qid, None)
     else:
@@ -508,7 +631,7 @@ async def _save_grades(session: AsyncSession, e: Exam, a: Attempt, qid: str,
 
 
 @router.put("/{exam_id}/attempts/{aid}/grades/{qid}")
-async def put_grade(exam_id: str, aid: str, qid: str, body: GradeIn, request: Request,
+async def put_grade(exam_id: str, aid: str, qid: str, body: GradeIn,
                     p: Principal = Depends(require_teacher),
                     session: AsyncSession = Depends(get_session)):
     e, a = await _exam_attempt(session, exam_id, aid, p)
@@ -534,28 +657,24 @@ async def put_grade(exam_id: str, aid: str, qid: str, body: GradeIn, request: Re
         scores = [num(s) for s in body.rubric_scores]
     grade = {"points": num(body.points), "comment": body.comment, "rubric_scores": scores,
              "graded_at": iso(utcnow())}
-    return await _save_grades(session, e, a, qid, grade, request, p)
+    return await _save_grades(session, e, a, qid, grade)
 
 
 @router.delete("/{exam_id}/attempts/{aid}/grades/{qid}")
-async def delete_grade(exam_id: str, aid: str, qid: str, request: Request,
-                       p: Principal = Depends(require_teacher),
+async def delete_grade(exam_id: str, aid: str, qid: str, p: Principal = Depends(require_teacher),
                        session: AsyncSession = Depends(get_session)):
     e, a = await _exam_attempt(session, exam_id, aid, p)
     _question(e, qid)
     if a.status != "submitted":
         raise HTTPException(409, "Attempt is not submitted")
-    return await _save_grades(session, e, a, qid, None, request, p)
+    return await _save_grades(session, e, a, qid, None)
 
 
 @router.put("/{exam_id}/attempts/{aid}/comment")
-async def put_comment(exam_id: str, aid: str, body: CommentIn, request: Request,
+async def put_comment(exam_id: str, aid: str, body: CommentIn,
                       p: Principal = Depends(require_teacher),
                       session: AsyncSession = Depends(get_session)):
     _, a = await _exam_attempt(session, exam_id, aid, p)
-    if (a.overall_comment or "") != body.comment:
-        audit.add(session, "comment_changed", request=request, actor_id=p.user_id,
-                  actor_role=p.role, exam_id=exam_id, attempt_id=aid)
     a.overall_comment = body.comment
     a.updated_at = utcnow()
     await session.commit()
@@ -563,7 +682,7 @@ async def put_comment(exam_id: str, aid: str, body: CommentIn, request: Request,
 
 
 @router.post("/{exam_id}/release")
-async def release_grades(exam_id: str, request: Request, body: ReleaseIn | None = None,
+async def release_grades(exam_id: str, body: ReleaseIn | None = None,
                          p: Principal = Depends(require_teacher),
                          session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
@@ -572,28 +691,18 @@ async def release_grades(exam_id: str, request: Request, body: ReleaseIn | None 
     pending = (await pending_by_exam(session, [e.id])).get(e.id, 0)
     if pending > 0 and not (body and body.force):
         raise HTTPException(409, f"{pending} answers still need grading")
-    if not (body and body.force):  # phase 3: second marking / moderation not finished
-        from .quality.service import moderation_open
-        open_n = (await moderation_open(session, e.id))["open"]
-        if open_n > 0:
-            raise HTTPException(409, f"{open_n} second-marked answers still need moderation: grades may change")
     if not e.grades_released:
         e.grades_released = True
         e.released_at = utcnow()
         e.updated_at = e.released_at
-        audit.add(session, "grades_released", request=request, actor_id=p.user_id,
-                  actor_role=p.role, exam_id=exam_id, detail={"pending": pending})
         await session.commit()
     return exam_out(e, pending)
 
 
 @router.post("/{exam_id}/unrelease")
-async def unrelease_grades(exam_id: str, request: Request, p: Principal = Depends(require_teacher),
+async def unrelease_grades(exam_id: str, p: Principal = Depends(require_teacher),
                            session: AsyncSession = Depends(get_session)):
     e = await _own_exam(session, exam_id, p)
-    if e.grades_released:
-        audit.add(session, "grades_unreleased", request=request, actor_id=p.user_id,
-                  actor_role=p.role, exam_id=exam_id)
     e.grades_released = False
     e.released_at = None
     e.updated_at = utcnow()

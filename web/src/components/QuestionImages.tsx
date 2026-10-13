@@ -29,7 +29,7 @@ export function QuestionImages({
               onClick={() => setOpen(i)}
               aria-label={`Enlarge picture ${i + 1}${img.alt ? `: ${img.alt}` : ""}`}
             >
-              <img src={img.url} alt={img.alt || `Picture ${i + 1}`} loading="lazy" />
+              <img src={img.url} alt={img.alt || `Picture ${i + 1}`} loading="lazy" referrerPolicy="no-referrer" />
             </button>
           </li>
         ))}
@@ -62,7 +62,7 @@ function ImageViewer({ image, onClose }: { image: QuestionImage; onClose: () => 
         <button ref={closeRef} type="button" className="fp-viewer-close" onClick={onClose}>
           Close
         </button>
-        <img src={image.url} alt={image.alt || "Picture"} />
+        <img src={image.url} alt={image.alt || "Picture"} referrerPolicy="no-referrer" />
         {image.alt && <p className="fp-viewer-alt">{image.alt}</p>}
       </div>
     </div>

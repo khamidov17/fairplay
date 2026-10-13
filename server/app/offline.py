@@ -1,29 +1,37 @@
-"""Slice 6 A + phase 1a: encrypted offline exam packages (format version 2).
+"""Slice 6 A: encrypted offline exam packages.
 
-Threat model and design: CONTRACT.md "Phase 1a — offline package security". In short:
+`GET /api/student/exams/{id}/package` gives the student exam view encrypted with a key
+only the room knows: PBKDF2-SHA256(start_code + exam_id, salt, 600 000 iterations (v3), 32 bytes)
+-> AES-256-GCM (12-byte IV, 16-byte tag appended to the ciphertext, the WebCrypto layout).
+The browser decrypts it with SubtleCrypto when the network is down at start; a wrong code
+fails the GCM tag check ("Wrong start code").
 
-- `GET /api/student/exams/{id}/package` (student; exam live, or scheduled to start within
-  2 h): the student exam view encrypted with a random per-exam 256-bit content key K:
-  AES-256-GCM(K, iv, plaintext, aad=exam_id) -> `{"exam_id","version":2,"alg":"AES-GCM",
-  "iv","ciphertext"}`. Without K it reveals nothing, however long a student works on it, so
-  it is safe to hand out before the exam opens.
-- `GET /api/student/exams/{id}/package-key` (student; only while the exam is LIVE):
-  K wrapped with the start code: KEK = PBKDF2-SHA256(start_code + exam_id, salt, 100 000,
-  32 bytes); `wrapped_key` = AES-GCM(KEK, iv, K, aad=exam_id). The check-in page fetches
-  it once the exam is open and keeps it, so a student whose network then drops can still
-  start: the typed code unwraps K (wrong code = GCM failure = "Wrong start code").
-- K is created on the first package request, kept while the exam is open and dropped at
-  close, so the next opening uses a new key. Every package / key hand-out is audited.
+Packages are served only while the exam has a start code (it is live). One package per
+exam + code + duration is built (in a worker thread: PBKDF2 is CPU work) and cached in the
+store, so a room full of students costs one key derivation, not one each.
 
-Both responses are cached in the store (one PBKDF2 per room, not per student).
+Audit 2026-10-12 S-03 (package version 2):
+- only students of the exam's class / LMS course get the package (and the key below);
+- the key material is start_code + exam_id + PACKAGE KEY, where the package key is 32
+  random bytes per exam run (Exam.package_secret), handed out by GET .../package-key only
+  while the exam is live. A package fetched early can't be opened by trying all 10^6 start
+  codes. Cost: a student must be online once after the exam opens (the exam list fetches
+  the key) to start offline later.
+
+Audit 2026-10-13 (package version 3): 600 000 PBKDF2 iterations (OWASP 2023 for
+PBKDF2-SHA256), written into the package as "iterations" so the page derives with the
+same count and older packages (no field: 100 000) still open. Six times the work per
+guessed start code for whoever holds the package and its key before the code is read out.
+The package key is made with one conditional UPDATE (two first requests can't hand out
+different keys), and a cache miss is built once: the others wait for it (single flight).
 """
 from __future__ import annotations
 
 import asyncio
 import base64
-import hashlib
 import json
 import os
+import secrets
 from datetime import datetime, timedelta
 
 from cryptography.hazmat.primitives import hashes
@@ -33,7 +41,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from . import audit
+from .access import require_member
 from .db import get_session
 from .models import Exam
 from .security import Principal, require_student
@@ -44,76 +52,61 @@ from .uploads import UPLOAD_URL_PREFIX, read_upload
 
 router = APIRouter(prefix="/api/student", tags=["offline"])
 
-PACKAGE_VERSION = 2
-PBKDF2_ITERATIONS = 100_000
+PACKAGE_VERSION = 3
+PBKDF2_ITERATIONS = 600_000
+LEGACY_ITERATIONS = 100_000      # packages without an "iterations" field (v1 / v2)
+BUILD_LOCK_S = 30
+BUILD_WAIT_S = 20
 MAX_INLINE_IMAGE_BYTES = 2 * 1024 * 1024
 PACKAGE_CACHE_TTL = 300
-KEY_CACHE_TTL = 300
 SCHEDULE_WINDOW = timedelta(hours=2)
+
+
+def package_id(secret: str, exam_id: str, start_code: str | None, duration_min: int) -> str | None:
+    """Audit W-02: changes when the start code (or duration) changes, without revealing it.
+    The exam list carries it, so a stored package that no longer opens is fetched again."""
+    if not start_code:
+        return None
+    import hashlib
+    import hmac as _hmac
+    return _hmac.new(secret.encode(), f"pkg|{exam_id}|{start_code}|{duration_min}".encode(),
+                     hashlib.sha256).hexdigest()[:16]
 
 
 def _b64(b: bytes) -> str:
     return base64.b64encode(b).decode("ascii")
 
 
-def _unb64(s: str) -> bytes:
-    return base64.b64decode(s)
-
-
-def derive_kek(start_code: str, exam_id: str, salt: bytes,
-               iterations: int = PBKDF2_ITERATIONS) -> bytes:
+def derive_key(start_code: str, exam_id: str, salt: bytes,
+               iterations: int = PBKDF2_ITERATIONS, package_key: str = "") -> bytes:
+    if not 1_000 <= iterations <= 10_000_000:
+        raise ValueError("iterations out of range")
     kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=iterations)
-    return kdf.derive((start_code.strip() + exam_id).encode("utf-8"))
-
-
-def new_content_key() -> bytes:
-    return AESGCM.generate_key(bit_length=256)
-
-
-def encrypt_content(plain: dict, key: bytes, exam_id: str) -> dict:
-    iv = os.urandom(12)
-    data = json.dumps(plain, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    ct = AESGCM(key).encrypt(iv, data, exam_id.encode("utf-8"))
-    return {"exam_id": exam_id, "version": PACKAGE_VERSION, "alg": "AES-GCM",
-            "iv": _b64(iv), "ciphertext": _b64(ct)}
-
-
-def decrypt_content(pkg: dict, key: bytes) -> dict:
-    data = AESGCM(key).decrypt(_unb64(pkg["iv"]), _unb64(pkg["ciphertext"]),
-                               pkg["exam_id"].encode("utf-8"))
-    return json.loads(data.decode("utf-8"))
-
-
-def wrap_key(key: bytes, start_code: str, exam_id: str,
-             iterations: int = PBKDF2_ITERATIONS) -> dict:
-    salt, iv = os.urandom(16), os.urandom(12)
-    kek = derive_kek(start_code, exam_id, salt, iterations)
-    wrapped = AESGCM(kek).encrypt(iv, key, exam_id.encode("utf-8"))
-    return {"exam_id": exam_id, "version": PACKAGE_VERSION, "alg": "PBKDF2-SHA256/AES-GCM",
-            "iterations": iterations, "salt": _b64(salt), "iv": _b64(iv),
-            "wrapped_key": _b64(wrapped)}
-
-
-def unwrap_key(release: dict, start_code: str) -> bytes:
-    """Wrong code -> cryptography InvalidTag."""
-    kek = derive_kek(start_code, release["exam_id"], _unb64(release["salt"]),
-                     int(release.get("iterations") or PBKDF2_ITERATIONS))
-    return AESGCM(kek).decrypt(_unb64(release["iv"]), _unb64(release["wrapped_key"]),
-                               release["exam_id"].encode("utf-8"))
+    return kdf.derive((start_code + exam_id + package_key).encode("utf-8"))
 
 
 def encrypt_package(plain: dict, start_code: str, exam_id: str,
-                    iterations: int = PBKDF2_ITERATIONS) -> tuple[dict, dict]:
-    """(package, key release) for a fresh key (tests and tools)."""
-    key = new_content_key()
-    return encrypt_content(plain, key, exam_id), wrap_key(key, start_code, exam_id, iterations)
+                    iterations: int = PBKDF2_ITERATIONS, package_key: str = "") -> dict:
+    salt, iv = os.urandom(16), os.urandom(12)
+    key = derive_key(start_code, exam_id, salt, iterations, package_key)
+    data = json.dumps(plain, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    ct = AESGCM(key).encrypt(iv, data, None)
+    return {"exam_id": exam_id, "version": PACKAGE_VERSION if package_key else 1, "alg": "AES-GCM",
+            "iterations": iterations,
+            "salt": _b64(salt), "iv": _b64(iv), "ciphertext": _b64(ct)}
 
 
-def decrypt_package(pkg: dict, release: dict, start_code: str) -> dict:
-    """What the browser does offline: unwrap K with the typed code, then open the package."""
-    if release["exam_id"] != pkg["exam_id"]:
-        raise ValueError("package and key are for different exams")
-    return decrypt_content(pkg, unwrap_key(release, start_code))
+def decrypt_package(pkg: dict, start_code: str, iterations: int | None = None,
+                    package_key: str = "") -> dict:
+    """Inverse of encrypt_package (used by tests). Wrong code/key -> cryptography InvalidTag.
+    The iteration count comes from the package unless given."""
+    if iterations is None:
+        iterations = int(pkg.get("iterations") or LEGACY_ITERATIONS)
+    salt = base64.b64decode(pkg["salt"])
+    iv = base64.b64decode(pkg["iv"])
+    key = derive_key(start_code, pkg["exam_id"], salt, iterations, package_key)
+    data = AESGCM(key).decrypt(iv, base64.b64decode(pkg["ciphertext"]), None)
+    return json.loads(data.decode("utf-8"))
 
 
 def inline_images(questions: list[dict], limit: int = MAX_INLINE_IMAGE_BYTES) -> list[dict]:
@@ -157,99 +150,87 @@ def package_plaintext(exam: dict) -> dict:
     }
 
 
-def _scheduled_soon(exam: dict) -> bool:
-    if not exam.get("scheduled_at") or exam["status"] == "closed":
-        return False
-    try:
-        at = datetime.fromisoformat(exam["scheduled_at"].replace("Z", "+00:00")).replace(tzinfo=None)
-    except ValueError:
-        return False
-    return at - SCHEDULE_WINDOW <= utcnow()
+def _build(exam: dict, package_key: str) -> dict:
+    return encrypt_package(package_plaintext(exam), exam["start_code"], exam["id"],
+                           package_key=package_key)
 
 
-async def _offline_exam(session: AsyncSession, exam_id: str, p: Principal) -> dict:
-    """The cached student exam view, after the checks every package request shares."""
-    exam = await get_exam_cached(get_store(), session, exam_id)
-    if exam is None or exam.get("delivery") == "paper":
+async def _package_secret(session: AsyncSession, exam_id: str) -> str:
+    """This exam run's package key, made on first use (cleared when the exam closes).
+    Audit 2026-10-13: set only where still empty, then read back, so two first requests
+    in parallel agree on one key (before, the later commit replaced the earlier key and
+    the students who got the first one could not open the package offline)."""
+    e = await session.get(Exam, exam_id)
+    if e is None:
         raise HTTPException(404, "Exam not found")
-    if (exam.get("mode") or "questions") == "external":
-        raise HTTPException(409, "This exam runs on another website and needs the internet")
-    # classes: same audience rule as start (roster > classes > LMS course > open)
-    from .classes.service import require_exam_access
-    await require_exam_access(session, exam, p.user_id)
-    return exam
-
-
-def key_cache_key(exam_id: str) -> str:
-    return f"pkgk:{exam_id}"
-
-
-async def content_key(session: AsyncSession, exam_id: str) -> bytes:
-    """The exam's package key K, created on first use (race-safe across workers)."""
-    store = get_store()
-    raw = await store.get(key_cache_key(exam_id))
-    if raw:
-        return _unb64(raw)
-    cur = (await session.execute(select(Exam.package_key).where(Exam.id == exam_id))).scalar_one_or_none()
-    if not cur:
-        await session.execute(update(Exam).where(Exam.id == exam_id, Exam.package_key.is_(None))
-                              .values(package_key=_b64(new_content_key())))
-        await session.commit()
-        cur = (await session.execute(select(Exam.package_key).where(Exam.id == exam_id))).scalar_one()
-    await store.set(key_cache_key(exam_id), cur, KEY_CACHE_TTL)
-    return _unb64(cur)
-
-
-def _fingerprint(*parts: bytes) -> str:
-    h = hashlib.sha256()
-    for part in parts:
-        h.update(part)
-        h.update(b"\0")
-    return h.hexdigest()[:24]
+    if e.package_secret:
+        return e.package_secret
+    await session.execute(update(Exam).where(Exam.id == exam_id, Exam.package_secret.is_(None))
+                          .values(package_secret=secrets.token_hex(32)))
+    await session.commit()
+    got = (await session.execute(select(Exam.package_secret).where(Exam.id == exam_id))).scalar()
+    if not got:
+        raise HTTPException(409, "Exam is not open")
+    return got
 
 
 @router.get("/exams/{exam_id}/package")
 async def package(exam_id: str, request: Request, p: Principal = Depends(require_student),
                   session: AsyncSession = Depends(get_session)):
-    exam = await _offline_exam(session, exam_id, p)
-    if not (exam["status"] == "live" or _scheduled_soon(exam)):
-        raise HTTPException(409, "Exam is not open")
     store = get_store()
-    key = await content_key(session, exam_id)
-    plain = {k: exam.get(k) for k in ("id", "title", "course", "duration_min", "mode",
-                                       "shuffle_questions", "questions")}
-    fp = _fingerprint(key, json.dumps(plain, sort_keys=True).encode())
-    if await audit.once(store, f"aud:pkd:{exam_id}:{p.user_id}:{fp}"):
-        await audit.record("package_downloaded", request=request, actor_id=p.user_id,
-                           actor_role="student", exam_id=exam_id)
-    ck = f"pkg2:{exam_id}:{fp}"
-    raw = await store.get(ck)
+    exam = await get_exam_cached(store, session, exam_id)
+    if exam is None or exam.get("delivery") == "paper":
+        raise HTTPException(404, "Exam not found")
+    if (exam.get("mode") or "questions") == "external":
+        raise HTTPException(409, "This exam runs on another website and needs the internet")
+    code = exam.get("start_code")
+    scheduled_soon = False
+    if exam.get("scheduled_at"):
+        try:
+            at = datetime.fromisoformat(exam["scheduled_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+            scheduled_soon = at - SCHEDULE_WINDOW <= utcnow()
+        except ValueError:
+            scheduled_soon = False
+    if not code or not (exam["status"] == "live" or scheduled_soon):
+        raise HTTPException(409, "Exam is not open")
+    await require_member(session, exam, p.user_id)        # audit S-03
+    key = f"pkg:{exam_id}:{code}:{exam['duration_min']}"
+    raw = await store.get(key)
     if raw:
         return json.loads(raw)
-    pkg = await asyncio.to_thread(encrypt_content, package_plaintext(exam), key, exam_id)
-    await store.set(ck, json.dumps(pkg), PACKAGE_CACHE_TTL)
+    # Audit 2026-10-13: single flight. A room opening the exam at once would otherwise
+    # start one 600k-iteration build per student; one builds, the rest wait for the cache.
+    lock = f"pkgbuild:{key}"
+    if not await store.setnx(lock, "1", BUILD_LOCK_S):
+        loop = asyncio.get_running_loop()
+        until = loop.time() + BUILD_WAIT_S
+        while loop.time() < until:
+            await asyncio.sleep(0.2)
+            raw = await store.get(key)
+            if raw:
+                return json.loads(raw)
+            if not await store.get(lock):
+                break      # the builder failed: build here
+    try:
+        secret = await _package_secret(session, exam_id)
+        pkg = await asyncio.to_thread(_build, exam, secret)
+        pkg["package_id"] = package_id(request.app.state.settings.secret, exam_id, code,
+                                       exam["duration_min"])
+        await store.set(key, json.dumps(pkg), PACKAGE_CACHE_TTL)
+    finally:
+        await store.delete(lock)
     return pkg
 
 
 @router.get("/exams/{exam_id}/package-key")
-async def package_key(exam_id: str, request: Request, p: Principal = Depends(require_student),
+async def package_key(exam_id: str, p: Principal = Depends(require_student),
                       session: AsyncSession = Depends(get_session)):
-    exam = await _offline_exam(session, exam_id, p)
-    code = exam.get("start_code")
-    if exam["status"] != "live" or not code:
+    """Audit S-03: the second half of the package key, only while the exam is live and
+    only for its class. The page keeps it next to the package (cleared after the exam)."""
+    exam = await get_exam_cached(get_store(), session, exam_id)
+    if exam is None or exam.get("delivery") == "paper":
+        raise HTTPException(404, "Exam not found")
+    if exam["status"] != "live":
         raise HTTPException(409, "Exam is not open")
-    store = get_store()
-    key = await content_key(session, exam_id)
-    fp = _fingerprint(key, code.encode())
-    if await audit.once(store, f"aud:pkr:{exam_id}:{p.user_id}:{fp}"):
-        await audit.record("package_key_released", request=request, actor_id=p.user_id,
-                           actor_role="student", exam_id=exam_id)
-    ck = f"pkgkr:{exam_id}:{fp}"
-    raw = await store.get(ck)
-    if raw:
-        rel = json.loads(raw)
-    else:
-        rel = await asyncio.to_thread(wrap_key, key, code, exam_id)
-        await store.set(ck, json.dumps(rel), PACKAGE_CACHE_TTL)
-    # the invigilator exit-code verifier, for a Mac app whose exam then starts offline
-    return {**rel, "exit_check": exam.get("exit_check")}
+    await require_member(session, exam, p.user_id)
+    return {"exam_id": exam_id, "key": await _package_secret(session, exam_id)}

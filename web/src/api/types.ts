@@ -1,8 +1,6 @@
 // Types mirror CONTRACT.md exactly. Do not add fields that are not in the contract.
 
 export type Role = "teacher" | "student";
-/** Any signed-in role, including the platform superadmin (see CONTRACT "Registration + superadmin"). */
-export type SessionRole = Role | "superadmin";
 export type QuestionType = "mcq" | "numeric" | "short" | "essay" | "external";
 export type ExamStatus = "draft" | "live" | "closed";
 export type AttemptStatus = "in_progress" | "submitted";
@@ -23,14 +21,14 @@ export type AnswerMap = Record<string, AnswerValue>;
 
 export interface LoginResponse {
   token: string;
-  role: SessionRole;
+  role: Role;
   name: string;
 }
 
 export interface Me {
   username: string;
   name: string;
-  role: SessionRole;
+  role: Role;
 }
 
 export interface Question {
@@ -69,6 +67,8 @@ export interface StudentQuestion {
 export interface Exam {
   id: string;
   title: string;
+  /** Live exams: code for the app's emergency exit (teacher only). */
+  invigilator_code?: string | null;
   duration_min: number;
   status: ExamStatus;
   start_code: string | null;
@@ -125,6 +125,14 @@ export interface LiveStudent {
   event_count: number;
   last_event: string | null;
   needs_look: boolean;
+  /** Handed in after time (audit S-02). */
+  late?: boolean;
+  // Audit 2026-10-12: from the app's own signed beats (locked above too).
+  app_online?: boolean;
+  last_app_signal_at?: string | null;
+  app_checks?: string;
+  client?: "app" | "browser";
+  entries?: number;
 }
 
 export interface LiveFlag {
@@ -141,10 +149,14 @@ export interface LiveRoom {
   exam_id: string;
   status: ExamStatus;
   start_code: string | null;
+  /** Code for the app's emergency exit (Ctrl-Opt-Cmd-E), checked by the server. */
+  invigilator_code?: string | null;
   duration_min: number;
   students: LiveStudent[];
   flags: LiveFlag[];
   counts: { writing: number; submitted: number; offline: number; needs_look: number };
+  /** Audit W-13: the server's clock when this snapshot was made. */
+  server_time?: string;
 }
 
 export type EventReview = "open" | "dismissed" | "noted";
@@ -194,6 +206,10 @@ export interface ResultAttempt {
   needs_grading: number;
   overall_comment: string;
   flag_count: number;
+  /** Audit S-02: handed in after time. */
+  late?: boolean;
+  /** Answers sent with a submit after time: shown to the teacher, not graded. */
+  late_answers?: Record<string, unknown>;
 }
 
 export interface ResultQuestion {
@@ -285,6 +301,7 @@ export interface GradingSummary {
   exam_id: string;
   title: string;
   course: string;
+  class_id?: number | null;
   status: ExamStatus;
   pending: number;
   submitted: number;
@@ -307,7 +324,7 @@ export interface Gradebook {
     username: string;
     name: string;
     average_percent: number | null;
-    cells: Record<string, { state: GradebookState; score: number | null; percent: number | null }>;
+    cells: Record<string, { state: GradebookState; score: number | null; percent: number | null; late?: boolean }>;
   }[];
 }
 
@@ -392,8 +409,8 @@ export interface AttemptView {
   external_url?: string | null;
   allowed_domains?: string[];
   finish_url_contains?: string | null;
-  /** phase 1b: the stored client_seq (-1 = nothing saved yet); clients without a local copy continue above it */
-  client_seq?: number;
+  /** Only in the POST start response: the app session (X-FairPlay-Session). */
+  session?: string;
 }
 
 export interface SaveAnswersResponse {
@@ -418,8 +435,6 @@ export interface SubmitResponse {
   status: "submitted";
   submitted_at: string;
   receipt: string;
-  /** phase 1b: questions the server holds an answer for (what was really received) */
-  answered?: number;
 }
 
 // ---------- slice 5: LMS sync ----------
@@ -539,6 +554,8 @@ export interface ExamInput {
 }
 export interface StudentExamSummary {
   delivery?: Delivery;
+  /** Audit W-02: id of the current offline package (live exams). */
+  package_id?: string | null;
 }
 
 export interface UploadResult {
@@ -553,32 +570,18 @@ export interface TopicCount {
   question_count: number;
 }
 
-/**
- * GET /api/student/exams/{id}/package (format version 2, phase 1a): AES-GCM with a random
- * per-exam content key K (aad = exam_id). Useless without the key release below. base64 fields.
- */
+/** GET /api/student/exams/{id}/package — AES-GCM, key = PBKDF2-SHA256(start_code + exam_id, salt, 100 000). base64 fields. */
 export interface OfflinePackage {
   exam_id: string;
   version: number;
+  /** Audit W-02: changes when the start code or duration changes (re-download then). */
+  package_id?: string;
   alg: "AES-GCM";
-  iv: string;
-  ciphertext: string;
-}
-
-/**
- * GET /api/student/exams/{id}/package-key (only while the exam is live): K wrapped with
- * KEK = PBKDF2-SHA256(start_code + exam_id, salt, iterations) -> AES-GCM(aad = exam_id).
- */
-export interface OfflineKeyRelease {
-  exam_id: string;
-  version: number;
-  alg: string;
-  iterations: number;
+  /** PBKDF2 iterations (version 3+); older packages: 100 000 */
+  iterations?: number;
   salt: string;
   iv: string;
-  wrapped_key: string;
-  /** Verifier of the invigilator exit code (for the Mac app in an offline-started exam). */
-  exit_check?: ExitCheck | null;
+  ciphertext: string;
 }
 
 /** Decrypted package plaintext: the student exam view (no answer keys). */
@@ -891,108 +894,48 @@ export interface PracticeAnswerResponse {
   progress: PracticeProgress;
 }
 
-// ---------- phase 1a: invigilator exit code, session timeline ----------
-
-/** Offline verifier of the invigilator exit code: PBKDF2-SHA256(normalised code, salt, iterations). */
-export interface ExitCheck {
-  alg: "PBKDF2-SHA256";
-  iterations: number;
-  salt: string;
-  hash: string;
-}
-
+// ---------- audit 2026-10-12 S-03: classes ----------
 export interface Exam {
-  /** Invigilator exit code (teacher only; issued when the exam opens). */
-  exit_code?: string | null;
+  /** The class that takes this exam (required before it can open, unless LMS-linked). */
+  class_id?: number | null;
+}
+export interface ExamInput {
+  class_id?: number | null;
 }
 
-export interface LiveRoom {
-  exit_code?: string | null;
-}
-
-export interface AttemptView {
-  exit_check?: ExitCheck | null;
-}
-
-export type TimelineSource = "audit" | "integrity" | "heartbeat";
-export type TimelineTone = "info" | "warn" | "good";
-
-export interface TimelineEvent {
-  at: string;
-  source: TimelineSource;
-  action: string;
-  summary: string;
-  actor: "student" | "teacher" | "system" | string;
-  ip: string | null;
-  detail: Record<string, unknown>;
-  tone: TimelineTone;
-}
-
-/** GET /api/exams/{exam_id}/attempts/{attempt_id}/timeline */
-export interface SessionTimeline {
-  exam_id: string;
-  attempt_id: string;
-  exam_title: string;
-  student: { username: string; name: string };
-  status: AttemptStatus;
-  started_at: string;
-  deadline_at: string;
-  submitted_at: string | null;
-  receipt: string | null;
-  late: boolean;
-  auto_submitted: boolean;
-  events: TimelineEvent[];
-}
-
-// ---------- registration + superadmin ----------
-
-export type AccountStatus = "active" | "pending" | "disabled";
-
-export interface RegisterInput {
-  name: string;
-  email: string;
-  username: string;
-  password: string;
-  role: Role;
-}
-
-export interface RegisterResponse {
-  status: "active" | "pending";
-  role: Role;
-  name: string;
-  /** null when the account is pending approval */
-  token: string | null;
-  detail?: string;
-}
-
-export interface AdminStats {
-  teachers: { active: number; pending: number; disabled: number; total: number };
-  students: number;
-  exams_created: number;
-  exams_held: number;
-  attempts_submitted: number;
-  active_teachers_7d: number;
-  active_teachers_30d: number;
-  generated_at: string;
-}
-
-export interface AdminTeacher {
+export interface SchoolClass {
   id: number;
-  username: string;
   name: string;
-  email: string | null;
-  status: AccountStatus;
+  /** Free text on the class card, e.g. "Fall 2026 · Section 2" ("" when not set). */
+  term?: string;
+  teacher_name?: string;
+  /** "K7QM-3XPA" — students type it to join. */
+  join_code: string;
+  member_count: number;
+  exam_count: number;
   created_at: string;
-  last_login_at: string | null;
-  exams: number;
-  students_reached: number;
 }
 
-/** Graph / chart / diagram questions (essays only; see api/diagrams.ts). Optional = older data type-checks. */
-export interface Question {
-  diagram?: import("./diagrams").DiagramSpec | null;
+export interface ClassMemberRow {
+  username: string;
+  name: string;
+  joined_at: string;
 }
-export interface FeedbackQuestion {
-  /** approved checklist results + marks on the drawing */
-  diagram?: import("./diagrams").GradeDiagram | null;
+
+export interface ClassDetail extends SchoolClass {
+  members: ClassMemberRow[];
+}
+
+export interface AddMembersResult {
+  added: number;
+  already: number;
+  unknown: string[];
+}
+
+export interface StudentClass {
+  id: number;
+  name: string;
+  term?: string;
+  teacher: string;
+  joined_at?: string;
 }

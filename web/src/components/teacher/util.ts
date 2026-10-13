@@ -72,8 +72,38 @@ export function eventLabel(type: string): string {
     lock_failed: "Lockdown failed",
     offline: "Went offline",
     fullscreen_exit: "Left full screen",
+    // audit 2026-10-12: server-side checks
+    second_device: "Tried to open the exam on another computer",
+    foreign_session: "Another login tried to use this exam",
+    re_entry: "Started the exam again (app restarted)",
+    app_gap: "FairPlay app went silent",
+    no_app_signal: "Exam page open without the FairPlay app",
+    unlocked_in_exam: "Computer unlocked during the exam",
+    emergency_exit: "Invigilator exit used",
+    emergency_exit_rejected: "Wrong invigilator code",
+    device_released: "Moved to another computer (by teacher)",
+    device_bound: "Continued on another computer",
+    process_blocked: "Forbidden app or tool running",
+    vm_detected: "Virtual machine",
+    mirrored_display: "Screen mirrored / second display",
+    tap_lost: "Keyboard lock stopped working",
+    input_source_blocked: "Third-party keyboard input",
+    watchdog_app_killed: "FairPlay was force-quit",
+    previous_run_killed: "FairPlay had been force-quit",
+    remote_session: "Mac used remotely",
+    synthetic_input: "Typing/clicks from another program",
+    tls_pin_mismatch: "Connection to the server was intercepted",
+    // audit 2026-10-12 tier 1/2
+    late_submission: "Handed in after time",
+    offline_exit: "Offline invigilator exit used",
+    offline_exit_rejected: "Wrong offline invigilator code",
+    offline_exit_code_issued: "You gave an offline exit code",
+    offline_key_requested_twice: "Offline exit key asked for twice",
+    event_limit_reached: "Too many events (later ones dropped)",
   };
   if (known[type]) return known[type];
+  // Types only the server may write, or unknown ones, posted by the page or app (audit S-06).
+  if (type.startsWith("client_")) return `Reported by the computer: ${eventLabel(type.slice(7))}`;
   const s = type.replace(/[_-]+/g, " ").trim();
-  return s ? s[0].toUpperCase() + s.slice(1) : "Event";
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : "Event";
 }

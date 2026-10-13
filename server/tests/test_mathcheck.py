@@ -115,3 +115,51 @@ def test_formulas():
         m.evaluate_formula("n1/n2", {"n1": 1, "n2": 0})
     assert m.equivalent(m.evaluate_check("expand((x+1)^2)"), "x^2+2x+1")
     assert m.equivalent(m.evaluate_check("diff(x^3, x)"), "3x^2")
+
+
+# ---------------------------------------------------------------- audit L-02
+@pytest.mark.parametrize("bad", ["(a+b+c+d+f+g)^999", "(x+1)^13", "((x+y)^12)^12", "(a+b)^12*(c+d)^12*(e+f)^12*(g+h)^12"])
+def test_symbolic_blowups_are_refused_before_sympy_expands(bad):
+    import time as _t
+    t0 = _t.monotonic()
+    with pytest.raises(m.MathError):
+        m.parse(bad)
+    assert _t.monotonic() - t0 < 5
+    v = m.check(bad, "1")
+    assert v.equal is None
+
+
+def test_small_powers_still_work():
+    assert m.equivalent("(x+1)^2", "x^2+2x+1")
+    assert m.equivalent("(a+b)^12", "(b+a)^12")
+    assert m.equivalent("x^50", "x^50")              # one term, any power
+
+
+def test_checks_run_in_killable_worker_processes(monkeypatch):
+    monkeypatch.setenv("FAIRPLAY_MATH_PROCESSES", "1")
+    assert m.parse_number("1/2") == 0.5
+    assert m.equivalent("2x+2", "2(x+1)")
+    assert m._procs._started and m._procs.size == m.PROCESS_WORKERS
+
+
+def test_a_runaway_worker_is_killed_and_replaced(monkeypatch):
+    import time as _t
+    monkeypatch.setenv("FAIRPLAY_MATH_SELFTEST", "1")
+    pool = m._ProcessPool(1)
+    try:
+        pool.run("_parse_number_sync", ("2",), 30)        # worker up (spawn imports sympy)
+        t0 = _t.monotonic()
+        with pytest.raises(m.MathError, match="too long"):
+            pool.run("_selftest_sleep", (3600,), 0.5)
+        assert _t.monotonic() - t0 < 3 and pool.killed == 1
+        assert pool.run("_parse_number_sync", ("1/4",), 30) == 0.25   # replaced, still works
+        with pytest.raises(m.MathError):
+            pool.run("_no_such_entry", (), 5)              # unknown names are refused
+    finally:
+        while not pool._idle.empty():
+            pool._idle.get().kill()
+
+
+def test_parse_has_no_builtins():
+    with pytest.raises(m.MathError):
+        m.parse("__import__('os')")

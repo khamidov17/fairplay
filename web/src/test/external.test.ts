@@ -4,6 +4,8 @@ import {
   externalExamInput,
   externalSettingsFrom,
   hostAllowed,
+  broadDomainWarnings,
+  externalUrlWarning,
   isValidDomain,
   normalizeDomainInput,
   normalizeDomains,
@@ -33,9 +35,11 @@ describe("external exam validation", () => {
 
   it("normalizes typed or pasted website names", () => {
     expect(normalizeDomainInput("  Login.MicrosoftOnline.com ")).toBe("login.microsoftonline.com");
-    expect(normalizeDomainInput("https://canvas.dku.edu/courses/1")).toBe("canvas.dku.edu");
-    expect(normalizeDomainInput("docs.google.com/forms/x")).toBe("docs.google.com");
-    expect(normalizeDomainInput("*.dku.edu")).toBe("dku.edu");
+    expect(normalizeDomainInput("https://canvas.dku.edu/courses/1")).toBe("canvas.dku.edu/courses/1"); // path kept = prefix
+    expect(normalizeDomainInput("docs.google.com/forms/x")).toBe("docs.google.com/forms/x");
+    expect(normalizeDomainInput("https://Docs.Google.com/forms/d/AbC/viewform?usp=1")).toBe("docs.google.com/forms/d/AbC/viewform");
+    expect(normalizeDomainInput("*.DKU.edu")).toBe("*.dku.edu");
+    expect(normalizeDomainInput("canvas.dku.edu/")).toBe("canvas.dku.edu");
     expect(normalizeDomainInput("localhost:8080")).toBe("localhost");
     expect(normalizeDomainInput("dku.edu.")).toBe("dku.edu");
     expect(normalizeDomains(["dku.edu", "DKU.edu", "", " x.org "])).toEqual(["dku.edu", "x.org"]);
@@ -50,16 +54,31 @@ describe("external exam validation", () => {
     expect(isValidDomain("bad_host.com")).toBe(false);
     expect(isValidDomain("a..b.com")).toBe(false);
     expect(isValidDomain(".dku.edu")).toBe(false);
+    expect(isValidDomain("*.dku.edu")).toBe(true);
+    expect(isValidDomain("docs.google.com/forms/d/e/X/")).toBe(true);
+    expect(isValidDomain("docs.google.com/a b")).toBe(false);
     expect(validateDomains(["dku.edu", "canvas"])).toMatch(/canvas/);
     expect(validateDomains(["a b.com"])).toMatch(/a b\.com/); // the textarea splits on spaces first
     expect(validateDomains(Array.from({ length: 31 }, (_, i) => `d${i}.edu`))).toMatch(/at most 30/);
     expect(validateDomains([])).toBeNull();
   });
 
-  it("allows subdomains of an allowed website", () => {
-    expect(hostAllowed("canvas.dku.edu", "dku.edu")).toBe(true);
+  it("matches exact hosts; subdomains only with *.; paths as prefixes (audit #10)", () => {
+    expect(hostAllowed("canvas.dku.edu", "dku.edu")).toBe(false);
     expect(hostAllowed("dku.edu", "dku.edu")).toBe(true);
-    expect(hostAllowed("evildku.edu", "dku.edu")).toBe(false);
+    expect(hostAllowed("canvas.dku.edu", "*.dku.edu")).toBe(true);
+    expect(hostAllowed("dku.edu", "*.dku.edu")).toBe(true);
+    expect(hostAllowed("evildku.edu", "*.dku.edu")).toBe(false);
+    expect(hostAllowed("docs.google.com", "docs.google.com/forms/d/e/X/", "/forms/d/e/X/viewform")).toBe(true);
+    expect(hostAllowed("docs.google.com", "docs.google.com/forms/d/e/X/", "/document/d/Y/edit")).toBe(false);
+  });
+
+  it("warns about entries that open far more than the exam", () => {
+    expect(broadDomainWarnings(["google.com"])[0]).toMatch(/all of google\.com/);
+    expect(broadDomainWarnings(["*.google.com"])[0]).toMatch(/search and AI/);
+    expect(broadDomainWarnings(["*.dku.edu"])[0]).toMatch(/sub-site/);
+    expect(broadDomainWarnings(["docs.google.com/forms/d/e/X/", "canvas.dku.edu"])).toEqual([]);
+    expect(externalUrlWarning("https://forms.gle/abc")).toMatch(/full form address/);
   });
 
   it("validates whole settings only in external mode", () => {
@@ -92,7 +111,7 @@ describe("external exam validation", () => {
     ).toEqual({
       mode: "external",
       external_url: "https://canvas.dku.edu/q",
-      allowed_domains: ["login.microsoftonline.com", "dku.edu"],
+      allowed_domains: ["login.microsoftonline.com/x", "dku.edu"],
       finish_url_contains: null,
     });
     expect(
