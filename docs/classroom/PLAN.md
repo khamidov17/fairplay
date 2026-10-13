@@ -1,6 +1,10 @@
 # FairPlay Classroom — build plan (agent team)
 
-Decided by Mister on 2026-10-13: copy the whole DKU OJ code into FairPlay as our teacher dashboard ("FairPlay Classroom"), give it the FairPlay look, fix every bug from the review, and connect it to the FairPlay exam app through an API. CS teachers get the full feature set; teachers of other subjects get a slightly different dashboard with only what fits their subject.
+Decided by Mister on 2026-10-13: copy the whole online-judge/course system we reviewed into FairPlay as our teacher dashboard ("FairPlay Classroom"), give it the FairPlay look, fix every bug from the review, and make it subject-aware: CS teachers get the full feature set, teachers of other subjects get a dashboard with only what fits their subject. Adding a new subject dashboard (math, chemistry, ...) must be a small, documented step.
+
+**Branding rule (Mister, 2026-10-13):** nothing in the codebase or the UI may mention the university the code came from or its system name (no "DKU", "Duke", "DKU OJ", dukekunshan.edu.cn, its GitLab, its people, its logos). Everything users see says FairPlay / FairPlay Classroom. Visible "DMOJ" branding is removed too. The ONLY exception is the legal minimum: `classroom/LICENSE` (AGPL-3.0, unchanged) and `classroom/NOTICE` ("modified version of DMOJ: Modern Online Judge, AGPL-3.0"), plus a "Licenses / source" link on an About page. Never delete or alter LICENSE or third-party copyright headers. Internal Python identifiers that name the open-source engine (`judge` app, `DMOJ_*` settings, the DMOJ judge protocol) may stay.
+
+**Later, not now:** the Connector API to connect the exam app to an outside judge system. Do not build it in this round, but do not make it harder (keep a clean service boundary).
 
 ## Architecture
 
@@ -16,7 +20,7 @@ fairplay/
 - **The same Connector API is what we ask DKU OJ to add.** Our classroom/ is the reference implementation; the patch we send DKU is the same code.
 - **License.** classroom/ keeps DKU OJ's LICENSE (AGPL-3.0) and a NOTICE crediting DMOJ and DKU OJ. Do not remove copyright headers. Anyone using the hosted Classroom must be able to get its source (add a "Source code" link in the footer).
 
-## FairPlay exam flow (the Connector)
+## Later: the Connector (design notes only, NOT this round)
 
 1. The teacher creates an assignment in Classroom and ticks **"Run in FairPlay"** (`Contest.fairplay_required`).
 2. For such an assignment, Classroom hides it and its problems from students on every Classroom page and API (access check, problem access, exports, submission lists, result filters, AC rates, test-case/tester downloads, practice submits, PDF/Word export). Students never sit the exam on Classroom.
@@ -40,13 +44,12 @@ Connector endpoints (Classroom side, all under `/api/fairplay/v1/`, service toke
 
 ## Phases (each ends with tests green and a commit)
 
-- **P0 Import and boot.** Copy the snapshot into classroom/, attribution, run it locally on MariaDB + Redis, run its test suite, record the baseline (which tests pass/fail before our changes).
+- **P0 Import and boot.** classroom/ runs locally on MariaDB + Redis, its own test suite runs, the baseline (pass/fail before our changes) is in `docs/classroom/BASELINE.md`.
 - **P1 Fix every review finding** in `docs/classroom/REVIEW.md`, each with a regression test. Split by area.
-- **P2 Connector API + "Run in FairPlay"** on the Classroom side; exam-server client in server/ (pull package, push submissions, read release status) with tests against a running Classroom.
-- **P3 FairPlay look.** Brand tokens (primary #2F4BD8, ink #1B2533, ground #F3F5F7, white surfaces, no black surfaces, Manrope + Source Serif 4 + JetBrains Mono self-hosted, no Google Fonts or other CDNs: the product is hosted in mainland China), rename visible "DKU OJ"/"DMOJ" branding to "FairPlay Classroom" (keep license credits), restyle base layout, nav, course and assignment pages following the design canvas (T8 classroom dashboard, S3 student dashboard).
-- **P4 Subjects** (pack registry, subject field, per-subject dashboard).
-- **P5 Performance**: web server config (workers, DB driver vs gevent), AI and PDF calls off the request path (Celery), analytics caching, a load test of 300 students joining and submitting.
-- **P6 Independent verification** of every phase by a reviewer who did not write the code.
+- **P2 Debrand + FairPlay look.** Remove every DKU/Duke reference (code, comments, templates, docs, settings defaults, CI, locale strings, URLs, emails, logos) per the branding rule; rename the Django project package and visible names to FairPlay Classroom; brand tokens (primary #2F4BD8, ink #1B2533, ground #F3F5F7, white surfaces, no black surfaces, Manrope + Source Serif 4 + JetBrains Mono self-hosted, no Google Fonts or other CDNs: the product is hosted in mainland China); restyle base layout, nav, course and assignment pages following the design canvas (T8 classroom dashboard, S3 student dashboard).
+- **P3 Subjects.** `subject` on courses + a feature-pack registry in ONE place (`judge/subjects/`), so a new subject = one registry entry + optional templates; CS = everything, others = reduced; documented in `docs/classroom/ADDING_A_SUBJECT.md` with a worked example.
+- **P4 Performance**: web server config (workers, DB driver vs gevent), AI and PDF calls off the request path (Celery), analytics caching, a load test of 300 students joining and submitting.
+- **P5 Independent verification** of every phase by a reviewer who did not write the code.
 
 ## Rules for every agent
 
