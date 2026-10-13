@@ -5,7 +5,7 @@ from django.db.models import CASCADE
 from django.utils.translation import gettext_lazy as _
 
 from judge.models.problem import Problem
-from judge.storage import generate_submission_key, submission_storage
+from judge.storage import generate_problem_import_key, generate_submission_key, submission_storage
 
 __all__ = [
     'ProblemMCQOption', 'ProblemMCQConfig', 'ProblemBlank', 'ProblemFillBlankConfig',
@@ -24,6 +24,11 @@ class ProblemImportDraft(models.Model):
         ordering = ('-updated_at',)
         verbose_name = _('problem import draft')
         verbose_name_plural = _('problem import drafts')
+
+
+def problem_import_test_data_upload_to(instance, filename):
+    """upload_to: private, random key; never the teacher's filename (it is guessable)."""
+    return generate_problem_import_key(instance.draft_id, filename)
 
 
 class ProblemImportItem(models.Model):
@@ -46,7 +51,9 @@ class ProblemImportItem(models.Model):
     difficulty = models.CharField(max_length=10, blank=True)
     allowed_languages = models.TextField(blank=True)
     test_data = models.TextField(blank=True)
-    test_data_zip = models.FileField(upload_to='problem_import_test_data/', blank=True)
+    # Hidden test data: private submission storage (never public MEDIA), deleted after creation.
+    test_data_zip = models.FileField(upload_to=problem_import_test_data_upload_to, storage=submission_storage,
+                                     max_length=255, blank=True)
     source_label = models.CharField(max_length=255, blank=True)
     options = models.TextField(blank=True)
     correct_options = models.TextField(blank=True)

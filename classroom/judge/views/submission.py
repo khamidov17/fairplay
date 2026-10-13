@@ -1,4 +1,3 @@
-import json
 from collections import namedtuple
 from datetime import timedelta
 from itertools import groupby
@@ -31,6 +30,7 @@ from judge.utils.infinite_paginator import InfinitePaginationMixin
 from judge.utils.lazy import memo_lazy
 from judge.utils.problems import get_result_data, user_completed_ids, user_editable_ids, user_tester_ids
 from judge.utils.raw_sql import join_sql_subquery, use_straight_join
+from judge.utils.safe_json import script_json
 from judge.utils.views import DiggPaginatorMixin, TitleMixin, generic_message
 from judge.views.ide import IDE_PROBLEM_CODE
 
@@ -701,8 +701,8 @@ class SubmissionsListBase(DiggPaginatorMixin, TitleMixin, ListView):
         context['show_contest_filter'] = not self.in_contest
         context['scope_contest'] = self.contest if self.in_contest else None
 
-        context['results_json'] = mark_safe(json.dumps(self.get_result_data()))
-        context['results_colors_json'] = mark_safe(json.dumps(settings.DMOJ_STATS_SUBMISSION_RESULT_COLORS))
+        context['results_json'] = script_json(self.get_result_data())
+        context['results_colors_json'] = script_json(settings.DMOJ_STATS_SUBMISSION_RESULT_COLORS)
 
         context['page_suffix'] = suffix = ('?' + self.request.GET.urlencode()) if self.request.GET else ''
         context['first_page_href'] = (self.first_page_href or '.') + suffix

@@ -1,3 +1,5 @@
+import re
+
 from django.conf import settings
 from django.conf.urls.static import static as static_files
 from django.contrib import admin
@@ -544,5 +546,17 @@ if 'impersonate' in settings.INSTALLED_APPS:
 # root-ish MEDIA_URL ('/' or unset) degenerates into a catch-all that swallows
 # every route declared after it. Only honor real sub-path prefixes.
 _media_url = getattr(settings, 'MEDIA_URL', '')
+
+
+def _media_not_found(request, *args, **kwargs):
+    raise Http404()
+
+
 if settings.DEBUG and _media_url.strip('/'):
+    # Excel-import test-data ZIPs used to be stored under MEDIA_ROOT; they hold hidden tests and must
+    # never be served (they now live in private storage; this guards files left from older versions).
+    _media_prefix = _media_url.strip('/') + '/'
+    urlpatterns += [
+        re_path(r'^%sproblem_import_test_data/' % re.escape(_media_prefix), _media_not_found),
+    ]
     urlpatterns += static_files(_media_url, document_root=settings.MEDIA_ROOT)

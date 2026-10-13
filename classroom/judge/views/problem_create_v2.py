@@ -50,6 +50,7 @@ from judge.models.question import GRADE_AI, GRADE_EXACT
 from judge.utils.problem_create import (apply_simple_problem_defaults, default_problem_group, default_problem_type,
                                         generate_problem_code, log_problem_admin_entry,
                                         problem_admin_changed_fields, problem_admin_snapshot)
+from judge.utils.safe_json import script_json
 from judge.utils.unique_ids import wants_auto_series
 from judge.utils.user_search import profile_choice_payload, profile_choice_payloads
 
@@ -146,6 +147,27 @@ def _can_create_any(user):
     return user.has_perm('judge.create_private_problem') or (user.is_staff and user.has_perm('judge.add_problem'))
 
 
+def assignable_organizations(user, problem=None):
+    """Courses ``user`` may attach a problem to: the ones they teach, plus any it is already in.
+
+    "Teach" means course admin, course instructor or admin of a class in the course
+    (``Organization.profile_teaches_course``); ``edit_all_organization`` allows every course.
+    """
+    if not user.is_authenticated or not user.has_perm('judge.create_private_problem'):
+        return Organization.objects.none()
+    if user.has_perm('judge.edit_all_organization'):
+        return Organization.objects.all()
+    profile = user.profile
+    q = Q(admins=profile) | Q(instructors=profile) | Q(**{'class__admins': profile})
+    if problem is not None and problem.pk is not None:
+        q |= Q(id__in=problem.organizations.values('id'))
+    return Organization.objects.filter(q).distinct()
+
+
+def _normalized_text(value):
+    return str(value or '').replace('\r\n', '\n').replace('\r', '\n').strip()
+
+
 def _can_create_code(user):
     """Programming problems: course instructors (create_private_problem) or site add_problem."""
     return _can_create_any(user)
@@ -171,7 +193,9 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             context['title'] = _('Edit problem')
             context['edit_code'] = problem.code
             context['edit_name'] = problem.name
-            context['edit_data_json'] = json.dumps(self._build_edit_data(problem))
+            context['organizations'] = list(
+                assignable_organizations(request.user, problem).order_by('name').values('id', 'name'))
+            context['edit_data_json'] = script_json(self._build_edit_data(problem))
             context['test_data_url'] = reverse('problem_data', args=[problem.code])
             context['edit_detail_url'] = reverse('problem_detail', args=[problem.code])
             if (
@@ -187,20 +211,20 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
     def get_context(self, request):
         user = request.user
         profile = request.profile
-        # Match original admin organization_select2 on main: any course is selectable.
-        orgs = list(Organization.objects.order_by('name').values('id', 'name'))
+        # Only courses the user teaches are offered (and accepted on save, see _payload_organizations).
+        orgs = list(assignable_organizations(user).order_by('name').values('id', 'name'))
         can_edit_organizations = user.has_perm('judge.create_private_problem')
         return {
             'title': _('Add problem'),
             'organizations': orgs,
             'groups': list(ProblemGroup.objects.order_by('full_name', 'name').values('id', 'full_name', 'name')),
             'languages': list(Language.objects.order_by('name', 'key').values('id', 'key', 'name')),
-            'languages_json': json.dumps([
+            'languages_json': script_json([
                 {'key': lang['key'], 'name': lang['name']}
                 for lang in Language.objects.order_by('name', 'key').values('key', 'name')
             ]),
             'problem_types': list(ProblemType.objects.order_by('full_name', 'name').values('id', 'full_name', 'name')),
-            'problem_types_json': json.dumps([
+            'problem_types_json': script_json([
                 {'name': t['name'], 'full': t['full_name'] or t['name']}
                 for t in ProblemType.objects.order_by('full_name', 'name').values('name', 'full_name')
             ]),
@@ -224,17 +248,12 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             'create_problem_group_url': reverse('problem_create_v2_problem_group'),
             'create_organization_url': reverse('problem_create_v2_organization'),
             'can_create_organization': can_edit_organizations,
-            'harness_languages_json': (
-                json.dumps([
-                    {'id': lang.id, 'key': lang.key, 'name': lang.name, 'ace': lang.ace}
-                    for lang in Language.objects.filter(
-                        common_name__in=['Java', 'Python'],
-                    ).order_by('common_name', 'key')
-                ])
-                .replace('<', '\\u003c')
-                .replace('>', '\\u003e')
-                .replace('&', '\\u0026')
-            ),
+            'harness_languages_json': script_json([
+                {'id': lang.id, 'key': lang.key, 'name': lang.name, 'ace': lang.ace}
+                for lang in Language.objects.filter(
+                    common_name__in=['Java', 'Python'],
+                ).order_by('common_name', 'key')
+            ]),
             'ai_problem_type_url': reverse('problem_create_v2_ai_problem_type'),
             'ai_decompose_url': reverse('problem_create_v2_ai_decompose'),
             'problem_list_url': reverse('problem_list'),
@@ -245,13 +264,8 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             'search_users_url': reverse('martor_search_user'),
             'profile_select2_url': reverse('profile_select2'),
             'class_select2_url': reverse('class_select2'),
-            # Escape <>& so |safe inline JSON cannot break out of <script>.
-            'current_profile_json': (
-                json.dumps(profile_choice_payload(profile))
-                .replace('<', '\\u003c')
-                .replace('>', '\\u003e')
-                .replace('&', '\\u0026')
-            ),
+            # Every *_json value goes into <script> with |safe: script_json escapes <>& and U+2028/9.
+            'current_profile_json': script_json(profile_choice_payload(profile)),
             'licenses': list(License.objects.order_by('name').values('id', 'key', 'name', 'display')),
             'ui_languages': list(settings.LANGUAGES),
             'edit_code': '',
@@ -267,7 +281,7 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             'import_config_needs_review': False,
             'import_unrecognized_configurations': [],
             'checkers': [{'value': value, 'label': str(label)} for value, label in CHECKERS],
-            'checkers_json': json.dumps([
+            'checkers_json': script_json([
                 {'value': value, 'label': str(label)} for value, label in CHECKERS
             ]),
         }
@@ -320,6 +334,12 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
                 return JsonResponse({'error': str(e)}, status=403)
             if existing is None:
                 return JsonResponse({'error': _('Problem not found.')}, status=404)
+
+        if existing is not None:
+            try:
+                self._check_full_markup_text(request.user, payload, existing)
+            except PermissionError as e:
+                return JsonResponse({'error': str(e)}, status=403)
 
         before = problem_admin_snapshot(existing) if existing is not None else None
         try:
@@ -415,6 +435,32 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
         if not can_edit:
             raise PermissionError(_('You do not have permission to edit this problem.'))
         return problem
+
+    def _check_full_markup_text(self, user, payload, problem):
+        """Mirror ProblemAdmin: without ``problem_full_markup`` the statement and the translations of a
+        full-markup problem are read-only, because full markup is rendered without sanitizing."""
+        if not problem.is_full_markup or user.has_perm('judge.problem_full_markup'):
+            return
+        message = _('You do not have permission to edit the statement of a full markup problem.')
+        if _normalized_text(payload.get('description')) != _normalized_text(problem.description):
+            raise PermissionError(message)
+        if 'translations' in payload:
+            submitted = {}
+            for row in payload.get('translations') or []:
+                if not isinstance(row, dict):
+                    raise PermissionError(message)
+                name = _normalized_text(row.get('name'))
+                description = _normalized_text(row.get('description'))
+                if not name and not description:
+                    continue
+                submitted[_normalized_text(row.get('language'))] = (name or problem.name, description)
+            current = {
+                translation.language: (_normalized_text(translation.name) or problem.name,
+                                       _normalized_text(translation.description))
+                for translation in problem.translations.all()
+            }
+            if submitted != current:
+                raise PermissionError(message)
 
     def _clear_type_children(self, problem, *, clear_cases=True):
         """Remove every question-type-specific child before repopulating on edit (also handles a
@@ -710,13 +756,31 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
                 return group
         return default_problem_group()
 
-    def _resolve_public(self, user, is_public, payload):
+    def _payload_organizations(self, payload, user, problem=None):
+        """The courses named in ``payload``, all of which ``user`` must be allowed to assign."""
+        ids = set()
+        for value in payload.get('organizations') or []:
+            try:
+                ids.add(int(value))
+            except (TypeError, ValueError):
+                raise ValueError(_('Invalid course.'))
+        organizations = list(assignable_organizations(user, problem).filter(pk__in=ids))
+        if len(organizations) != len(ids):
+            raise PermissionError(_('You can only add problems to courses you teach.'))
+        return organizations
+
+    def _resolve_public(self, user, is_public, payload, problem=None):
         """Mirror the admin/MCQ visibility rules; returns the effective is_public or raises."""
         if not is_public:
             return False
         if user.has_perm('judge.change_public_visibility'):
             return True
-        org_private = bool(payload.get('organizations'))
+        # Decide on the courses that will really be attached (unknown ids do not count), like the admin
+        # does with the saved ``is_organization_private``.
+        if user.has_perm('judge.create_private_problem'):
+            org_private = bool(self._payload_organizations(payload, user, problem))
+        else:
+            org_private = problem is not None and problem.pk is not None and problem.organizations.exists()
         if not org_private:
             raise PermissionError(_('You do not have permission to make a problem public unless it is '
                                     'private to an organization.'))
@@ -824,11 +888,11 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
 
     def _attach_orgs(self, problem, payload, user):
         # Match ProblemAdmin.get_readonly_fields: organizations is read-only without
-        # create_private_problem. Users who can edit the field may assign any course.
+        # create_private_problem. Users who can edit the field may assign only courses they teach
+        # (plus the ones the problem is already in).
         if not user.has_perm('judge.create_private_problem'):
             return
-        ids = payload.get('organizations') or []
-        problem.organizations.set(Organization.objects.filter(pk__in=ids))
+        problem.organizations.set(self._payload_organizations(payload, user, problem))
 
     def _parse_local_dt(self, value):
         text = (value or '').strip()
@@ -1170,7 +1234,7 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             problem.memory_limit = int(self._num(payload.get('memory_limit'), 256) * 1024)  # MB -> KB
             problem.group = self._resolve_group(payload)
             self._init_problem_defaults(problem, payload, request, is_create)
-            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload)
+            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload, problem=problem)
             problem.save()
 
             self._attach_types(problem, payload, is_create=is_create)
@@ -1484,7 +1548,7 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             problem.partial = True if multiple else False
             problem.group = self._resolve_group(payload)
             self._init_problem_defaults(problem, payload, request, is_create)
-            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload)
+            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload, problem=problem)
             problem.save()
 
             self._attach_types(problem, payload, is_create=is_create)
@@ -1534,7 +1598,7 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             problem.partial = False
             problem.group = self._resolve_group(payload)
             self._init_problem_defaults(problem, payload, request, is_create)
-            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload)
+            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload, problem=problem)
             problem.save()
 
             self._attach_types(problem, payload, is_create=is_create)
@@ -1571,7 +1635,7 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             problem.partial = bool(payload.get('partial'))
             problem.group = self._resolve_group(payload)
             self._init_problem_defaults(problem, payload, request, is_create)
-            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload)
+            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload, problem=problem)
             problem.save()
 
             self._attach_types(problem, payload, is_create=is_create)
@@ -1617,7 +1681,7 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             problem.partial = True
             problem.group = self._resolve_group(payload)
             self._init_problem_defaults(problem, payload, request, is_create)
-            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload)
+            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload, problem=problem)
             problem.save()
 
             self._attach_types(problem, payload, is_create=is_create)
@@ -1676,7 +1740,7 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             problem.partial = True
             problem.group = self._resolve_group(payload)
             self._init_problem_defaults(problem, payload, request, is_create)
-            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload)
+            problem.is_public = self._resolve_public(user, bool(payload.get('is_public')), payload, problem=problem)
             problem.save()
 
             self._attach_types(problem, payload, is_create=is_create)

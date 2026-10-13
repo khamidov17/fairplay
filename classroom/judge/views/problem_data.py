@@ -14,6 +14,7 @@ from django.forms.models import inlineformset_factory
 from django.http import Http404, HttpResponse, HttpResponseRedirect
 from django.shortcuts import get_object_or_404, render
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.html import escape, format_html
 from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
@@ -21,8 +22,10 @@ from django.views.generic import DetailView
 
 from django_ace import AceWidget
 from judge.highlight_code import highlight_code
-from judge.models import Problem, ProblemData, ProblemHarness, ProblemTestCase, Submission, problem_data_storage
+from judge.models import ContestProblem, Problem, ProblemData, ProblemHarness, ProblemTestCase, Submission, \
+    problem_data_storage
 from judge.utils.problem_data import ProblemDataCompiler
+from judge.utils.safe_json import script_json
 from judge.utils.unicode import utf8text
 from judge.utils.views import TitleMixin, add_file_response
 from judge.views.problem import ProblemMixin
@@ -254,7 +257,7 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
             except BadZipfile:
                 pass
         context['valid_files'] = set(valid_files)
-        context['valid_files_json'] = mark_safe(json.dumps(valid_files))
+        context['valid_files_json'] = script_json(valid_files)
 
         context['cases_formset'] = self.get_case_formset(valid_files)
         context['all_case_forms'] = chain(context['cases_formset'], [context['cases_formset'].empty_form])
@@ -269,9 +272,9 @@ class ProblemDataView(TitleMixin, ProblemManagerMixin):
         harness_languages = Language.objects.filter(
             common_name__in=['Java', 'Python'],
         ).values('id', 'ace')
-        context['language_ace_map'] = mark_safe(json.dumps({
+        context['language_ace_map'] = script_json({
             lang['id']: lang['ace'] for lang in harness_languages
-        }))
+        })
 
         # Chrome-less rendering when embedded inside the create_v2 problem editor (iframe).
         context['embed'] = embed = bool(self.request.GET.get('embed'))
@@ -360,6 +363,24 @@ def problem_init_view(request, problem):
     })
 
 
+def problem_in_protected_contest(problem):
+    """Whether hidden test material of ``problem`` must stay hidden because of an assignment.
+
+    True while the problem is part of an upcoming or running assignment, or of an exam whose hidden
+    results are not finalized yet. Test cases and the tester must not leak to students then, not even
+    through a practice submission made outside the assignment.
+    """
+    now = timezone.now()
+    for contest_problem in ContestProblem.objects.filter(problem=problem).select_related('contest', 'problem'):
+        contest = contest_problem.contest
+        if contest.end_time is None or contest.end_time > now:
+            return True
+        if (contest.format_class.has_hidden_results and not contest.results_finalized and
+                contest_problem.results_hidden):
+            return True
+    return False
+
+
 @login_required
 def download_test_case(request, submission, case, type):
     submission = get_object_or_404(Submission, id=int(submission))
@@ -368,6 +389,14 @@ def download_test_case(request, submission, case, type):
 
     if not submission.can_see_detail(request.user):
         raise Http404()
+
+    if not submission.problem.is_editable_by(request.user):
+        # The failing case reveals the verdict, so it needs the same visibility as the result, and no
+        # hidden test may be handed out while an assignment that uses the problem is open.
+        if not submission.results_visible_to(request.user):
+            raise Http404()
+        if problem_in_protected_contest(submission.problem):
+            raise Http404()
 
     case = get_object_or_404(ProblemTestCase, dataset=submission.problem, order=int(case))
 
@@ -422,6 +451,13 @@ def download_test_case(request, submission, case, type):
 def download_tester(request, problem):
     problem = get_object_or_404(Problem, code=problem)
     if not problem.view_tester:
+        raise Http404()
+
+    # Same access rule as the problem page, and the tester is hidden test code: keep it back while an
+    # assignment that uses the problem is open.
+    if not problem.is_accessible_by(request.user):
+        raise Http404()
+    if not problem.is_editable_by(request.user) and problem_in_protected_contest(problem):
         raise Http404()
 
     # Get available harnesses

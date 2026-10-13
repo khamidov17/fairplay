@@ -1,12 +1,11 @@
-import json
 import statistics
 
 from django.http import Http404
-from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _
 from django.views.generic.detail import DetailView
 
 from judge.utils.contest_analytics import _get_nested, get_contest_analytics
+from judge.utils.safe_json import script_json
 from judge.utils.views import TitleMixin
 from judge.views.contests import ContestMixin
 
@@ -82,10 +81,10 @@ class ContestAnalytics(TitleMixin, ContestMixin, DetailView):
         similarity_sections.sort(key=lambda s: -(s['pairs'][0]['similarity'] if s['pairs'] else 0))
         context['similarity_sections'] = similarity_sections
 
-        # JSON data for charts (escape </ to prevent script tag injection)
-        context['timeline_json'] = mark_safe(json.dumps(analytics['timeline']).replace('</', '<\\/'))
-        context['problem_ac_rates_json'] = mark_safe(json.dumps(analytics['problem_ac_rates']).replace('</', '<\\/'))
-        context['students_json'] = mark_safe(json.dumps(students_list, default=str).replace('</', '<\\/'))
+        # JSON data for charts (script_json escapes <>& so no value can leave the <script>)
+        context['timeline_json'] = script_json(analytics['timeline'])
+        context['problem_ac_rates_json'] = script_json(analytics['problem_ac_rates'])
+        context['students_json'] = script_json(students_list, default=str)
         context['has_timeline_data'] = bool(analytics['timeline']['submissions'])
 
         return context

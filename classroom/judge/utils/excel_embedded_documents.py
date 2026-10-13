@@ -18,6 +18,12 @@ from xml.etree import ElementTree as ET
 
 from judge.utils import simple_xlsx
 
+# Limits for a DOCX embedded in the workbook. The outer XLSX caps the embedded object itself, but
+# a small deflated DOCX can expand to gigabytes, so its own members are capped before any read.
+MAX_DOCX_PART_BYTES = 10 * 1024 * 1024
+MAX_DOCX_TOTAL_UNCOMPRESSED_BYTES = 32 * 1024 * 1024
+MAX_DOCX_COMPRESSION_RATIO = 100
+
 
 @dataclass
 class EmbeddedImage:
@@ -208,11 +214,38 @@ def _native_payload(payload, filename):
     raise ValueError('The embedded Markdown file is invalid.')
 
 
+def _validate_docx_archive(archive):
+    """Reject a DOCX whose members are too large or too highly compressed (zip bomb)."""
+    total = 0
+    for info in archive.infolist():
+        if info.is_dir():
+            continue
+        total += info.file_size
+        if info.file_size > MAX_DOCX_PART_BYTES or total > MAX_DOCX_TOTAL_UNCOMPRESSED_BYTES:
+            raise ValueError('The embedded DOCX file is too large.')
+        if info.compress_size == 0:
+            if info.file_size > 0:
+                raise ValueError('The embedded DOCX file is invalid.')
+            continue
+        if info.file_size / float(info.compress_size) > MAX_DOCX_COMPRESSION_RATIO:
+            raise ValueError('The embedded DOCX file is too large.')
+
+
+def _read_docx_member(archive, name):
+    """Read one validated member; the size is checked again on the bytes actually produced."""
+    with archive.open(name) as member:
+        payload = member.read(MAX_DOCX_PART_BYTES + 1)
+    if len(payload) > MAX_DOCX_PART_BYTES:
+        raise ValueError('The embedded DOCX file is too large.')
+    return payload
+
+
 def _description_text(filename, payload):
     if filename.lower().endswith('.docx'):
         try:
             with zipfile.ZipFile(io.BytesIO(payload)) as archive:
-                root = ET.fromstring(archive.read('word/document.xml'))
+                _validate_docx_archive(archive)
+                root = ET.fromstring(_read_docx_member(archive, 'word/document.xml'))
                 image_relationships = _docx_image_relationships(archive)
                 paragraphs = []
                 images = []
@@ -233,7 +266,7 @@ def _description_text(filename, payload):
                                     image = EmbeddedImage(
                                         token=str(uuid.uuid4()),
                                         filename=posixpath.basename(image_path),
-                                        content=archive.read(image_path),
+                                        content=_read_docx_member(archive, image_path),
                                     )
                                     validate_docx_image(image.filename, image.content)
                                     image_tokens[relationship_id] = image.token
@@ -256,7 +289,7 @@ def _description_text(filename, payload):
 def _docx_image_relationships(archive):
     """Map DOCX drawing relationship IDs to safely normalized media paths."""
     try:
-        root = ET.fromstring(archive.read('word/_rels/document.xml.rels'))
+        root = ET.fromstring(_read_docx_member(archive, 'word/_rels/document.xml.rels'))
     except KeyError:
         # A text-only DOCX can legitimately omit the relationships part.
         return {}

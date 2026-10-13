@@ -74,7 +74,8 @@ class ProblemImportPreviewTestCase(CommonDataMixin, TestCase):
         organization = Organization.objects.create(
             name='CS 201', slug='cs201', short_name='CS201', about='',
         )
-        self.creator.profile.organizations.add(organization)
+        # Instructors may attach problems only to courses they teach (AUTH-10).
+        organization.admins.add(self.creator.profile)
         response = self.upload([
             ['name', 'question_type', 'description', 'organizations', 'options', 'answer'],
             ['Organization scope', 'multiple_choice', 'Choose the prime.', 'cs201', '4\n5', '2'],
@@ -105,6 +106,7 @@ class ProblemImportPreviewTestCase(CommonDataMixin, TestCase):
         organization = Organization.objects.create(
             name='Empty Course', slug='empty-course', short_name='EMPTY', about='',
         )
+        organization.admins.add(self.creator.profile)
         response = self.upload([
             ['name', 'question_type', 'description', 'organizations', 'options', 'answer'],
             ['Empty course scope', 'multiple_choice', 'Choose the prime.', 'empty-course', '4\n5', '2'],
@@ -131,11 +133,30 @@ class ProblemImportPreviewTestCase(CommonDataMixin, TestCase):
             {organization.pk},
         )
 
+    def test_upload_does_not_match_course_the_creator_does_not_teach(self):
+        """AUTH-10: being a member (student) of a course, or not at all, is not enough to attach to it."""
+        member_course = Organization.objects.create(
+            name='CS 301', slug='cs301', short_name='CS301', about='',
+        )
+        self.creator.profile.organizations.add(member_course)
+        Organization.objects.create(name='Other Course', slug='other-course', short_name='OTHER', about='')
+        response = self.upload([
+            ['name', 'question_type', 'description', 'organizations', 'options', 'answer'],
+            ['Member scope', 'multiple_choice', 'Choose the prime.', 'cs301', '4\n5', '2'],
+            ['Other scope', 'multiple_choice', 'Choose the prime.', 'other-course', '4\n5', '2'],
+        ])
+
+        self.assertEqual(response.status_code, 200)
+        for item in ProblemImportDraft.objects.get(owner=self.creator.profile).items.all():
+            self.assertTrue(item.config_needs_review)
+            self.assertEqual(item.editor_data, {})
+
     def test_partial_organization_draft_keeps_imported_code_languages(self):
         organization = Organization.objects.create(
             name='CS 201', slug='cs201', short_name='CS201', about='',
         )
-        self.creator.profile.organizations.add(organization)
+        # Instructors may attach problems only to courses they teach (AUTH-10).
+        organization.admins.add(self.creator.profile)
         language = Language.objects.exclude(key='ANSWER').first()
         response = self.upload([
             ['name', 'question_type', 'description', 'organizations', 'allowed_languages'],

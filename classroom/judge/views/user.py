@@ -25,7 +25,6 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.formats import date_format
 from django.utils.functional import cached_property
-from django.utils.safestring import mark_safe
 from django.utils.translation import gettext as _, gettext_lazy
 from django.views.decorators.http import require_POST
 from django.views.generic import DetailView, FormView, ListView, TemplateView, View
@@ -42,6 +41,7 @@ from judge.utils.mail import send_mail
 from judge.utils.problems import contest_completed_ids, user_completed_ids
 from judge.utils.pwned import PwnedPasswordsValidator
 from judge.utils.ranker import ranker
+from judge.utils.safe_json import script_json
 from judge.utils.subscription import Subscription
 from judge.utils.unicode import utf8text
 from judge.utils.views import DiggPaginatorMixin, QueryStringSortMixin, TitleMixin, add_file_response, generic_message
@@ -271,7 +271,7 @@ class UserAboutPage(UserPage):
         ratings = context['ratings'] = self.object.ratings.order_by('-contest__end_time').select_related('contest') \
             .defer('contest__description')
 
-        context['rating_data'] = mark_safe(json.dumps([{
+        context['rating_data'] = script_json([{
             'label': rating.contest.name,
             'rating': rating.rating,
             'ranking': rating.rank,
@@ -280,7 +280,7 @@ class UserAboutPage(UserPage):
             'date': date_format(timezone.localtime(rating.contest.end_time), _('M j, Y, G:i')),
             'class': rating_class(rating.rating),
             'height': '%.3fem' % rating_progress(rating.rating),
-        } for rating in ratings]))
+        } for rating in ratings])
 
         # Aggregate in SQL. Use TruncDate(..., tzinfo=UTC) so MySQL does not call
         # CONVERT_TZ into the active user timezone (missing tz tables → NULL → crash).
@@ -292,20 +292,20 @@ class UserAboutPage(UserPage):
             .values('date_only')
             .annotate(cnt=Count('id'))
         )
-        context['submission_data'] = mark_safe(json.dumps({
+        context['submission_data'] = script_json({
             row['date_only'].isoformat(): row['cnt']
             for row in submissions
             if row['date_only'] is not None
-        }))
+        })
         min_year = (
             self.object.submission_set
             .filter(date__isnull=False)
             .annotate(year_only=ExtractYear('date', tzinfo=datetime.timezone.utc))
             .aggregate(min_year=Min('year_only'))['min_year']
         )
-        context['submission_metadata'] = mark_safe(json.dumps({
+        context['submission_metadata'] = script_json({
             'min_year': min_year,
-        }))
+        })
         return context
 
 

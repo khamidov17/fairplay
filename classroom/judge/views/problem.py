@@ -307,7 +307,9 @@ def get_workspace_answer_display(submission):
         html = ''
         try:
             from judge.utils.markdown_preview import render_preview_html
-            html = render_preview_html(text, submission.problem.markdown_style)
+            # Student text: always the sanitized default style, never the problem's staff or
+            # full-markup style (that would let an answer inject HTML/JS into the grade desk).
+            html = render_preview_html(text, 'default')
         except Exception:
             logging.getLogger('judge.problem').exception(
                 'Failed to render short-answer markdown for submission %s', submission.id,
