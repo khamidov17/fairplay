@@ -1,10 +1,12 @@
-# FairPlay Classroom — build plan (agent team)
+# DKU OJ improvements — build plan (agent team)
 
-Decided by Mister on 2026-10-13: copy the whole online-judge/course system we reviewed into FairPlay as our teacher dashboard ("FairPlay Classroom"), give it the FairPlay look, fix every bug from the review, and make it subject-aware: CS teachers get the full feature set, teachers of other subjects get a dashboard with only what fits their subject. Adding a new subject dashboard (math, chemistry, ...) must be a small, documented step.
+Agreed 2026-10-13: we build on top of DKU OJ's code and give the result to DKU for their own use, in collaboration with the DKU OJ team (the professor agreed to collaborate). We do not sell it and we do not rebrand it. The work lives in `classroom/` in this repository for now and goes back to the DKU OJ team as reviewable changes.
 
-**Branding rule (agreed 2026-10-13):** this is a fork, rebranded as a product. Everything users see says FairPlay / FairPlay Classroom: site name, titles, logo, colours, emails, login/front pages, footer, meta tags. Remove the source system's visible product names ("DKU OJ", "DMOJ: Modern Online Judge", "powered by DMOJ") from the UI, and replace deployment-specific configuration (their GitLab CI, SSO host, backup/deploy scripts, e-mail domains, sample data) with FairPlay's own or generic, configurable values. Keep provenance honest: `classroom/LICENSE` (AGPL-3.0, never edited), `classroom/NOTICE` crediting DMOJ and the university fork it came from, third-party copyright headers, and git history stay. A small "About / licenses / source" page is linked from the footer. Do not scrub comments or docs just to hide where code came from.
+Goals: fix every bug from the review; make it subject-aware so that CS teachers keep the full feature set and teachers of other DKU subjects (math, chemistry, biology, languages, economics, ...) get a dashboard with only what fits their subject, based on the DKU curriculum; adding a new subject must be a small, documented step; make it fast enough for large exams.
 
-**Later, not now:** the Connector API to connect the exam app to an outside judge system. Do not build it in this round, but do not make it harder (keep a clean service boundary).
+Branding: keep DKU OJ's name, branding, LICENSE (AGPL-3.0) and history as they are. FairPlay is the name of our separate locked exam app only.
+
+**Later, not now:** the Connector API between the FairPlay exam app and DKU OJ. Keep a clean service boundary.
 
 ## Architecture
 
@@ -44,12 +46,11 @@ Connector endpoints (Classroom side, all under `/api/fairplay/v1/`, service toke
 
 ## Phases (each ends with tests green and a commit)
 
-- **P0 Import and boot.** classroom/ runs locally on MariaDB + Redis, its own test suite runs, the baseline (pass/fail before our changes) is in `docs/classroom/BASELINE.md`.
-- **P1 Fix every review finding** in `docs/classroom/REVIEW.md`, each with a regression test. Split by area.
-- **P2 Debrand + FairPlay look.** Remove every DKU/Duke reference (code, comments, templates, docs, settings defaults, CI, locale strings, URLs, emails, logos) per the branding rule; rename the Django project package and visible names to FairPlay Classroom; brand tokens (primary #2F4BD8, ink #1B2533, ground #F3F5F7, white surfaces, no black surfaces, Manrope + Source Serif 4 + JetBrains Mono self-hosted, no Google Fonts or other CDNs: the product is hosted in mainland China); restyle base layout, nav, course and assignment pages following the design canvas (T8 classroom dashboard, S3 student dashboard).
-- **P3 Subjects.** `subject` on courses + a feature-pack registry in ONE place (`judge/subjects/`), so a new subject = one registry entry + optional templates; CS = everything, others = reduced; documented in `docs/classroom/ADDING_A_SUBJECT.md` with a worked example.
-- **P4 Performance**: web server config (workers, DB driver vs gevent), AI and PDF calls off the request path (Celery), analytics caching, a load test of 300 students joining and submitting.
-- **P5 Independent verification** of every phase by a reviewer who did not write the code.
+- **P0 Import and boot.** Done. See `BASELINE.md`.
+- **P1 Fix every review finding.** Done (1826 tests). Independent verification pending.
+- **P2 Subjects.** `subject` on courses + a feature-pack registry in ONE place (`judge/subjects/`), so a new subject = one registry entry + optional templates; CS = everything; other subjects = reduced; based on DKU's curriculum; documented in `docs/classroom/ADDING_A_SUBJECT.md` with a worked example.
+- **P3 Performance**: web server config (workers, DB driver vs gevent), AI and PDF calls off the request path (Celery), analytics caching, a load test of 300 students joining and submitting.
+- **P4 Independent verification** of every phase by a reviewer who did not write the code.
 
 ## Rules for every agent
 
