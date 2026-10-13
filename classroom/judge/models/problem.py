@@ -661,7 +661,9 @@ class Problem(models.Model):
         return self.submission_source_visibility_mode
 
     def update_stats(self):
-        all_queryset = self.submission_set.filter(user__is_unlisted=False)
+        from judge.utils.result_visibility import results_hidden_q
+        # Public problem stats must not count verdicts hidden in a running exam.
+        all_queryset = self.submission_set.filter(user__is_unlisted=False).exclude(results_hidden_q())
         ac_queryset = all_queryset.filter(points__gte=self.points, result='AC')
         self.user_count = ac_queryset.values('user').distinct().count()
         submissions = all_queryset.count()
@@ -733,8 +735,11 @@ class Problem(models.Model):
     save.alters_data = True
 
     def is_solved_by(self, user):
-        # Return true if a full AC submission to the problem from the user exists.
-        return self.submission_set.filter(user=user.profile, result='AC', points__gte=F('problem__points')).exists()
+        # Return true if a full AC submission to the problem from the user exists. A verdict that
+        # is still hidden (exam not finalized) does not count: "solved" must not reveal it.
+        from judge.utils.result_visibility import results_hidden_q
+        return self.submission_set.filter(user=user.profile, result='AC', points__gte=F('problem__points')) \
+            .exclude(results_hidden_q()).exists()
 
     def vote_permission_for_user(self, user):
         if not user.is_authenticated:

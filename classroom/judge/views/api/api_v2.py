@@ -15,6 +15,7 @@ from judge.models import (
 )
 from judge.utils.infinite_paginator import InfinitePaginationMixin
 from judge.utils.raw_sql import join_sql_subquery, use_straight_join
+from judge.utils.result_visibility import visible_results
 from judge.views.ide import IDE_PROBLEM_CODE
 from judge.views.submission import group_test_cases
 
@@ -520,13 +521,12 @@ class APIUserDetail(APIDetailView):
 
     def get_object_data(self, profile):
         solved_problems = list(
-            Submission.objects
-            .filter(
+            visible_results(Submission.objects.filter(
                 result='AC',
                 user=profile,
                 problem__is_public=True,
                 problem__is_organization_private=False,
-            )
+            ), self.request.user)
             .values('problem').distinct()
             .values_list('problem__code', flat=True),
         )
@@ -584,6 +584,13 @@ class APISubmissionList(APIListView):
     @property
     def use_infinite_pagination(self):
         return not self.used_basic_filters
+
+    def filter_queryset(self, queryset):
+        queryset = super().filter_queryset(queryset)
+        if 'result' in self.used_list_filters:
+            # ?result= must not match on a verdict hidden from this viewer (exam answers).
+            queryset = visible_results(queryset, self.request.user)
+        return queryset
 
     def get_unfiltered_queryset(self):
         queryset = Submission.objects.all()

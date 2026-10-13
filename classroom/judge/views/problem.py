@@ -85,6 +85,7 @@ from judge.utils.problems import (
     user_editable_ids,
     user_tester_ids,
 )
+from judge.utils.result_visibility import problem_in_active_hidden_exam
 from judge.utils.strings import safe_float_or_none, safe_int_or_none
 from judge.utils.submission_create import create_submission
 from judge.utils.tickets import own_ticket_filter
@@ -1230,7 +1231,7 @@ class ProblemList(QueryStringSortMixin, TitleMixin, SolvedProblemMixin, ListView
     def get_contest_queryset(self):
         participation = self.profile.current_contest
         contest = participation.contest
-        stats = assignment_problem_stats(contest)
+        stats = assignment_problem_stats(contest, self.request.user)
 
         queryset = (
             contest.contest_problems.select_related('problem')
@@ -2086,6 +2087,17 @@ class ProblemSubmit(LoginRequiredMixin, ProblemMixin, TitleMixin, SingleObjectFo
                     _('Join the assignment to submit'),
                     _('This problem belongs to an assignment. Enter the assignment to submit a solution.'),
                 )
+        # A problem used in a running or upcoming exam whose results are hidden must not be
+        # practice-submitted outside it (public or not): practice verdicts are shown at once,
+        # so it would work as an answer checker for the exam. Editors may still test it.
+        if self.contest_problem is None and not self.object.is_editable_by(self.request.user) \
+                and problem_in_active_hidden_exam(self.object):
+            title = _('Submissions are closed during the exam')
+            message = _('This problem is used in an exam that is running or has not started yet. '
+                        'Submit your answer inside the exam.')
+            if self._wants_workspace_json():
+                return self._workspace_json_error(message, status=403)
+            return generic_message(self.request, title, message, status=403)
         # Judge-bridge spam cap: code problems only, scoped to this problem.
         if (
             self.is_code

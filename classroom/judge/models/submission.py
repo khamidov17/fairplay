@@ -192,6 +192,7 @@ class Submission(models.Model):
     abort.alters_data = True
 
     def can_see_detail(self, user):
+        from judge.utils.result_visibility import solved_source_visibility_applies
         if not user.is_authenticated:
             return False
         profile = user.profile
@@ -206,6 +207,7 @@ class Submission(models.Model):
             return True
         elif source_visibility == SubmissionSourceAccess.SOLVED and \
                 (self.problem.is_public or self.problem.testers.filter(id=profile.id).exists()) and \
+                solved_source_visibility_applies(self.problem) and \
                 self.problem.is_solved_by(user):
             return True
         elif source_visibility == SubmissionSourceAccess.ONLY_OWN and \

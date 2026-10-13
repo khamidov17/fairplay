@@ -31,6 +31,7 @@ from judge.utils.infinite_paginator import InfinitePaginationMixin
 from judge.utils.lazy import memo_lazy
 from judge.utils.problems import get_result_data, user_completed_ids, user_editable_ids, user_tester_ids
 from judge.utils.raw_sql import join_sql_subquery, use_straight_join
+from judge.utils.result_visibility import results_hidden_q, solved_source_visibility_applies, visible_results
 from judge.utils.views import DiggPaginatorMixin, TitleMixin, generic_message
 from judge.views.ide import IDE_PROBLEM_CODE
 
@@ -130,8 +131,11 @@ class SubmissionDetailBase(LoginRequiredMixin, TitleMixin, SubmissionMixin, Deta
         # submission passed from the except handler — not self.object.
         self.object = submission
         problem = submission.problem
+        # Only hint "solve it to view" where solving actually grants access; otherwise the
+        # two different answers would tell a student whether their hidden exam answer is right.
         if problem.is_accessible_by(self.request.user) and \
-                problem.submission_source_visibility == SubmissionSourceAccess.SOLVED:
+                problem.submission_source_visibility == SubmissionSourceAccess.SOLVED and \
+                solved_source_visibility_applies(problem):
 
             message = escape(_('Permission denied. Solve %(problem)s in order to view it.')) % {
                 'problem': format_html('<a href="{0}">{1}</a>',
@@ -565,7 +569,8 @@ class SubmissionsListBase(DiggPaginatorMixin, TitleMixin, ListView):
     def _get_result_data(self, queryset=None):
         if queryset is None:
             queryset = self.get_queryset()
-        return get_result_data(queryset.order_by())
+        # Counts per result must not include verdicts hidden from this viewer.
+        return get_result_data(visible_results(queryset, self.request.user).order_by())
 
     def access_check(self, request):
         pass
@@ -621,7 +626,9 @@ class SubmissionsListBase(DiggPaginatorMixin, TitleMixin, ListView):
             queryset = queryset.filter(language__in=list(
                 Language.objects.filter(key__in=self.selected_languages).values_list('id', flat=True)))
         if self.selected_statuses:
-            queryset = queryset.filter(result__in=self.selected_statuses)
+            # Filtering by result is only allowed over verdicts this viewer may see; otherwise
+            # ``?status=AC`` would reveal a hidden exam answer's verdict.
+            queryset = visible_results(queryset, self.request.user).filter(result__in=self.selected_statuses)
 
         if self.filter_problems:
             queryset = queryset.filter(problem__code__in=self.filter_problems)
@@ -962,7 +969,8 @@ class AllSubmissions(InfinitePaginationMixin, SubmissionsListBase):
         result = cache.get(key)
         if result:
             return result
-        result = super(AllSubmissions, self)._get_result_data(Submission.objects.all())
+        # Cached for every viewer: leave out every currently hidden verdict.
+        result = get_result_data(Submission.objects.exclude(results_hidden_q()).order_by())
         cache.set(key, result, self.stats_update_interval)
         return result
 

@@ -58,6 +58,7 @@ from judge.utils.opengraph import generate_opengraph
 from judge.utils.problems import _get_result_data, assignment_problem_stats, participation_submit_progress, \
     user_completed_ids
 from judge.utils.ranker import ranker
+from judge.utils.result_visibility import visible_results
 from judge.utils.seb import read_seb_launch_token, request_matches_seb, seb_launch_context, seb_launch_url
 from judge.utils.stats import get_bar_chart, get_pie_chart
 from judge.utils.user_search import profile_choice_label
@@ -1884,7 +1885,7 @@ class ContestDetail(ContestMixin, TitleMixin, CommentedDetailView):
             ), contest_points=F('contests__points'), contest_partial=F('contests__partial'))
             .add_i18n_name(self.request.LANGUAGE_CODE),
         )
-        stats = assignment_problem_stats(self.object)
+        stats = assignment_problem_stats(self.object, self.request.user)
         cp_by_pid = {
             cp.problem_id: cp
             for cp in self.object.contest_problems.select_related('problem')
@@ -2413,7 +2414,8 @@ class ContestStats(TitleMixin, ContestMixin, DetailView):
         if not (self.object.ended or self.can_edit):
             raise Http404()
 
-        queryset = Submission.objects.filter(contest_object=self.object)
+        # Hidden exam verdicts stay out of the charts for viewers who may not see them.
+        queryset = visible_results(Submission.objects.filter(contest_object=self.object), self.request.user)
 
         ac_count = Count(Case(When(result='AC', then=Value(1)), output_field=IntegerField()))
         ac_rate = CombinedExpression(ac_count / Count('problem'), '*', Value(100.0), output_field=FloatField())
