@@ -580,3 +580,47 @@ class FileUploadDefaultFormatNotHiddenTest(CommonDataMixin, TestCase):
             submission=sub, problem=self.cp, participation=self.participation, points=0)
         self.assertFalse(sub.contest_results_hidden)
         self.assertTrue(sub.results_visible_to(self.users['normal']))
+
+
+class EcooLatestSubmissionTest(CommonDataMixin, TestCase):
+    """G-11: ECOO scores the latest submission, but (like upstream) an IE/CE or a
+    still-judging submission never counts as the latest one."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.contest = create_contest(key='ecoo', format_name='ecoo', problems=())
+        cls.problem = create_problem(code='ecooprob', points=100)
+        cls.cp = create_contest_problem(contest=cls.contest, problem=cls.problem, points=100, order=1)
+        cls.participation = create_contest_participation(contest=cls.contest, user=cls.users['normal'].profile)
+
+    def _sub(self, *, result, points, minutes, status='D'):
+        sub = Submission.objects.create(
+            user=self.participation.user, problem=self.problem,
+            language=Language.get_answer_language(), points=points, result=result, status=status,
+            contest_object=self.contest,
+        )
+        Submission.objects.filter(id=sub.id).update(date=self.participation.start + timedelta(minutes=minutes))
+        ContestSubmission.objects.create(
+            submission=sub, problem=self.cp, participation=self.participation, points=points)
+        return sub
+
+    def test_ie_ce_and_in_flight_do_not_replace_earlier_ac(self):
+        from judge.utils.contest_grade import final_submissions_for_contest
+        ac = self._sub(result='AC', points=100, minutes=1)
+        self._sub(result='CE', points=0, minutes=2)
+        self._sub(result='IE', points=0, minutes=3)
+        self._sub(result=None, points=0, minutes=4, status='P')
+        self.participation.recompute_results()
+        self.participation.refresh_from_db()
+        self.assertEqual(self.participation.format_data[str(self.cp.id)]['points'], 100)
+        self.assertGreaterEqual(self.participation.score, 100)
+        final = final_submissions_for_contest(self.contest)
+        self.assertEqual(final[(self.participation.id, self.cp.id)].id, ac.id)
+
+    def test_later_wrong_answer_still_counts(self):
+        self._sub(result='AC', points=100, minutes=1)
+        self._sub(result='WA', points=0, minutes=2)
+        self.participation.recompute_results()
+        self.participation.refresh_from_db()
+        self.assertEqual(self.participation.format_data[str(self.cp.id)]['points'], 0)

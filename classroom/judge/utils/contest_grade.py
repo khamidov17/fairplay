@@ -49,7 +49,8 @@ def scoring_submissions_for_contest(contest, live_only=False, participation_ids=
         key = (cs.participation_id, cs.problem_id)
         sub = cs.submission
         stamp = (sub.date, sub.id)
-        latest[key] = (stamp, cs)
+        if fmt.counts_as_latest(sub):
+            latest[key] = (stamp, cs)
         pts = cs.points if cs.points is not None else (sub.points or 0)
         cand = (pts, stamp)
         prev = best.get(key)
@@ -279,15 +280,25 @@ def machine_assignment_points(submission, contest_problem):
     manual score for ranking). Matches ``Submission.update_contest``'s machine
     formula: case ratio onto the assignment total, with the same ``partial``
     all-or-nothing rule; if there are no cases, scale ``submission.points``
-    from ``problem.points``.
+    from ``problem.points``. When an AI rubric contributed (``ai_points`` set),
+    the combined ``submission.points`` is scaled instead, matching the ranking.
     """
     total = contest_problem.points
+    problem_total = submission.problem.points if submission.problem_id else None
+    if submission.ai_points is not None and problem_total:
+        # Code with a supplementary AI rubric: ``submission.points`` holds the
+        # combined (test cases + AI) score. Scale it exactly like
+        # ``submission_grading._refresh_contest_score`` does for the ranking,
+        # so the student sees the same number as the ranking and exports.
+        pts = round((submission.points or 0) / problem_total * total, 3)
+        if not contest_problem.partial and pts != total:
+            pts = 0
+        return pts
     if submission.case_total and submission.case_total > 0:
         pts = round(submission.case_points / submission.case_total * total, 3)
         if not contest_problem.partial and pts != total:
             pts = 0
         return pts
-    problem_total = submission.problem.points if submission.problem_id else None
     if problem_total:
         return round((submission.points or 0) / problem_total * total, 3)
     return submission.points
