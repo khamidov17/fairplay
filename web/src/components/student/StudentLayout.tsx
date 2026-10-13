@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { clearToken } from "../../api/client";
+import { clearExamDataOnSignOut } from "../../lib/offline";
+import { useFeatures } from "../../lib/features";
 import { useMe } from "../../lib/useMe";
 import { ShieldIcon } from "./icons";
 import "../../styles/student.css";
@@ -20,8 +22,10 @@ export function StudentLogo({ to = "/student" }: { to?: string }) {
 export function StudentLayout({ children, white }: { children: ReactNode; white?: boolean }) {
   const navigate = useNavigate();
   const me = useMe("student");
+  const features = useFeatures();
   const initial = me?.name?.trim().charAt(0).toUpperCase() || "?";
   const signOut = () => {
+    clearExamDataOnSignOut();   // audit W-03: exam copies, packages and sessions leave this computer
     clearToken("student");
     navigate("/student/login");
   };
@@ -34,11 +38,8 @@ export function StudentLayout({ children, white }: { children: ReactNode; white?
             Home
           </NavLink>
           <NavLink to="/student/exams">Exams</NavLink>
-          <NavLink to="/student/homework">Homework</NavLink>
-          <NavLink to="/student/classes">Classes</NavLink>
           <NavLink to="/student/grades">Grades</NavLink>
-          <NavLink to="/student/practice">Practice</NavLink>
-          <NavLink to="/student/progress">Progress</NavLink>
+          {features.has("practice") && <NavLink to="/student/practice">Practice</NavLink>}
         </nav>
         <div className="stu-user">
           <span className="stu-avatar" title={me?.name} aria-label={me ? `Signed in as ${me.name}` : "Signed in"} role="img">

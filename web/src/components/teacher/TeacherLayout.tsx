@@ -1,45 +1,41 @@
 import type { ReactNode } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { clearToken } from "../../api/client";
+import { useFeatures, type Feature } from "../../lib/features";
 import { useMe } from "../../lib/useMe";
 import { Icon, LogoMark, type IconName } from "../ui/Icon";
 import "../../styles/teacher.css";
 
-type Section = "home" | "exams" | "classes" | "grading" | "gradebook" | "lms" | "insights" | "students" | "practice" | "scan" | "quality" | "homework" | "progress";
+type Section = "home" | "exams" | "classes" | "grading" | "gradebook" | "lms" | "insights" | "students" | "practice" | "scan";
 
 /** Which nav item is active for a path. */
 export function sectionFor(pathname: string): Section | null {
   const p = pathname.replace(/\/+$/, "");
   if (p === "/teacher") return "home";
-  if (p.startsWith("/teacher/classes")) return "classes";
   if (p.startsWith("/teacher/gradebook")) return "gradebook";
   if (p.startsWith("/teacher/lms")) return "lms";
   if (p.startsWith("/teacher/insights")) return "insights";
   if (p.startsWith("/teacher/students")) return "students";
+  if (p.startsWith("/teacher/classes")) return "classes";
   if (p.startsWith("/teacher/practice")) return "practice";
-  if (p.startsWith("/teacher/quality")) return "quality";
-  if (p.startsWith("/teacher/homework")) return "homework";
-  if (p.startsWith("/teacher/progress")) return "progress";
   if (p.startsWith("/teacher/scan") || /^\/teacher\/exams\/[^/]+\/scan/.test(p)) return "scan";
-  if (p.startsWith("/teacher/grading") || /^\/teacher\/exams\/[^/]+\/grading/.test(p)) return "grading";
+  if (p.startsWith("/teacher/grading") || /^\/teacher\/exams\/[^/]+\/grading/.test(p)) return "gradebook";
   if (p.startsWith("/teacher/exams")) return "exams";
   return null;
 }
 
-const NAV: { id: Section; to: string; label: string; icon: IconName }[] = [
+// 2026-10-13: one "Grades" page (grade, release, marks). Optional parts only when the
+// server switches them on (lib/features.ts).
+const NAV: { id: Section; to: string; label: string; icon: IconName; feature?: Feature }[] = [
   { id: "home", to: "/teacher", label: "Home", icon: "home" },
   { id: "exams", to: "/teacher/exams", label: "Exams", icon: "exams" },
   { id: "classes", to: "/teacher/classes", label: "Classes", icon: "classes" },
-  { id: "grading", to: "/teacher/grading", label: "Grading", icon: "grading" },
-  { id: "homework", to: "/teacher/homework", label: "Homework", icon: "grading" },
-  { id: "scan", to: "/teacher/scan", label: "Scan & Grade", icon: "scan" },
-  { id: "gradebook", to: "/teacher/gradebook", label: "Gradebook", icon: "gradebook" },
-  { id: "progress", to: "/teacher/progress", label: "Progress", icon: "insights" },
-  { id: "insights", to: "/teacher/insights", label: "Insights", icon: "insights" },
-  { id: "quality", to: "/teacher/quality", label: "Grading quality", icon: "shield" },
+  { id: "gradebook", to: "/teacher/gradebook", label: "Grades", icon: "gradebook" },
   { id: "students", to: "/teacher/students", label: "Students", icon: "students" },
-  { id: "practice", to: "/teacher/practice", label: "Practice", icon: "practice" },
-  { id: "lms", to: "/teacher/lms", label: "LMS sync", icon: "sync" },
+  { id: "scan", to: "/teacher/scan", label: "Scan & Grade", icon: "scan", feature: "scan" },
+  { id: "insights", to: "/teacher/insights", label: "Insights", icon: "insights", feature: "insights" },
+  { id: "practice", to: "/teacher/practice", label: "Practice", icon: "practice", feature: "practice" },
+  { id: "lms", to: "/teacher/lms", label: "LMS sync", icon: "sync", feature: "lms" },
 ];
 
 export function TeacherLayout() {
@@ -47,6 +43,7 @@ export function TeacherLayout() {
   const navigate = useNavigate();
   const me = useMe("teacher");
   const active = sectionFor(pathname);
+  const features = useFeatures();
 
   const signOut = () => {
     clearToken("teacher");
@@ -60,7 +57,7 @@ export function TeacherLayout() {
           <LogoMark />
           <span>FairPlay</span>
         </Link>
-        {NAV.map((item) => (
+        {NAV.filter((item) => !item.feature || features.has(item.feature)).map((item) => (
           <Link
             key={item.id}
             to={item.to}

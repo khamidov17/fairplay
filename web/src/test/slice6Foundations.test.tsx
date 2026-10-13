@@ -5,7 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AttemptView, OfflineKeyRelease, OfflinePackage, StudentQuestion } from "../api/types";
+import type { AttemptView, OfflinePackage, StudentQuestion } from "../api/types";
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
@@ -23,17 +23,14 @@ vi.mock("../api/client", async (importOriginal) => {
     slice6Api: {
       topics: vi.fn(),
       examPackage: vi.fn(),
+      packageKey: vi.fn(),
       startAfterOffline: vi.fn(),
       uploadImage: vi.fn(),
-    },
-    securityApi: {
-      packageKey: vi.fn(),
-      timeline: vi.fn(),
     },
   };
 });
 
-import { ApiError, NetworkError, securityApi, slice6Api, studentApi } from "../api/client";
+import { ApiError, NetworkError, slice6Api, studentApi } from "../api/client";
 import { QuestionImages } from "../components/QuestionImages";
 import { ExternalExamSettings } from "../components/teacher/ExternalExamSettings";
 import { imageFileProblem } from "../components/teacher/QuestionImagesEditor";
@@ -41,15 +38,23 @@ import { TopicInput, addTopic } from "../components/teacher/TopicInput";
 import { EMPTY_EXTERNAL_SETTINGS } from "../components/teacher/externalValidation";
 import { StartCodeForm } from "../components/student/StartCodeForm";
 import {
+  NeedStartCodeError,
+  PackageLockedError,
+  clearExamDataOnSignOut,
+  forgetStartCode,
+  pruneExamData,
+  rememberedStartCode,
+  saveOfflineRecord,
   WrongCodeError,
   attemptViewKey,
+  packageKeyKey,
+  startOffline,
+  unlockStoredPackages,
   cacheAttemptView,
   cachedAttemptView,
-  canStartOffline,
   decryptPackage,
   downloadPackage,
   encryptPackage,
-  keyReleaseKey,
   offlineRecordKey,
   packageKey,
   readOfflineRecord,
@@ -59,7 +64,6 @@ import { draftFromExam, toExamInput, validateDraft, newQuestion } from "../pages
 
 const api = studentApi as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const s6 = slice6Api as unknown as Record<string, ReturnType<typeof vi.fn>>;
-const sec = securityApi as unknown as Record<string, ReturnType<typeof vi.fn>>;
 // Node's WebCrypto (Node >= 19 exposes it as globalThis.crypto; jsdom keeps it). Loaded via a
 // variable specifier so the browser build's type check needs no @types/node.
 let subtle: SubtleCrypto;
@@ -86,58 +90,33 @@ const QUESTIONS: StudentQuestion[] = [
 describe("offline package crypto", () => {
   it("round-trips with WebCrypto and rejects a wrong code", async () => {
     const plain = { exam_id: "e_1", title: "Quiz", questions: QUESTIONS };
-    const { pkg, release } = await encryptPackage(plain, "4821", "e_1", subtle, 1000);
-    expect(pkg).toMatchObject({ exam_id: "e_1", alg: "AES-GCM", version: 2 });
-    expect(pkg).not.toHaveProperty("salt"); // nothing in the package depends on the start code
-    expect(release).toMatchObject({ exam_id: "e_1", iterations: 1000 });
-    expect(await decryptPackage(pkg, release, "4821", subtle)).toEqual(plain);
-    await expect(decryptPackage(pkg, release, "4822", subtle)).rejects.toBeInstanceOf(WrongCodeError);
-    // a key release from another opening of the exam does not open this package
-    const other = await encryptPackage(plain, "4821", "e_1", subtle, 1000);
-    await expect(decryptPackage(pkg, other.release, "4821", subtle)).rejects.toBeInstanceOf(WrongCodeError);
+    const pkg = await encryptPackage(plain, "482193", "e_1", subtle, 1000);
+    expect(pkg).toMatchObject({ exam_id: "e_1", alg: "AES-GCM", version: 1 });
+    expect(await decryptPackage(pkg, "482193", subtle, 1000)).toEqual(plain);
+    await expect(decryptPackage(pkg, "4822", subtle, 1000)).rejects.toBeInstanceOf(WrongCodeError);
   });
 
   it("opens a package made by the server (Python cryptography, 100 000 iterations)", async () => {
     const pkg: OfflinePackage = {
       exam_id: "e_py",
-      version: 2,
+      version: 1,
       alg: "AES-GCM",
-      iv: "SKPvQJc7imEN7D1G",
+      salt: "qxdrvT7MChRf1z7zXlx7Ig==",
+      iv: "bhlhxCi53uJH6/pa",
       ciphertext:
-        "0cM9BjcqnAnvUJNUUgy62ukMHx1ML9D5biSCBsqjUcIuLArQKfOtZQNFDwe7CHA9xWzaJe0aa4wAH/JxLSK5sm30Due+uieHd6G37HmZmnVCBjpKINfS/liMNJL5JXAKbxt12JSmuvQ=",
+        "HUGybqZh6Wz6VvibiqjTXSWN/So6FHIRuyzljHP1lV8kdpKcUawpJ0P5/X1cEFReClLhuWw14K03J3YgmqsQl2VKmxESIIOkIRVVDI4N/kEo5+5G/mxDD5ExeWsZlncxpdWZRf/SmpE=",
     };
-    const release: OfflineKeyRelease = {
-      exam_id: "e_py",
-      version: 2,
-      alg: "PBKDF2-SHA256/AES-GCM",
-      iterations: 100000,
-      salt: "Cw0PX2GJD2TAMde9/RzMlw==",
-      iv: "wu9kMAbJjZyR3VTU",
-      wrapped_key: "sbvneWHulXLW2g51E5I04XuRWRAQJXKdFAtFo2LifKxCrMUgb67cPwZoDJpCHlWX",
-    };
-    const plain = await decryptPackage(pkg, release, "4821", subtle);
+    const plain = await decryptPackage(pkg, "4821", subtle);
     expect(plain).toEqual({ exam_id: "e_py", title: "Python made", questions: [{ id: "q_1", prompt: "Ünï ✓" }] });
-    await expect(decryptPackage(pkg, release, "4820", subtle)).rejects.toBeInstanceOf(WrongCodeError);
+    await expect(decryptPackage(pkg, "4820", subtle)).rejects.toBeInstanceOf(WrongCodeError);
   });
 
-  it("downloads and stores the package and its key release; failures are silent", async () => {
-    s6.examPackage.mockResolvedValueOnce({ exam_id: "e_1", version: 2, ciphertext: "x" });
-    sec.packageKey.mockResolvedValueOnce({ exam_id: "e_1", wrapped_key: "k" });
+  it("downloads and stores the package; failures are silent", async () => {
+    s6.examPackage.mockResolvedValueOnce({ exam_id: "e_1", ciphertext: "x" });
     expect(await downloadPackage("e_1")).toBe(true);
     expect(JSON.parse(localStorage.getItem(packageKey("e_1"))!)).toMatchObject({ exam_id: "e_1" });
-    expect(JSON.parse(localStorage.getItem(keyReleaseKey("e_1"))!)).toMatchObject({ wrapped_key: "k" });
-    expect(canStartOffline("e_1")).toBe(true);
-    // exam not open yet: the package is kept, the key is not there, no offline start
-    s6.examPackage.mockResolvedValueOnce({ exam_id: "e_3", version: 2, ciphertext: "x" });
-    sec.packageKey.mockRejectedValueOnce(new ApiError(409, "Exam is not open"));
-    expect(await downloadPackage("e_3")).toBe(true);
-    expect(canStartOffline("e_3")).toBe(false);
     s6.examPackage.mockRejectedValueOnce(new NetworkError());
     expect(await downloadPackage("e_2")).toBe(false);
-    // an old format-1 package is ignored
-    localStorage.setItem(packageKey("e_4"), JSON.stringify({ exam_id: "e_4", version: 1, ciphertext: "x" }));
-    localStorage.setItem(keyReleaseKey("e_4"), JSON.stringify({ exam_id: "e_4", wrapped_key: "k" }));
-    expect(canStartOffline("e_4")).toBe(false);
   });
 
   it("caches the attempt view with the clock offset re-based to now", () => {
@@ -181,12 +160,10 @@ describe("offline start", () => {
     api.submit.mockResolvedValue({ status: "submitted", submitted_at: new Date().toISOString(), receipt: "K7Q2-M9XD" });
   });
 
-  async function storePackage(code = "4821") {
+  async function storePackage(code = "482193") {
     const plain = { exam_id: "e_1", title: "Quiz", course: "MATH 201", duration_min: 30, mode: "questions", shuffle_questions: false, questions: QUESTIONS, generated_at: new Date().toISOString() };
     // default iterations: the app decrypts with 100 000
-    const { pkg, release } = await encryptPackage(plain, code, "e_1", subtle);
-    localStorage.setItem(packageKey("e_1"), JSON.stringify(pkg));
-    localStorage.setItem(keyReleaseKey("e_1"), JSON.stringify(release));
+    localStorage.setItem(packageKey("e_1"), JSON.stringify(await encryptPackage(plain, code, "e_1", subtle)));
   }
 
   function renderStart() {
@@ -202,7 +179,7 @@ describe("offline start", () => {
   }
 
   async function typeCode(user: ReturnType<typeof userEvent.setup>, code: string) {
-    await user.click(screen.getByRole("textbox", { name: "Digit 1 of 4" }));
+    await user.click(screen.getByRole("textbox", { name: "Digit 1 of 6" }));
     await user.keyboard(code);
     await user.click(screen.getByRole("button", { name: "Start exam" }));
   }
@@ -214,13 +191,15 @@ describe("offline start", () => {
     // still offline at first, then the server accepts the attempt
     s6.startAfterOffline.mockRejectedValueOnce(new NetworkError());
     renderStart();
-    await typeCode(user, "4821");
+    await typeCode(user, "482193");
 
     expect((await screen.findAllByText(/Question 1 of 2/, {}, { timeout: 5000 }))[0]).toBeInTheDocument();
     expect(screen.getByTestId("offline-banner")).toHaveTextContent(/Working offline/);
     expect(screen.getByRole("img", { name: "A diagram" })).toBeInTheDocument();
     const rec = readOfflineRecord("e_1")!;
-    expect(rec.start_code).toBe("4821");
+    // audit W-03: the start code is never written to this computer's storage
+    expect(rec.start_code).toBeUndefined();
+    expect(JSON.stringify({ ...localStorage })).not.toContain("482193");
     expect(rec.view.attempt_id).toBe("offline:e_1");
 
     // answer while offline: kept on this computer
@@ -230,7 +209,7 @@ describe("offline start", () => {
     // connection is back: the next save/heartbeat starts the real attempt with offline_started_at
     s6.startAfterOffline.mockResolvedValue(attempt({ attempt_id: "a_real" }));
     await waitFor(() => expect(api.saveAnswers).toHaveBeenCalledWith("a_real", { q1: 1 }, expect.any(Number)), { timeout: 8000 });
-    expect(s6.startAfterOffline).toHaveBeenCalledWith("e_1", "4821", rec.started_at);
+    expect(s6.startAfterOffline).toHaveBeenCalledWith("e_1", "482193", rec.started_at);
     await waitFor(() => expect(screen.queryByTestId("offline-banner")).toBeNull());
     expect(readOfflineRecord("e_1")!.real_attempt_id).toBe("a_real");
 
@@ -245,24 +224,71 @@ describe("offline start", () => {
     expect(localStorage.getItem(offlineRecordKey("e_1"))).toBeNull();
   });
 
-  it("a wrong code cannot open the package", { timeout: 15000 }, async () => {
-    await storePackage("4821");
+  it("after a reload the student types the code again to send offline answers (audit W-03)", { timeout: 20000 }, async () => {
+    await storePackage();
     const user = userEvent.setup();
     api.start.mockRejectedValue(new NetworkError());
-    renderStart();
-    await typeCode(user, "1111");
-    expect(await screen.findByRole("alert", {}, { timeout: 5000 })).toHaveTextContent(/Wrong start code/);
-    expect(readOfflineRecord("e_1")).toBeNull();
+    s6.startAfterOffline.mockRejectedValue(new NetworkError());
+    const first = renderStart();
+    await typeCode(user, "482193");
+    expect((await screen.findAllByText(/Question 1 of 2/, {}, { timeout: 5000 }))[0]).toBeInTheDocument();
+    first.unmount();
+    forgetStartCode("e_1");                      // a page reload forgets it (memory only)
+    s6.startAfterOffline.mockReset();
+    render(
+      <MemoryRouter initialEntries={["/student/exam/offline:e_1"]}>
+        <Routes>
+          <Route path="/student/exam/:attemptId" element={<ExamTakingPage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByTestId("reconnect-code", {}, { timeout: 8000 })).toHaveTextContent(/start code again/);
+    expect(s6.startAfterOffline).not.toHaveBeenCalled();
+    s6.startAfterOffline.mockResolvedValue(attempt({ attempt_id: "a_real" }));
+    await user.click(screen.getAllByRole("textbox", { name: "Digit 1 of 6" })[0]);
+    await user.keyboard("482193");
+    await user.click(screen.getByRole("button", { name: "Send my answers" }));
+    await waitFor(() => expect(s6.startAfterOffline).toHaveBeenCalledWith("e_1", "482193", expect.any(String)));
+    await waitFor(() => expect(screen.queryByTestId("reconnect-code")).toBeNull());
   });
 
-  it("a package without its key release cannot start offline", async () => {
-    await storePackage("4821");
-    localStorage.removeItem(keyReleaseKey("e_1"));
+  it("a new start code from the teacher asks for the new one (audit W-02)", { timeout: 20000 }, async () => {
+    await storePackage();
+    const user = userEvent.setup();
+    api.start.mockRejectedValue(new NetworkError());
+    s6.startAfterOffline.mockRejectedValueOnce(new NetworkError());
+    renderStart();
+    await typeCode(user, "482193");
+    expect((await screen.findAllByText(/Question 1 of 2/, {}, { timeout: 5000 }))[0]).toBeInTheDocument();
+    s6.startAfterOffline.mockRejectedValue(new ApiError(403, "Wrong start code"));
+    expect(await screen.findByTestId("reconnect-code", {}, { timeout: 8000 })).toHaveTextContent(/changed the start code/);
+  });
+
+  it("auto-submit stops on a 409 and leaves the exam instead of retrying forever (audit W-05)", { timeout: 15000 }, async () => {
+    const past = new Date(Date.now() - 60_000).toISOString();
+    api.getAttempt.mockResolvedValue(attempt({ attempt_id: "a_9", deadline_at: past }));
+    api.heartbeat.mockResolvedValue({ ok: true, status: "in_progress", server_time: new Date().toISOString(), deadline_at: past });
+    api.submit.mockRejectedValue(new ApiError(409, "Attempt already submitted"));
+    render(
+      <MemoryRouter initialEntries={["/student/exam/a_9"]}>
+        <Routes>
+          <Route path="/student/exam/:attemptId" element={<ExamTakingPage />} />
+          <Route path="/student/done/:attemptId" element={<p>done page</p>} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("done page", {}, { timeout: 8000 })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 3500));            // longer than SUBMIT_RETRY_MS
+    expect(api.submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("a wrong code cannot open the package", { timeout: 15000 }, async () => {
+    await storePackage("482193");
     const user = userEvent.setup();
     api.start.mockRejectedValue(new NetworkError());
     renderStart();
-    await typeCode(user, "4821");
-    expect(await screen.findByRole("alert")).toHaveTextContent(/Cannot reach the server/);
+    await typeCode(user, "111111");
+    expect(await screen.findByRole("alert", {}, { timeout: 5000 })).toHaveTextContent(/Wrong start code/);
     expect(readOfflineRecord("e_1")).toBeNull();
   });
 
@@ -270,7 +296,7 @@ describe("offline start", () => {
     const user = userEvent.setup();
     api.start.mockRejectedValue(new NetworkError());
     renderStart();
-    await typeCode(user, "4821");
+    await typeCode(user, "482193");
     expect(await screen.findByRole("alert")).toHaveTextContent(/Cannot reach the server/);
   });
 
@@ -340,10 +366,10 @@ describe("topic input", () => {
     expect(addTopic(["a"], "   ")).toEqual(["a"]);
   });
 
-  it("the draft requires a topic and sends topics, images and delivery", () => {
+  it("topics are optional; the draft sends topics, images and delivery", () => {
     const q = { ...newQuestion("short"), prompt: "Capital?", accepted: "Paris" };
     const d = { ...draftFromExam(), title: "Quiz", questions: [q] };
-    expect(validateDraft(d).byKey[q.key]?.topics).toMatch(/topic/);
+    expect(validateDraft(d).byKey[q.key]).toBeUndefined();   // 2026-10-13: no topic needed
     const ok = { ...d, delivery: "paper" as const, questions: [{ ...q, topics: ["geography"], images: [{ url: "/api/uploads/abcdefabcdefabcdef", alt: " map " }] }] };
     expect(validateDraft(ok).byKey[q.key]).toBeUndefined();
     const input = toExamInput(ok);
@@ -388,5 +414,90 @@ describe("delivery cards", () => {
     await user.click(screen.getByText("On another website"));
     expect(onDelivery).toHaveBeenLastCalledWith("website");
     expect(onChange).toHaveBeenLastCalledWith(expect.objectContaining({ mode: "external" }));
+  });
+});
+
+
+// ---------------------------------------------------------------- audit S-03: package v2
+describe("offline package version 2 (live-only package key)", () => {
+  const PK = "ab".repeat(32);
+
+  it("opens a v2 package made by the server only with the package key", async () => {
+    const pkg: OfflinePackage = {
+      exam_id: "e_v2",
+      version: 2,
+      alg: "AES-GCM",
+      salt: "AAECAwQFBgcICQoLDA0ODw==",
+      iv: "AAECAwQFBgcICQoL",
+      ciphertext: "9ClR0rdxScPlRbqw1LXedPkfm/IGMBPk9cS7SkCBydmfJaO5YguaPo2FZq7GG64=",
+    };
+    await expect(decryptPackage(pkg, "4821", subtle, 1000)).rejects.toBeInstanceOf(PackageLockedError);
+    expect(await decryptPackage(pkg, "4821", subtle, 1000, PK)).toEqual({ exam_id: "e_v2", title: "V2" });
+    await expect(decryptPackage(pkg, "4821", subtle, 1000, "cd".repeat(32))).rejects.toBeInstanceOf(WrongCodeError);
+  });
+
+  it("download also fetches the key when the exam is live", async () => {
+    s6.examPackage.mockResolvedValueOnce({ exam_id: "e_1", version: 2, ciphertext: "x" });
+    s6.packageKey.mockResolvedValueOnce({ exam_id: "e_1", key: PK });
+    expect(await downloadPackage("e_1")).toBe(true);
+    expect(localStorage.getItem(packageKeyKey("e_1"))).toBe(PK);
+  });
+
+  it("a package fetched before the exam opened gets its key on the next online exam list", async () => {
+    s6.examPackage.mockResolvedValueOnce({ exam_id: "e_2", version: 2, ciphertext: "x" });
+    s6.packageKey.mockRejectedValueOnce(new Error("409 not open"));
+    expect(await downloadPackage("e_2")).toBe(true);
+    expect(localStorage.getItem(packageKeyKey("e_2"))).toBeNull();
+    s6.packageKey.mockResolvedValueOnce({ exam_id: "e_2", key: PK });
+    await unlockStoredPackages(["e_2", "e_none"]);
+    expect(s6.packageKey).toHaveBeenCalledTimes(2);
+    expect(localStorage.getItem(packageKeyKey("e_2"))).toBe(PK);
+  });
+
+  it("offline start with a v2 package and no key says the copy is locked", async () => {
+    const pkg = await encryptPackage({ exam_id: "e_3", title: "T", duration_min: 30, questions: [] }, "482193", "e_3", subtle, 1000, undefined, PK);
+    localStorage.setItem(packageKey("e_3"), JSON.stringify(pkg));
+    await expect(startOffline("e_3", "482193", subtle, 1000)).rejects.toBeInstanceOf(PackageLockedError);
+    localStorage.setItem(packageKeyKey("e_3"), PK);
+    expect((await startOffline("e_3", "482193", subtle, 1000)).exam_id).toBe("e_3");
+  });
+});
+
+
+// ---------------------------------------------------------------- audit W-03 / W-02
+describe("exam data on this computer", () => {
+  it("never stores the start code; it lives in memory only", () => {
+    saveOfflineRecord({ exam_id: "e_m", start_code: "123456", started_at: "t", view: attempt({}) });
+    expect(localStorage.getItem(offlineRecordKey("e_m"))).not.toContain("123456");
+    expect(rememberedStartCode("e_m")).toBeNull();
+    forgetStartCode("e_m");
+    expect(new NeedStartCodeError("changed").reason).toBe("changed");
+  });
+
+  it("sign-out removes exam copies, packages, keys and sessions but keeps unsent answers", () => {
+    for (const k of ["fairplay:pkg:e1", "fairplay:pkgkey:e1", "fairplay:offline:e1", "fairplay:attempt-view:a1",
+      "fairplay:session:a1", "proctora:marks:a1", "proctora:attempt:a1", "fairplay:token:student-x"])
+      localStorage.setItem(k, "{}");
+    clearExamDataOnSignOut();
+    expect(Object.keys({ ...localStorage }).sort()).toEqual(["fairplay:token:student-x", "proctora:attempt:a1"]);
+  });
+
+  it("drops data of handed-in exams and old packages after each exam list", () => {
+    const now = Date.now();
+    localStorage.setItem("fairplay:pkg:done", JSON.stringify({ exam_id: "done", ciphertext: "x", saved_at: now }));
+    localStorage.setItem("fairplay:pkg:live", JSON.stringify({ exam_id: "live", ciphertext: "x", saved_at: now }));
+    localStorage.setItem("fairplay:pkg:soon", JSON.stringify({ exam_id: "soon", ciphertext: "x", saved_at: now }));
+    localStorage.setItem("fairplay:pkg:old", JSON.stringify({ exam_id: "old", ciphertext: "x", saved_at: now - 2 * 86400_000 }));
+    localStorage.setItem("fairplay:attempt-view:a_done", "{}");
+    localStorage.setItem("fairplay:session:a_live", "s");
+    pruneExamData(
+      [
+        { id: "done", status: "closed", attempt: { attempt_id: "a_done", status: "submitted" } },
+        { id: "live", status: "live", attempt: { attempt_id: "a_live", status: "in_progress" } },
+      ],
+      now,
+    );
+    const keys = Object.keys({ ...localStorage }).sort();
+    expect(keys).toEqual(["fairplay:pkg:live", "fairplay:pkg:soon", "fairplay:session:a_live"]);
   });
 });

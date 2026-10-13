@@ -27,7 +27,7 @@ describe("native bridge", () => {
     bridge.hello();
     expect(post).toHaveBeenCalledWith({ action: "hello" });
     const p = bridge.requestLock();
-    expect(post).toHaveBeenCalledWith({ action: "lock" });
+    expect(post).toHaveBeenCalledWith({ action: "lock", offline: true }); // audit M-06: no session = offline start
     send({ type: "locked" });
     await expect(p).resolves.toEqual({ ok: true });
     expect(bridge.isLocked()).toBe(true);
@@ -35,6 +35,14 @@ describe("native bridge", () => {
     expect(post).toHaveBeenCalledWith({ action: "unlock" });
     send({ type: "unlocked" });
     expect(bridge.isLocked()).toBe(false);
+  });
+
+  it("locks for the exam session when there is one (audit M-06)", async () => {
+    const post = native();
+    const p = bridge.requestLock(1000, { attempt_id: "a_1", token: "t", session: "s_12345678" });
+    expect(post).toHaveBeenCalledWith({ action: "lock", attempt_id: "a_1", token: "t", session: "s_12345678" });
+    send({ type: "lockFailed", reason: "bad_session" });
+    await expect(p).resolves.toEqual({ ok: false, reason: "bad_session" });
   });
 
   it("reports lockFailed with the reason", async () => {
@@ -54,12 +62,38 @@ describe("native bridge", () => {
       server_time: "2026-10-11T10:00:00Z",
       title: "MATH 201 Midterm",
       token: "tok",
+      session: "sess",
     };
     expect(bridge.openExternal(params)).toBe(false);
     const post = native();
     expect(bridge.openExternal(params)).toBe(true);
-    // phase 1a: exit_check (invigilator exit verifier) is always sent, null when unknown
-    expect(post).toHaveBeenCalledWith({ action: "openExternal", ...params, exit_check: null });
+    expect(post).toHaveBeenCalledWith({ action: "openExternal", ...params });
+  });
+
+  it("requestLock passes the exam session to the app", async () => {
+    const post = native();
+    const p = bridge.requestLock(1000, { attempt_id: "a_1", token: "tok", session: "s1" });
+    expect(post).toHaveBeenCalledWith({ action: "lock", attempt_id: "a_1", token: "tok", session: "s1" });
+    send({ type: "locked" });
+    await expect(p).resolves.toEqual({ ok: true });
+  });
+
+  it("attest resolves the app's signed proof, null outside the app", async () => {
+    await expect(bridge.attest("n1")).resolves.toBeNull();
+    const post = native();
+    const p = bridge.attest("n1");
+    expect(post).toHaveBeenCalledWith({ action: "attest", nonce: "n1" });
+    send({ type: "attestation", nonce: "other", device_id: "x", signature: "y", version: "0.5", build: "release" });
+    send({ type: "attestation", nonce: "n1", device_id: "dev-1", signature: "ab", version: "0.5", build: "release" });
+    await expect(p).resolves.toEqual({ device_id: "dev-1", nonce: "n1", signature: "ab", version: "0.5", build: "release" });
+  });
+
+  it("setExamSession posts only with a session", () => {
+    const post = native();
+    bridge.setExamSession({ attempt_id: "a_1", token: "t", session: "" });
+    expect(post).not.toHaveBeenCalled();
+    bridge.setExamSession({ attempt_id: "a_1", token: "t", session: "s" });
+    expect(post).toHaveBeenCalledWith({ action: "session", attempt_id: "a_1", token: "t", session: "s" });
   });
 
   it("forwards native events to listeners", () => {

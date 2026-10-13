@@ -4,12 +4,12 @@ import type { StudentExamSummary } from "../../api/types";
 import { NotLockedBanner } from "../../components/LockBanner";
 import { firstName, examName, plural, shortTime, isToday, shortDate } from "../../components/student/format";
 import { ReadinessChecks, useReadiness } from "../../components/student/Readiness";
+import { JoinClass } from "../../components/student/JoinClass";
 import { PastExamRow } from "../../components/student/ResultRow";
 import { StartCodeForm } from "../../components/student/StartCodeForm";
 import { StudentLayout, StuLoading } from "../../components/student/StudentLayout";
 import { useMe } from "../../lib/useMe";
 import { pastExams, upcomingExams, useStudentExams } from "./useStudentExams";
-import { HomeworkHomeCard } from "./homework/HomeworkHomeCard";
 
 export default function StudentHome() {
   const me = useMe("student");
@@ -27,7 +27,7 @@ export default function StudentHome() {
       : upcoming.length === 0
         ? "No exam is open right now."
         : upcoming.length === 1
-          ? upcoming[0].attempt?.status === "in_progress"
+          ? upcoming[0]?.attempt?.status === "in_progress"
             ? "You have an exam in progress."
             : "One exam is open now."
           : `${upcoming.length} exams are open now.`;
@@ -41,8 +41,6 @@ export default function StudentHome() {
             <h1 className="stu-h1">{name ? `Hi ${name}` : "Hi"}</h1>
             <p className="stu-sub" aria-live="polite">{summary}</p>
           </div>
-
-          <HomeworkHomeCard />
 
           {error && (
             <div className="stu-alert warn" role="alert">
@@ -81,6 +79,8 @@ export default function StudentHome() {
               </section>
             </div>
           )}
+
+          <JoinClass onJoined={reload} />
 
           {past.length > 0 && (
             <section className="stu-card" aria-labelledby="recent-h" style={{ gap: 6 }}>
@@ -126,7 +126,6 @@ function ExamHero({
       ? `Open now · ${isToday(exam.scheduled_at) ? "today" : shortDate(exam.scheduled_at)} ${shortTime(exam.scheduled_at)}`
       : "Open now";
   const meta = [
-    exam.class_names?.length ? exam.class_names.join(", ") : "", // classes
     exam.room && `Room ${exam.room}`,
     `${exam.duration_min} minutes`,
     plural(exam.question_count, "question"),
@@ -147,7 +146,7 @@ function ExamHero({
             <button
               type="button"
               className="stu-btn primary lg"
-              onClick={() => navigate(`/student/exam/${exam.attempt!.attempt_id}`)}
+              onClick={() => navigate(`/student/exam/${encodeURIComponent(exam.attempt!.attempt_id)}`)}
             >
               Continue exam
             </button>

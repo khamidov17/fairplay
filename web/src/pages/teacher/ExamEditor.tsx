@@ -1,18 +1,21 @@
+// 2026-10-13: Google Forms-style exam editor. Title, class and duration on top; one card per
+// question (type switch inside the card); everything else under "More settings". An exam
+// can be saved without a class; FairPlay asks for the class when it is opened.
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { Link } from "react-router-dom";
-import { ApiError, lmsApi, slice6Api, teacherApi } from "../../api/client";
-import type { Exam, TopicCount } from "../../api/types";
+import { Link, useSearchParams } from "react-router-dom";
+import { ApiError, classesApi, lmsApi, slice6Api, teacherApi } from "../../api/client";
+import type { Exam, SchoolClass, TopicCount } from "../../api/types";
 import { Icon } from "../../components/ui/Icon";
 import { Switch } from "../../components/ui/Switch";
 import { ExternalExamSettings } from "../../components/teacher/ExternalExamSettings";
 import { LmsCourseSelect } from "../../components/teacher/lms/LmsCourseSelect";
-import { ClassAssignSelect } from "../../components/teacher/classes/ClassAssignSelect";
-import { classesApi } from "../../api/classes";
 import { QuestionImagesEditor } from "../../components/teacher/QuestionImagesEditor";
 import { TopicInput } from "../../components/teacher/TopicInput";
-import { DiagramEditor } from "../../components/diagrams/DiagramEditor";
+import { useFeatures } from "../../lib/features";
 import {
   KIND_LABEL,
+  changeKind,
+  copyQuestions,
   draftFromExam,
   hasErrors,
   moveItem,
@@ -53,23 +56,32 @@ interface Props {
   /** Called after a successful save. `opened` is true when the teacher pressed Open exam. */
   onSaved: (exam: Exam, opened: boolean) => void;
   cancelTo: string;
-  /** Classes to preselect for a new exam ("New exam for this class"). */
-  initialClassIds?: number[];
 }
 
-export function ExamEditor({ exam, onSaved, cancelTo, initialClassIds }: Props) {
-  const [draft, setDraft] = useState<DraftExam>(() => draftFromExam(exam));
+export function ExamEditor({ exam, onSaved, cancelTo }: Props) {
+  const [params] = useSearchParams();
+  const features = useFeatures();
+  const [draft, setDraft] = useState<DraftExam>(() => {
+    const d = draftFromExam(exam);
+    // "New exam" from a class page: that class is already picked.
+    const fromClass = params.get("class");
+    if (!exam && fromClass && /^\d+$/.test(fromClass)) d.classId = fromClass;
+    return d;
+  });
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [showErrors, setShowErrors] = useState(false);
   const [saving, setSaving] = useState<null | "save" | "open">(null);
   const [serverError, setServerError] = useState<string | null>(null);
   const [focusKey, setFocusKey] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(() => draft.external.mode === "external" || draft.delivery === "paper");
+  const [askClass, setAskClass] = useState(false);
+  const [copying, setCopying] = useState(false);
   // slice 5: linked LMS course (saved through PUT /api/exams/{id}/lms)
   const [lmsLink, setLmsLink] = useState<number | null>(exam?.course_link_id ?? null);
-  // classes: assigned classes (saved through PUT /api/exams/{id}/classes); null = loading
-  const [classIds, setClassIds] = useState<number[] | null>(exam ? null : (initialClassIds ?? []));
-  const [classesTouched, setClassesTouched] = useState(false);
+  // Audit W-08: once created, later saves update that exam (a failed "Open" made duplicates).
+  const [created, setCreated] = useState<Exam | null>(null);
   const errors = useMemo(() => validateDraft(draft), [draft]);
+  const isPaper = draft.delivery === "paper" && draft.external.mode !== "external";
   // slice 6: topic suggestions (the teacher's earlier topics); failure just means no suggestions
   const [topicSuggestions, setTopicSuggestions] = useState<TopicCount[]>([]);
   useEffect(() => {
@@ -94,9 +106,16 @@ export function ExamEditor({ exam, onSaved, cancelTo, initialClassIds }: Props) 
     setFocusKey(null);
   }, [focusKey]);
 
+  // Settings with a problem open the "More settings" panel so the error is visible.
+  useEffect(() => {
+    if (showErrors && (err.course || err.room || err.schedule || err.external || err.externalPoints)) setMoreOpen(true);
+  }, [showErrors, err.course, err.room, err.schedule, err.external, err.externalPoints]);
+
   const set = (patch: Partial<DraftExam>) => setDraft((d) => ({ ...d, ...patch }));
   const updateQ = (key: string, patch: Partial<DraftQuestion>) =>
     setDraft((d) => ({ ...d, questions: d.questions.map((q) => (q.key === key ? { ...q, ...patch } : q)) }));
+  const retypeQ = (key: string, kind: DraftKind) =>
+    setDraft((d) => ({ ...d, questions: d.questions.map((q) => (q.key === key ? changeKind(q, kind) : q)) }));
   const addQ = (kind: DraftKind) => {
     const q = newQuestion(kind);
     setDraft((d) => ({ ...d, questions: [...d.questions, q] }));
@@ -106,7 +125,7 @@ export function ExamEditor({ exam, onSaved, cancelTo, initialClassIds }: Props) 
   const removeQ = (key: string) => setDraft((d) => ({ ...d, questions: d.questions.filter((q) => q.key !== key) }));
   const moveQ = (i: number, delta: number) => setDraft((d) => ({ ...d, questions: moveItem(d.questions, i, delta) }));
 
-  async function save(andOpen: boolean) {
+  async function save(andOpen: boolean, classOverride?: string) {
     setShowErrors(true);
     setServerError(null);
     if (hasErrors(errors)) {
@@ -117,13 +136,19 @@ export function ExamEditor({ exam, onSaved, cancelTo, initialClassIds }: Props) 
       });
       return;
     }
+    const classId = classOverride ?? draft.classId;
+    // Audit S-03: an exam opens for one class (or a linked LMS course). Saving needs neither.
+    if (andOpen && !classId && lmsLink == null) {
+      setAskClass(true);
+      return;
+    }
     setSaving(andOpen ? "open" : "save");
     try {
-      const input = toExamInput(draft);
-      let saved = exam ? await teacherApi.updateExam(exam.id, input) : await teacherApi.createExam(input);
+      const input = toExamInput({ ...draft, classId });
+      const existing = exam ?? created;
+      let saved = existing ? await teacherApi.updateExam(existing.id, input) : await teacherApi.createExam(input);
+      if (!existing) setCreated(saved);
       if ((saved.course_link_id ?? null) !== lmsLink) saved = await lmsApi.linkExam(saved.id, lmsLink);
-      if (classIds !== null && (classesTouched || (!exam && classIds.length > 0)))
-        await classesApi.setExamClasses(saved.id, classIds);
       if (andOpen) saved = await teacherApi.openExam(saved.id);
       onSaved(saved, andOpen);
     } catch (e) {
@@ -149,46 +174,22 @@ export function ExamEditor({ exam, onSaved, cancelTo, initialClassIds }: Props) 
     Object.keys(err.byKey).length;
 
   return (
-    <form onSubmit={onSubmit} noValidate aria-label="Exam setup" style={{ display: "flex", flexDirection: "column", gap: 24 }}>
-      <header className="t-page-head">
-        <div className="t-head-text" style={{ flex: "1 1 360px" }}>
-          <span className="t-eyebrow">
-            <span className="t-course-chip">{exam ? "Draft" : "New exam"}</span>
-            {draft.course.trim() || "No course yet"}
-          </span>
-          <label htmlFor="exam-title" className="sr-only">
-            Exam title
-          </label>
-          <input
-            id="exam-title"
-            className="t-title-input"
-            value={draft.title}
-            placeholder="Untitled exam"
-            maxLength={200}
-            onChange={(e) => set({ title: e.target.value })}
-            aria-invalid={!!err.title}
-            aria-describedby={err.title ? "exam-title-err" : undefined}
-          />
-          {err.title && (
-            <span id="exam-title-err" className="field-error">
-              {err.title}
-            </span>
-          )}
-        </div>
-        <div className="t-head-actions">
-          <Link to={cancelTo} className="btn btn-ghost">
-            Cancel
-          </Link>
-          <button type="submit" className="btn btn-secondary" disabled={!!saving}>
-            {saving === "save" ? "Saving…" : "Save exam"}
+    <form onSubmit={onSubmit} noValidate aria-label="Exam setup" className="t-fx">
+      <header className="t-fx-top">
+        <span className="t-course-chip">{exam ? "Draft" : "New exam"}</span>
+        <span style={{ flex: 1 }} />
+        <Link to={cancelTo} className="btn btn-ghost">
+          Cancel
+        </Link>
+        <button type="submit" className="btn btn-secondary" disabled={!!saving}>
+          {saving === "save" ? "Saving…" : "Save exam"}
+        </button>
+        {/* slice 6: paper exams are printed, never opened in the app */}
+        {!isPaper && (
+          <button type="button" className="btn btn-primary" disabled={!!saving} onClick={() => void save(true)}>
+            {saving === "open" ? "Opening…" : "Open exam"}
           </button>
-          {/* slice 6: paper exams are printed, never opened in the app */}
-          {!(draft.delivery === "paper" && draft.external.mode !== "external") && (
-            <button type="button" className="btn btn-primary" disabled={!!saving} onClick={() => void save(true)}>
-              {saving === "open" ? "Opening…" : "Open exam"}
-            </button>
-          )}
-        </div>
+        )}
       </header>
 
       {showErrors && errorCount > 0 && (
@@ -202,54 +203,191 @@ export function ExamEditor({ exam, onSaved, cancelTo, initialClassIds }: Props) 
         </div>
       )}
 
-      <div className="t-columns">
-        <div className="t-col-3" style={{ display: "flex", flexDirection: "column", gap: 24, minWidth: 0 }}>
-        <section aria-label="Where students answer" className="t-card" style={{ gap: 14 }}>
-          <ExternalExamSettings
-            value={draft.external}
-            onChange={(external) => set({ external })}
-            errors={err.external}
-            delivery={draft.delivery}
-            onDeliveryChange={(delivery) => set({ delivery })}
-          />
-          {draft.external.mode === "external" && (
-            <div className="t-field" style={{ maxWidth: 260 }}>
-              <label htmlFor="exam-external-points">Total points</label>
-              <input
-                id="exam-external-points"
-                className="input"
-                inputMode="decimal"
-                value={draft.externalPoints}
-                onChange={(e) => set({ externalPoints: e.target.value })}
-                aria-invalid={!!err.externalPoints}
-                aria-describedby="exam-external-points-hint"
-              />
-              <span id="exam-external-points-hint" className="t-small t-muted">
-                After students finish, you enter each score in Results. Grades then work like any other exam.
+      {askClass && (
+        <OpenForClass
+          onCancel={() => setAskClass(false)}
+          onPick={(classId) => {
+            set({ classId });
+            setAskClass(false);
+            void save(true, classId);
+          }}
+        />
+      )}
+
+      <section className="t-card t-fx-head" aria-label="Exam">
+        <label htmlFor="exam-title" className="sr-only">
+          Exam title
+        </label>
+        <input
+          id="exam-title"
+          className="t-title-input"
+          value={draft.title}
+          placeholder="Untitled exam"
+          maxLength={200}
+          onChange={(e) => set({ title: e.target.value })}
+          aria-invalid={!!err.title}
+          aria-describedby={err.title ? "exam-title-err" : undefined}
+        />
+        {err.title && (
+          <span id="exam-title-err" className="field-error">
+            {err.title}
+          </span>
+        )}
+        <div className="t-fx-basics">
+          <ClassSelect value={draft.classId} onChange={(classId) => set({ classId })} />
+          <div className="t-field" style={{ maxWidth: 160 }}>
+            <label htmlFor="exam-duration">Duration (minutes)</label>
+            <input
+              id="exam-duration"
+              className="input mono"
+              inputMode="numeric"
+              value={draft.duration}
+              onChange={(e) => set({ duration: e.target.value })}
+              aria-invalid={!!err.duration}
+              aria-describedby={err.duration ? "exam-duration-err" : undefined}
+            />
+            {err.duration && (
+              <span id="exam-duration-err" className="field-error">
+                {err.duration}
               </span>
-              {err.externalPoints && <span className="field-error">{err.externalPoints}</span>}
-            </div>
-          )}
-        </section>
-        {draft.external.mode !== "external" && (
-        <section aria-labelledby="q-h" className="t-card" style={{ gap: 14 }}>
-          <div className="t-card-head">
-            <h2 id="q-h">
-              Questions{" "}
-              <span className="t-muted" style={{ fontWeight: 500 }}>
-                · {draft.questions.length}
-              </span>
-              <span className="t-muted t-small" style={{ fontWeight: 500, marginLeft: 8 }}>
-                {totalPoints} pts total
-              </span>
-            </h2>
-            <AddQuestionMenu onAdd={addQ} />
+            )}
           </div>
+        </div>
+        <button
+          type="button"
+          className="t-fx-more"
+          aria-expanded={moreOpen}
+          aria-controls="exam-more"
+          onClick={() => setMoreOpen((v) => !v)}
+        >
+          <Icon name={moreOpen ? "up" : "down"} size={16} />
+          More settings
+          <span className="t-muted t-small">
+            {[
+              draft.shuffle ? "shuffled" : null,
+              draft.external.mode === "external" ? "on another website" : isPaper ? "on paper" : null,
+              draft.date ? "scheduled" : null,
+              draft.room.trim() ? draft.room.trim() : null,
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        </button>
+        {moreOpen && (
+          <div id="exam-more" className="t-fx-more-body">
+            <div className="t-setting">
+              <span className="t-setting-text">
+                <label className="t-setting-title" htmlFor="exam-shuffle">
+                  Shuffle questions per student
+                </label>
+                <span className="t-setting-sub" id="exam-shuffle-sub">
+                  Neighbours see different orders
+                </span>
+              </span>
+              <Switch id="exam-shuffle" checked={draft.shuffle} onChange={(v) => set({ shuffle: v })} describedBy="exam-shuffle-sub" />
+            </div>
+            <div className="t-grid-2">
+              <div className="t-field">
+                <label htmlFor="exam-course">Course code (optional)</label>
+                <input
+                  id="exam-course"
+                  className="input"
+                  value={draft.course}
+                  maxLength={64}
+                  placeholder="e.g. MATH 201"
+                  onChange={(e) => set({ course: e.target.value })}
+                  aria-invalid={!!err.course}
+                />
+                {err.course && <span className="field-error">{err.course}</span>}
+              </div>
+              <div className="t-field">
+                <label htmlFor="exam-room">Room (optional)</label>
+                <input
+                  id="exam-room"
+                  className="input"
+                  value={draft.room}
+                  maxLength={64}
+                  placeholder="e.g. AB 1087"
+                  onChange={(e) => set({ room: e.target.value })}
+                  aria-invalid={!!err.room}
+                />
+                {err.room && <span className="field-error">{err.room}</span>}
+              </div>
+              <div className="t-field">
+                <label htmlFor="exam-date">Date (for planning)</label>
+                <input
+                  id="exam-date"
+                  type="date"
+                  className="input"
+                  value={draft.date}
+                  onChange={(e) => set({ date: e.target.value })}
+                  aria-invalid={!!err.schedule}
+                />
+              </div>
+              <div className="t-field">
+                <label htmlFor="exam-time">Start time</label>
+                <input id="exam-time" type="time" className="input" value={draft.time} onChange={(e) => set({ time: e.target.value })} />
+              </div>
+            </div>
+            {err.schedule && <span className="field-error">{err.schedule}</span>}
+            <p className="t-small t-muted" style={{ margin: 0 }}>
+              Students can start only after you press <strong>Open exam</strong> and read the start code aloud. Full-screen
+              lockdown is always on.
+            </p>
+            {features.has("lms") && (
+              <LmsCourseSelect
+                value={lmsLink}
+                onChange={(id, link) => {
+                  setLmsLink(id);
+                  if (link && !draft.course.trim()) set({ course: (link.code || link.name).slice(0, 64) });
+                }}
+              />
+            )}
+            <ExternalExamSettings
+              value={draft.external}
+              onChange={(external) => set({ external })}
+              errors={err.external}
+              delivery={draft.delivery}
+              onDeliveryChange={(delivery) => set({ delivery })}
+              allowPaper={features.has("scan")}
+            />
+            {draft.external.mode === "external" && (
+              <div className="t-field" style={{ maxWidth: 260 }}>
+                <label htmlFor="exam-external-points">Total points</label>
+                <input
+                  id="exam-external-points"
+                  className="input"
+                  inputMode="decimal"
+                  value={draft.externalPoints}
+                  onChange={(e) => set({ externalPoints: e.target.value })}
+                  aria-invalid={!!err.externalPoints}
+                  aria-describedby="exam-external-points-hint"
+                />
+                <span id="exam-external-points-hint" className="t-small t-muted">
+                  After students finish, you enter each score in Results.
+                </span>
+                {err.externalPoints && <span className="field-error">{err.externalPoints}</span>}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {draft.external.mode !== "external" && (
+        <section aria-labelledby="q-h" className="t-fx-questions">
+          <h2 id="q-h" className="t-fx-qhead">
+            Questions{" "}
+            <span className="t-muted" style={{ fontWeight: 500 }}>
+              · {draft.questions.length} · {totalPoints} pts
+            </span>
+          </h2>
 
           {draft.questions.length === 0 && (
-            <div className="t-empty">
-              <strong>No questions yet</strong>
-              Add your first question with the buttons below.
+            <div className="t-card">
+              <div className="t-empty">
+                <strong>No questions yet</strong>
+                Add your first question below, or copy questions from an exam you wrote before.
+              </div>
             </div>
           )}
 
@@ -263,159 +401,112 @@ export function ExamEditor({ exam, onSaved, cancelTo, initialClassIds }: Props) 
               onToggle={() => setOpen((o) => ({ ...o, [q.key]: !o[q.key] }))}
               errors={err.byKey[q.key]}
               onChange={(patch) => updateQ(q.key, patch)}
+              onKind={(kind) => retypeQ(q.key, kind)}
               onMove={(delta) => moveQ(i, delta)}
               onRemove={() => removeQ(q.key)}
               topicSuggestions={topicSuggestions}
             />
           ))}
 
-          <div className="t-addbar" role="group" aria-label="Add question">
-            <span className="t-addbar-label">Add:</span>
-            {QUICK.map((b) => (
-              <button key={b.kind} type="button" className="t-chip-btn" onClick={() => addQ(b.kind)}>
-                {b.label}
-              </button>
-            ))}
+          <div className="t-card t-fx-add">
+            <div className="t-addbar" role="group" aria-label="Add question">
+              <span className="t-addbar-label">Add:</span>
+              {QUICK.map((b) => (
+                <button key={b.kind} type="button" className="t-chip-btn" onClick={() => addQ(b.kind)}>
+                  {b.label}
+                </button>
+              ))}
+              <AddQuestionMenu onAdd={addQ} />
+            </div>
+            <button type="button" className="t-link-btn" onClick={() => setCopying((v) => !v)} aria-expanded={copying}>
+              <Icon name="copy" size={16} /> Copy questions from another exam
+            </button>
+            {copying && (
+              <CopyFromExam
+                exclude={exam?.id ?? created?.id}
+                onCopy={(src) => {
+                  const qs = copyQuestions(src);
+                  setDraft((d) => ({ ...d, questions: [...d.questions, ...qs] }));
+                  setCopying(false);
+                }}
+              />
+            )}
           </div>
           {err.questions && <span className="field-error">{err.questions}</span>}
         </section>
-        )}
-        </div>
-
-        <aside className="t-col-2 t-aside">
-          <section aria-labelledby="set-h" className="t-card" style={{ gap: 14 }}>
-            <h2 id="set-h">Settings</h2>
-            <div className="t-grid-2">
-              <div className="t-field">
-                <label htmlFor="exam-course">Course</label>
-                <input
-                  id="exam-course"
-                  className="input"
-                  value={draft.course}
-                  maxLength={64}
-                  placeholder="e.g. MATH 201"
-                  onChange={(e) => set({ course: e.target.value })}
-                  aria-invalid={!!err.course}
-                />
-                {err.course && <span className="field-error">{err.course}</span>}
-              </div>
-              <div className="t-field">
-                <label htmlFor="exam-duration">Duration (minutes)</label>
-                <input
-                  id="exam-duration"
-                  className="input mono"
-                  inputMode="numeric"
-                  value={draft.duration}
-                  onChange={(e) => set({ duration: e.target.value })}
-                  aria-invalid={!!err.duration}
-                  aria-describedby={err.duration ? "exam-duration-err" : undefined}
-                />
-                {err.duration && (
-                  <span id="exam-duration-err" className="field-error">
-                    {err.duration}
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <LmsCourseSelect
-              value={lmsLink}
-              onChange={(id, link) => {
-                setLmsLink(id);
-                if (link && !draft.course.trim()) set({ course: (link.code || link.name).slice(0, 64) });
-              }}
-            />
-            <ClassAssignSelect
-              examId={exam?.id}
-              value={classIds}
-              onChange={(ids, initial) => {
-                setClassIds(ids);
-                if (!initial) setClassesTouched(true);
-              }}
-            />
-            <div>
-              <div className="t-setting">
-                <span className="t-setting-text">
-                  <label className="t-setting-title" htmlFor="exam-shuffle">
-                    Shuffle questions per student
-                  </label>
-                  <span className="t-setting-sub" id="exam-shuffle-sub">
-                    Neighbours see different orders
-                  </span>
-                </span>
-                <Switch
-                  id="exam-shuffle"
-                  checked={draft.shuffle}
-                  onChange={(v) => set({ shuffle: v })}
-                  describedBy="exam-shuffle-sub"
-                />
-              </div>
-              <div className="t-setting">
-                <span className="t-setting-text">
-                  <span className="t-setting-title">Full-screen lockdown</span>
-                  <span className="t-setting-sub">No other apps, no copy-paste</span>
-                </span>
-                <span className="t-pill green">Always on</span>
-              </div>
-            </div>
-            <div className="t-note">
-              <Icon name="lock" size={18} />
-              <span>Full-screen lockdown is always on. AI tutor is always off during exams.</span>
-            </div>
-          </section>
-
-          <section aria-labelledby="when-h" className="t-card" style={{ gap: 14 }}>
-            <h2 id="when-h">When and where</h2>
-            <div className="t-grid-2">
-              <div className="t-field">
-                <label htmlFor="exam-date">Date</label>
-                <input
-                  id="exam-date"
-                  type="date"
-                  className="input"
-                  value={draft.date}
-                  onChange={(e) => set({ date: e.target.value })}
-                  aria-invalid={!!err.schedule}
-                />
-              </div>
-              <div className="t-field">
-                <label htmlFor="exam-time">Start time</label>
-                <input
-                  id="exam-time"
-                  type="time"
-                  className="input"
-                  value={draft.time}
-                  onChange={(e) => set({ time: e.target.value })}
-                />
-              </div>
-            </div>
-            {err.schedule && <span className="field-error">{err.schedule}</span>}
-            <div className="t-field">
-              <label htmlFor="exam-room">Room</label>
-              <input
-                id="exam-room"
-                className="input"
-                value={draft.room}
-                maxLength={64}
-                placeholder="e.g. AB 1087"
-                onChange={(e) => set({ room: e.target.value })}
-                aria-invalid={!!err.room}
-              />
-              {err.room && <span className="field-error">{err.room}</span>}
-            </div>
-            <p className="t-small t-muted" style={{ margin: 0, lineHeight: 1.5 }}>
-              The date is for planning only. Students can start only after you press <strong>Open exam</strong> and
-              read the start code aloud in the room.
-            </p>
-            {(draft.date || draft.time) && (
-              <button type="button" className="t-link-btn" onClick={() => set({ date: "", time: "" })}>
-                Clear date
-              </button>
-            )}
-          </section>
-        </aside>
-      </div>
+      )}
     </form>
+  );
+}
+
+/** Opening needs a class: ask for it right there (or make a new one). */
+function OpenForClass({ onPick, onCancel }: { onPick: (classId: string) => void; onCancel: () => void }) {
+  const [classId, setClassId] = useState("");
+  return (
+    <section className="t-card t-fx-ask" role="dialog" aria-labelledby="ask-class-h" aria-modal="false">
+      <h2 id="ask-class-h">Which class takes this exam?</h2>
+      <p className="t-muted" style={{ margin: 0 }}>
+        Only students in that class can see and start it.
+      </p>
+      <ClassSelect value={classId} onChange={setClassId} idPrefix="ask" />
+      <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+        <button type="button" className="t-btn-outline" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="btn btn-primary" disabled={!classId} onClick={() => onPick(classId)}>
+          Open exam
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/** Pick one of your exams and add copies of all its questions. */
+function CopyFromExam({ exclude, onCopy }: { exclude?: string; onCopy: (exam: Exam) => void }) {
+  const [exams, setExams] = useState<Exam[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    teacherApi.listExams().then(
+      (all) => alive && setExams(all.filter((e) => e.id !== exclude && e.mode !== "external" && e.question_count > 0)),
+      () => alive && setError("Cannot load your exams."),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [exclude]);
+
+  async function pick(id: string) {
+    setBusy(id);
+    try {
+      onCopy(await teacherApi.getExam(id));
+    } catch {
+      setError("Cannot load that exam. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (error) return <span className="field-error">{error}</span>;
+  if (exams === null) return <span className="t-small t-muted">Loading your exams…</span>;
+  if (exams.length === 0) return <span className="t-small t-muted">No other exams with questions yet.</span>;
+  return (
+    <ul className="t-cx-list" aria-label="Your exams">
+      {exams.map((e) => (
+        <li key={e.id} className="t-cx-row">
+          <div style={{ minWidth: 0 }}>
+            <strong>{e.title || "Untitled exam"}</strong>
+            <div className="t-small t-muted">
+              {e.question_count} question{e.question_count === 1 ? "" : "s"} · {e.total_points} pts
+            </div>
+          </div>
+          <button type="button" className="t-btn-outline" disabled={busy !== null} onClick={() => void pick(e.id)}>
+            {busy === e.id ? "Copying…" : "Copy its questions"}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -496,6 +587,7 @@ function QuestionCard({
   onToggle,
   errors,
   onChange,
+  onKind,
   onMove,
   onRemove,
   topicSuggestions = [],
@@ -507,6 +599,7 @@ function QuestionCard({
   onToggle: () => void;
   errors?: QuestionErrors;
   onChange: (patch: Partial<DraftQuestion>) => void;
+  onKind: (kind: DraftKind) => void;
   onMove: (delta: number) => void;
   onRemove: () => void;
   topicSuggestions?: TopicCount[];
@@ -552,6 +645,21 @@ function QuestionCard({
 
       {open && (
         <div className="t-q-body" id={bodyId}>
+          <div className="t-field" style={{ maxWidth: 260 }}>
+            <label htmlFor={id("kind")}>Question type</label>
+            <select
+              id={id("kind")}
+              className="t-select"
+              value={q.tf ? "tf" : q.type}
+              onChange={(ev) => onKind(ev.target.value as DraftKind)}
+            >
+              {MENU.map((m) => (
+                <option key={m.kind} value={m.kind}>
+                  {KIND_LABEL[m.kind]}
+                </option>
+              ))}
+            </select>
+          </div>
           <div className="t-grid-prompt">
             <div className="t-field">
               <label htmlFor={id("prompt")}>Question text</label>
@@ -582,7 +690,7 @@ function QuestionCard({
           <QuestionImagesEditor idPrefix={id("images")} images={q.images ?? []} onChange={(images) => onChange({ images })} />
 
           <div className="t-field">
-            <label htmlFor={id("topics")}>Topics</label>
+            <label htmlFor={id("topics")}>Topics (optional)</label>
             <TopicInput
               id={id("topics")}
               value={q.topics ?? []}
@@ -597,7 +705,7 @@ function QuestionCard({
               </span>
             ) : (
               <span className="hint" id={id("topics-hint")}>
-                Press Enter or comma after each topic (1 to 5). Topics power class insights and practice.
+                Press Enter or comma after each topic (up to 5). Helps you find weak spots later.
               </span>
             )}
           </div>
@@ -781,20 +889,8 @@ function EssayEditor({
     onChange({ rubric: q.rubric.map((r) => (r.key === key ? { ...r, ...patch } : r)) });
   const sum = rubricSum(q.rubric);
   const target = Number(q.points) || 0;
-  // graph / chart / diagram answer: a feature checklist replaces the rubric and word limits
-  const diagram = (
-    <DiagramEditor idPrefix={id("diagram")} value={q.diagram ?? null} points={target} onChange={(d) => onChange({ diagram: d })} />
-  );
-  if (q.diagram)
-    return (
-      <>
-        {diagram}
-        <span className="hint">Students draw on paper; the AI checks each feature and you approve.</span>
-      </>
-    );
   return (
     <>
-      {diagram}
       <fieldset style={{ border: "none", padding: 0, margin: 0, display: "flex", flexDirection: "column", gap: 8 }}>
         <legend className="t-label" style={{ marginBottom: 8, padding: 0 }}>
           Rubric (optional) — criteria you grade on
@@ -876,5 +972,111 @@ function EssayEditor({
         <span className="hint">Essays are never auto-graded. Students see the rubric and word limits.</span>
       )}
     </>
+  );
+}
+
+
+/** Audit S-03: pick the class that takes the exam (optional until it opens), or make one. */
+function ClassSelect({
+  value,
+  onChange,
+  idPrefix = "exam",
+}: {
+  value: string;
+  onChange: (id: string) => void;
+  idPrefix?: string;
+}) {
+  const [classes, setClasses] = useState<SchoolClass[] | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const fieldId = `${idPrefix}-class`;
+
+  useEffect(() => {
+    let alive = true;
+    classesApi.list().then(
+      (k) => alive && setClasses(k),
+      () => alive && setClasses([]),
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  async function create() {
+    if (!name.trim()) return;
+    setBusy(true);
+    setProblem(null);
+    try {
+      const k = await classesApi.create(name.trim());
+      setClasses((c) => [...(c ?? []), k]);
+      onChange(String(k.id));
+      setAdding(false);
+      setName("");
+    } catch (e) {
+      setProblem(e instanceof ApiError ? e.detail : "Cannot reach the server.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="t-field" style={{ flex: "1 1 240px", minWidth: 0 }}>
+      <label htmlFor={fieldId}>Class</label>
+      {!adding ? (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select
+            id={fieldId}
+            className="t-select"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            aria-describedby={`${fieldId}-help`}
+            disabled={classes === null}
+            style={{ flex: "1 1 180px", minWidth: 0 }}
+          >
+            <option value="">{classes === null ? "Loading classes…" : "No class yet (save for later)"}</option>
+            {(classes ?? []).map((k) => (
+              <option key={k.id} value={String(k.id)}>
+                {k.name}
+                {k.term ? ` · ${k.term}` : ""} · {k.member_count} student{k.member_count === 1 ? "" : "s"}
+              </option>
+            ))}
+          </select>
+          <button type="button" className="t-mini-link" onClick={() => setAdding(true)}>
+            + New class
+          </button>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <input
+            id={fieldId}
+            className="input"
+            placeholder="Class name, e.g. CS 101 — A"
+            value={name}
+            maxLength={120}
+            autoFocus
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void create();
+              }
+            }}
+            style={{ flex: "1 1 180px", minWidth: 0 }}
+          />
+          <button type="button" className="btn btn-secondary" disabled={busy || !name.trim()} onClick={() => void create()}>
+            {busy ? "Creating…" : "Create"}
+          </button>
+          <button type="button" className="t-mini-link" onClick={() => setAdding(false)}>
+            cancel
+          </button>
+        </div>
+      )}
+      <span id={`${fieldId}-help`} className="t-small t-muted">
+        Only students in this class see the exam. You can choose it later, when you open the exam.
+      </span>
+      {problem && <span className="field-error">{problem}</span>}
+    </div>
   );
 }

@@ -14,7 +14,7 @@ import os
 import re
 import secrets
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 from .security import Principal, require_teacher
@@ -61,7 +61,41 @@ def _image_size(data: bytes) -> tuple[int, int]:
         return int(im.width), int(im.height)
 
 
-def save_image_bytes(data: bytes) -> dict:
+# Audit L-18: scan crops / page previews / name boxes show a student's handwriting and name.
+# They are "private" uploads (id starts with "p"): served only with a signature that
+# expires (sign_url), never cached publicly. API responses get signed links on the way out
+# (http_guard.SignPrivateUploads), so <img> tags keep working without a token.
+PRIVATE_PREFIX = "p"
+PRIVATE_URL_RE = re.compile(r"/api/uploads/(p[0-9a-f]{32})(?![0-9A-Za-z?])")
+SIGNED_TTL_S = 3600
+
+
+def _sig(secret: str, uid: str, exp: int) -> str:
+    import hashlib
+    import hmac
+    return hmac.new(secret.encode(), f"upl|{uid}|{exp}".encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def sign_url(secret: str, uid: str, now: float | None = None) -> str:
+    """Valid for 1-2 hours; the expiry is rounded to the hour so a page's images stay
+    cacheable in the browser between polls."""
+    import time
+    t = int(now if now is not None else time.time())
+    exp = (t // SIGNED_TTL_S + 2) * SIGNED_TTL_S
+    return f"{UPLOAD_URL_PREFIX}{uid}?exp={exp}&sig={_sig(secret, uid, exp)}"
+
+
+def signature_ok(secret: str, uid: str, exp: str | None, sig: str | None) -> bool:
+    import hmac
+    import time
+    try:
+        e = int(exp or "")
+    except ValueError:
+        return False
+    return e >= time.time() and bool(sig) and hmac.compare_digest(_sig(secret, uid, e), sig or "")
+
+
+def save_image_bytes(data: bytes, private: bool = False) -> dict:
     """Validate and store image bytes (blocking: call through asyncio.to_thread).
     Returns {"id","url","width","height"}; raises ValueError with a readable reason."""
     if not data:
@@ -75,7 +109,7 @@ def save_image_bytes(data: bytes) -> dict:
         width, height = _image_size(data)
     except Exception:  # noqa: BLE001 - Pillow raises many types for broken files
         raise ValueError("This image file is damaged or not supported") from None
-    uid = secrets.token_hex(16)
+    uid = (PRIVATE_PREFIX if private else "") + secrets.token_hex(16)
     d = uploads_dir()
     os.makedirs(d, exist_ok=True)
     tmp = os.path.join(d, f".{uid}.tmp")
@@ -118,15 +152,15 @@ async def upload(file: UploadFile = File(...),
 
 
 @router.get("/{uid}")
-async def get_upload(uid: str):
+async def get_upload(uid: str, request: Request, exp: str | None = None, sig: str | None = None):
+    private = uid.startswith(PRIVATE_PREFIX)
+    if private and not signature_ok(request.app.state.settings.secret, uid, exp, sig):
+        raise HTTPException(403, "This link has expired. Reload the page.")
     found = await asyncio.to_thread(find_upload, uid)
     if found is None:
         raise HTTPException(404, "Not found")
     path, media = found
     return FileResponse(path, media_type=media, headers={
-        # phase 1a: private (scan crops are student work: no shared/proxy caching) and a
-        # sandboxing CSP so an image URL opened directly can never run anything
-        "Cache-Control": "private, max-age=31536000, immutable",
-        "Content-Security-Policy": "default-src 'none'; img-src 'self'; sandbox",
+        "Cache-Control": "private, max-age=3600" if private else "public, max-age=31536000, immutable",
         "X-Content-Type-Options": "nosniff",
     })

@@ -249,10 +249,8 @@ describe("StudentProfilePage", () => {
     expect(screen.getByRole("columnheader", { name: /context only — not a cheating signal/ })).toBeInTheDocument();
     expect(screen.getByText("55 min")).toBeInTheDocument();
     expect(screen.getByText("so far · needs grading")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Make practice for weak topics" })).toHaveAttribute(
-      "href",
-      "/teacher/practice?student=bob",
-    );
+    // 2026-10-13: Practice is off unless the server switches it on
+    expect(screen.queryByRole("link", { name: "Make practice for weak topics" })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Quiz 1" })).toHaveAttribute("href", "/teacher/exams/e1/submissions/a1");
     expect(screen.getByText("Algebra practice")).toBeInTheDocument();
     // untagged topic not listed in the trend table

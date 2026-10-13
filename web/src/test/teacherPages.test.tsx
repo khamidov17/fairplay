@@ -9,6 +9,7 @@ import type { Exam, ExamInput, LiveRoom, Results } from "../api/types";
 const api = vi.hoisted(() => ({
   listExams: vi.fn(),
   createExam: vi.fn(),
+  updateExam: vi.fn(),
   getExam: vi.fn(),
   openExam: vi.fn(),
   closeExam: vi.fn(),
@@ -33,6 +34,13 @@ vi.mock("../api/client", async (importOriginal) => {
     teacherApi: { ...orig.teacherApi, ...api },
     // slice 6: topic suggestions for the editor
     slice6Api: { ...orig.slice6Api, topics: vi.fn().mockResolvedValue([{ topic: "algebra", question_count: 2 }]) },
+    // audit S-03: the editor needs a class
+    classesApi: {
+      ...orig.classesApi,
+      list: vi.fn().mockResolvedValue([
+        { id: 7, name: "Calc A", join_code: "K7QM-3XPA", member_count: 3, exam_count: 0, created_at: "2026-10-12T00:00:00Z" },
+      ]),
+    },
   };
 });
 
@@ -205,7 +213,10 @@ describe("teacher home", () => {
     expect(within(table).getByText("Grades released")).toBeInTheDocument();
     expect(within(table).getByText("Live")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("aria-current", "page");
-    for (const name of ["Exams", "Grading", "Gradebook"]) expect(screen.getByRole("link", { name })).toBeInTheDocument();
+    // 2026-10-13: simple menu; optional parts hidden unless the server switches them on
+    for (const name of ["Exams", "Classes", "Grades", "Students"]) expect(screen.getByRole("link", { name })).toBeInTheDocument();
+    for (const name of ["Scan & Grade", "LMS sync", "Practice", "Insights"])
+      expect(screen.queryByRole("link", { name })).not.toBeInTheDocument();
   });
 });
 
@@ -241,10 +252,13 @@ describe("e2e path: create, save, open, live room, results", () => {
     await user.type(tol, "0.01");
     await user.type(prompts[2], "Capital of France?");
     await user.type(document.querySelector<HTMLInputElement>("[id$='-accepted']")!, "Paris");
-    // slice 6: every question needs a topic (input id ends with -topics; Enter adds it)
+    // topics are optional (input id ends with -topics; Enter adds it)
     const topicInputs = document.querySelectorAll<HTMLInputElement>("[id$='-topics']");
     expect(topicInputs).toHaveLength(3);
     for (const t of topicInputs) await user.type(t, "algebra{Enter}");
+    // 2026-10-13: the class is optional while writing; e2e.py picks one before saving
+    await waitFor(() => expect(document.querySelector<HTMLSelectElement>("#exam-class")!.disabled).toBe(false));
+    await user.selectOptions(document.querySelector<HTMLSelectElement>("#exam-class")!, "7");
     await user.click(screen.getByRole("button", { name: "Save exam" }));
 
     await waitFor(() => expect(api.createExam).toHaveBeenCalled());
@@ -253,6 +267,7 @@ describe("e2e path: create, save, open, live room, results", () => {
     expect(saved!.questions[0].correct_index).toBe(1);
     expect(saved!.questions.map((q) => q.topics)).toEqual([["algebra"], ["algebra"], ["algebra"]]);
     expect(saved!.delivery).toBe("computer");
+    expect(saved!.class_id).toBe(7);
 
     // Now on /teacher/exams/e_abc: exactly one "Open exam" button.
     const openBtns = await screen.findAllByRole("button", { name: /Open exam/i });
@@ -264,6 +279,69 @@ describe("e2e path: create, save, open, live room, results", () => {
 
     await user.click(screen.getByRole("tab", { name: "Results" }));
     expect(await screen.findByRole("button", { name: "Show answers" })).toBeInTheDocument();
+  });
+});
+
+describe("2026-10-13 simpler exam editor", () => {
+  async function writeOneQuestion(user: ReturnType<typeof userEvent.setup>) {
+    await user.type(document.querySelector<HTMLInputElement>("#exam-title")!, "Quiz");
+    await user.click(screen.getByRole("button", { name: "+ Numeric answer" }));
+    await user.type(document.querySelector<HTMLTextAreaElement>("[id$='-prompt']")!, "2+2?");
+    await user.type(document.querySelector<HTMLInputElement>("[id$='-answer']")!, "4");
+  }
+
+  it("saves without a class and asks for one only when opening", { timeout: 20000 }, async () => {
+    const user = userEvent.setup();
+    const inputs: ExamInput[] = [];
+    api.createExam.mockImplementation(async (input: ExamInput) => {
+      inputs.push(input);
+      return exam();
+    });
+    api.updateExam.mockImplementation(async (_id: string, input: ExamInput) => {
+      inputs.push(input);
+      return exam({ class_id: input.class_id ?? null });
+    });
+    api.openExam.mockResolvedValue(exam({ status: "live", start_code: "4729", class_id: 7 }));
+    api.getExam.mockResolvedValue(exam({ status: "live", start_code: "4729", class_id: 7 }));
+    renderAt("/teacher/exams/new");
+    await writeOneQuestion(user);
+    // no topic, no class: open asks which class
+    await user.click(screen.getByRole("button", { name: "Open exam" }));
+    const ask = await screen.findByRole("dialog", { name: "Which class takes this exam?" });
+    expect(api.createExam).not.toHaveBeenCalled();
+    await waitFor(() => expect(within(ask).getByLabelText("Class")).not.toBeDisabled());
+    await user.selectOptions(within(ask).getByLabelText("Class"), "7");
+    await user.click(within(ask).getByRole("button", { name: "Open exam" }));
+    await waitFor(() => expect(api.openExam).toHaveBeenCalled());
+    expect(inputs[0]!.class_id).toBe(7);
+    expect(inputs[0]!.questions[0]!.topics).toEqual([]);
+  });
+
+  it("switches a question's type in its card and keeps the text", async () => {
+    const user = userEvent.setup();
+    renderAt("/teacher/exams/new");
+    await writeOneQuestion(user);
+    const kind = document.querySelector<HTMLSelectElement>("[id$='-kind']")!;
+    await user.selectOptions(kind, "short");
+    expect(document.querySelector<HTMLTextAreaElement>("[id$='-prompt']")!.value).toBe("2+2?");
+    expect(document.querySelector("[id$='-accepted']")).not.toBeNull();
+    expect(document.querySelector("[id$='-answer']")).toBeNull();
+  });
+
+  it("copies questions from another exam", async () => {
+    const user = userEvent.setup();
+    const q = { id: "q1", type: "numeric" as const, prompt: "Old question", points: 2, answer_number: 4, tolerance: 0, topics: ["x"] };
+    api.listExams.mockResolvedValue([exam({ id: "e_old", title: "Old quiz", question_count: 1 })]);
+    api.getExam.mockResolvedValue(exam({ id: "e_old", title: "Old quiz", questions: [q] as Exam["questions"] }));
+    renderAt("/teacher/exams/new");
+    await user.click(screen.getByRole("button", { name: /Copy questions from another exam/ }));
+    await user.click(await screen.findByRole("button", { name: "Copy its questions" }));
+    expect(await screen.findByText("Old question")).toBeInTheDocument();
+  });
+
+  it("a new exam from a class page has that class picked", async () => {
+    renderAt("/teacher/exams/new?class=7");
+    await waitFor(() => expect(document.querySelector<HTMLSelectElement>("#exam-class")!.value).toBe("7"));
   });
 });
 

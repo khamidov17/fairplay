@@ -111,7 +111,7 @@ def world(client, tmp_path):
         s.commit()
         t2_id = t2.id
     eng.dispose()
-    token = make_token("test-secret", t2_id, "teacher", 3600)
+    token = make_token("test-secret-0123456789abcdef", t2_id, "teacher", 3600)
     return {"teacher2": {"Authorization": f"Bearer {token}"}}
 
 

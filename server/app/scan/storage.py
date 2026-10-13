@@ -1,8 +1,9 @@
 """Files for Scan & Grade.
 
-Crops, page previews and deskewed page images are stored as ordinary uploads
-(app.uploads, served at /api/uploads/<id> without auth because ids are 128-bit random),
-so <img> tags work everywhere (grading queue, feedback). Uploaded scan files (PDF/images)
+Crops, page previews and deskewed page images are stored as PRIVATE uploads (audit L-18):
+served at /api/uploads/<id> only with an expiring signature, which API responses add on
+the way out (app.http_guard.SignPrivateUploads), so <img> tags work everywhere (grading
+queue, feedback) without anyone holding a permanent link to a student's handwriting. Uploaded scan files (PDF/images)
 are kept privately in a sibling folder `scan-sources/` while they are processed and are
 never served.
 """
@@ -26,7 +27,7 @@ def sources_dir() -> str:
 
 def save_file(data: bytes, ext: str = "png") -> str:
     """Store PNG/JPEG bytes as an upload (blocking); returns its URL."""
-    return uploads.save_image_bytes(data)["url"]
+    return uploads.save_image_bytes(data, private=True)["url"]
 
 
 def _uid(url: str | None) -> str | None:

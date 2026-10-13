@@ -48,6 +48,11 @@ export default function DonePage() {
           </span>
           <h1 id="done-h">Submitted</h1>
           {info?.title && <p className="stu-done-title">{info.title}</p>}
+          {fromState?.notice && (
+            <p className="stu-alert warn" role="status" style={{ margin: 0 }}>
+              {fromState.notice}
+            </p>
+          )}
           <p className="stu-done-text">{reached}</p>
           <div className="stu-receipt">
             <span>Your receipt code</span>

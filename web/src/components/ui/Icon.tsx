@@ -28,6 +28,13 @@ const PATHS: Record<string, JSX.Element> = {
     </>
   ),
   plus: <path d="M12 5v14M5 12h14" />,
+  link: <path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1" />,
+  copy: (
+    <>
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+    </>
+  ),
   shield: (
     <>
       <path d="M12 3l8 4v5c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V7z" />
@@ -96,6 +103,14 @@ const PATHS: Record<string, JSX.Element> = {
       <path d="M16 4.5a3.5 3.5 0 0 1 0 7M18.5 14a6.5 6.5 0 0 1 3 6" />
     </>
   ),
+  // audit S-03: classes (a board with a person)
+  classes: (
+    <>
+      <rect x="3" y="4" width="18" height="12" rx="2" />
+      <path d="M8 20l4-4 4 4" />
+      <path d="M7 9h6M7 12h4" />
+    </>
+  ),
   // slice 6 H
   practice: (
     <>
@@ -108,13 +123,6 @@ const PATHS: Record<string, JSX.Element> = {
     <>
       <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" />
       <path d="M4 12h16" />
-    </>
-  ),
-  // classes: a class board
-  classes: (
-    <>
-      <rect x="3" y="4" width="18" height="12" rx="1.5" />
-      <path d="M8 20h8M12 16v4M7 9h6M7 12h4" />
     </>
   ),
 };

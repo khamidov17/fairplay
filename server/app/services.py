@@ -27,8 +27,19 @@ def new_id(prefix: str) -> str:
     return f"{prefix}_{secrets.token_urlsafe(9).replace('-', 'x').replace('_', 'y')}"
 
 
+START_CODE_DIGITS = 6   # audit #13: was 4 (10 000 codes for a whole room)
+
+
 def new_start_code() -> str:
-    return str(1000 + secrets.randbelow(9000))
+    return f"{secrets.randbelow(10 ** START_CODE_DIGITS):0{START_CODE_DIGITS}d}"
+
+
+def new_invigilator_code() -> str:
+    return f"{secrets.randbelow(10 ** 6):06d}"
+
+
+def new_session_id() -> str:
+    return secrets.token_urlsafe(24)
 
 
 def new_receipt() -> str:
@@ -51,8 +62,6 @@ def teacher_question(q: dict) -> dict:
         "images": [dict(i) for i in q.get("images") or []],
         "topics": list(q.get("topics") or []),
         "answer_lines": q.get("answer_lines"),  # slice 6: paper answer space
-        # graph / diagram questions (checklist = answer key: never sent to students)
-        **({"diagram": q["diagram"]} if q.get("diagram") else {}),
     }
 
 
@@ -63,7 +72,6 @@ def student_question(q: dict) -> dict:
     # slice 6: topic tags can hint at the method ("integration by parts"): not shown while
     # writing. Images are shown above the prompt.
     tq.pop("topics", None)
-    tq.pop("diagram", None)
     return tq
 
 
@@ -79,6 +87,8 @@ def exam_out(e: Exam, pending_grading: int = 0) -> dict:
     return {
         "id": e.id, "title": e.title, "duration_min": e.duration_min, "status": e.status,
         "start_code": e.start_code if e.status == "live" else None,
+        # audit #5: per-exam code for the app's emergency exit (teacher only)
+        "invigilator_code": e.invigilator_code if e.status == "live" else None,
         "questions": [teacher_question(q) for q in e.questions or []],
         "created_at": iso(e.created_at),
         "question_count": e.question_count, "total_points": num(e.total_points),
@@ -90,8 +100,7 @@ def exam_out(e: Exam, pending_grading: int = 0) -> dict:
         # slice 5: LMS link (ids only; never any credential)
         "course_link_id": e.course_link_id, "lms_assignment_id": e.lms_assignment_id,
         "delivery": exam_delivery(e),  # slice 6
-        # phase 1a: invigilator exit code (teacher view only; issued at open)
-        "exit_code": e.exit_code if e.status != "draft" else None,
+        "class_id": e.class_id,        # audit S-03
     }
 
 
@@ -106,12 +115,36 @@ def external_fields(e: Exam) -> dict:
     }
 
 
+# Hosts that serve many unrelated things (any shared Doc, Search, Gemini...): the exam
+# address only opens its own path there, never the whole host (audit #10).
+BROAD_HOSTS = {"docs.google.com", "drive.google.com", "sites.google.com", "www.google.com",
+               "google.com", "forms.office.com", "forms.microsoft.com", "onedrive.live.com",
+               "www.notion.so", "notion.so", "github.com", "gist.github.com", "www.dropbox.com",
+               "dropbox.com", "sharepoint.com", "www.bing.com", "bing.com"}
+
+
+def start_url_entry(url: str | None) -> str | None:
+    """Allowed-site entry the exam address always gets: its exact host, or host + path
+    folder on BROAD_HOSTS (https://docs.google.com/forms/d/e/X/viewform ->
+    docs.google.com/forms/d/e/X/)."""
+    host = external_host(url)
+    if not host:
+        return None
+    if host not in BROAD_HOSTS and not host.endswith(".sharepoint.com"):
+        return host
+    from urllib.parse import urlsplit
+    path = urlsplit((url or "").strip()).path or "/"
+    folder = path[:path.rfind("/") + 1] if "/" in path else "/"
+    return host if folder in ("", "/") else host + folder
+
+
 def student_allowed_domains(e: Exam) -> list[str]:
-    """Allowed websites for the app: the stored list plus, always, the external_url host."""
+    """Allowed websites for the app: the stored entries (exact host, "*.host" for
+    subdomains, optional /path prefix) plus, always, the exam address entry."""
     domains = list(e.allowed_domains or [])
-    host = external_host(e.external_url)
-    if host and host not in domains:
-        domains.insert(0, host)
+    entry = start_url_entry(e.external_url)
+    if entry and entry not in domains:
+        domains.insert(0, entry)
     return domains
 
 
@@ -136,8 +169,7 @@ def exam_key(exam_id: str) -> str:
 
 
 async def invalidate_exam(store: Store, exam_id: str) -> None:
-    # phase 1a: also the cached offline-package key (app.offline; rotated at close)
-    await store.delete(exam_key(exam_id), f"pkgk:{exam_id}")
+    await store.delete(exam_key(exam_id))
 
 
 async def get_exam_cached(store: Store, session: AsyncSession, exam_id: str) -> dict | None:
@@ -154,12 +186,11 @@ async def get_exam_cached(store: Store, session: AsyncSession, exam_id: str) -> 
         "course": e.course or "", "shuffle_questions": bool(e.shuffle_questions),
         "question_ids": [q["id"] for q in e.questions or []],
         "course_link_id": e.course_link_id,  # slice 5: start restricted to that LMS course
+        "class_id": e.class_id,              # audit S-03: ... or to the exam's class
         "delivery": exam_delivery(e),  # slice 6: paper exams are never started in the app
         "scheduled_at": iso(e.scheduled_at),
         "questions": [student_question(q) for q in e.questions or []],
         **external_fields(e),
-        # phase 1a: offline verifier of the invigilator exit code (never the code itself)
-        "exit_check": _exit_check(e),
     }
     if data["mode"] == "external":
         data["allowed_domains"] = student_allowed_domains(e)
@@ -174,7 +205,8 @@ def attempt_key(aid: str) -> str:
 
 def attempt_meta(a: Attempt) -> dict:
     return {"exam_id": a.exam_id, "student_id": a.student_id, "status": a.status,
-            "deadline_at": iso(a.deadline_at)}
+            "deadline_at": iso(a.deadline_at), "session_id": a.session_id,
+            "device_id": a.device_id, "started_at": iso(a.started_at)}
 
 
 async def cache_attempt(store: Store, a: Attempt) -> None:
@@ -184,7 +216,9 @@ async def cache_attempt(store: Store, a: Attempt) -> None:
 async def get_attempt_meta(store: Store, session: AsyncSession, aid: str) -> dict | None:
     raw = await store.get(attempt_key(aid))
     if raw:
-        return json.loads(raw)
+        meta = json.loads(raw)
+        if "session_id" in meta:  # entries cached before the audit fixes lack it
+            return meta
     a = await session.get(Attempt, aid)
     if a is None:
         return None
@@ -207,11 +241,6 @@ def shuffled_for(attempt_id: str, questions: list) -> list:
     return out
 
 
-def _exit_check(e: Exam) -> dict | None:
-    from .exitcode import check_of
-    return check_of(getattr(e, "exit_check", None))
-
-
 def attempt_view(a: Attempt, exam: dict, now: datetime) -> dict:
     questions = exam["questions"]
     if exam.get("shuffle_questions"):
@@ -225,13 +254,8 @@ def attempt_view(a: Attempt, exam: dict, now: datetime) -> dict:
         "deadline_at": iso(a.deadline_at), "server_time": iso(now),
         "questions": [] if external else questions,
         "answers": {} if external else (a.answers or {}), "status": a.status,
-        # Phase 1b: the stored client_seq, so a client without a local copy (another
-        # computer, cleared storage) continues above it instead of from 0.
-        "client_seq": a.client_seq if a.client_seq is not None else -1,
         "mode": mode,
         "external_url": exam.get("external_url") if external else None,
         "allowed_domains": list(exam.get("allowed_domains") or []) if external else [],
         "finish_url_contains": exam.get("finish_url_contains") if external else None,
-        # phase 1a: for the Mac app's invigilator exit when the server cannot be reached
-        "exit_check": exam.get("exit_check"),
     }

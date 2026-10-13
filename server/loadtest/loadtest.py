@@ -9,11 +9,18 @@ Start the server with PROCTORA_SEED_LOADTEST_USERS >= N so users lt0001..ltNNNN
 Each student: login -> list exams -> start (with code) -> heartbeat every 5 s and
 answer save every 3 s -> submit after --duration seconds. Logins/starts are spread
 over --ramp seconds (a real exam room does not click "start" in the same millisecond).
+
+Since the 2026-10-12 audit the server only lets the FairPlay app start: set
+FAIRPLAY_APP_KEY to the server's key and each simulated student signs like the app
+(challenge -> start -> X-FairPlay-Session on every request, app beat every 5 s).
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
+import hmac
+import os
 import multiprocessing as mp
 import random
 import ssl
@@ -89,6 +96,10 @@ async def student(idx: int, exam: dict, args):
         await _student(client, idx, exam, args)
 
 
+def _sign(key: str, msg: str) -> str:
+    return hmac.new(key.encode(), msg.encode(), hashlib.sha256).hexdigest()
+
+
 async def _student(client, idx: int, exam: dict, args):
     r = await call(client, "login", "POST", "/api/auth/login",
                    json={"username": f"lt{idx:04d}", "password": "loadtest"})
@@ -96,12 +107,26 @@ async def _student(client, idx: int, exam: dict, args):
         return
     h = {"Authorization": f"Bearer {r.json()['token']}"}
     await call(client, "student_exams", "GET", "/api/student/exams", headers=h)
+    key = os.environ.get("FAIRPLAY_APP_KEY", "").split(",")[0]
+    device = f"loadtest-device-{idx:06d}"
+    body: dict = {"start_code": exam["start_code"]}
+    if key:
+        c = await call(client, "challenge", "GET", f"/api/student/exams/{exam['id']}/challenge",
+                       headers=h)
+        if c is None:
+            return
+        nonce = c.json()["nonce"]
+        body["client"] = {"device_id": device, "nonce": nonce, "version": "loadtest",
+                          "signature": _sign(key, f"start|{nonce}|{device}")}
     r = await call(client, "start", "POST", f"/api/student/exams/{exam['id']}/start",
-                   headers=h, json={"start_code": exam["start_code"]})
+                   headers=h, json=body)
     if r is None:
         return
     a = r.json()
     aid, qs = a["attempt_id"], a["questions"]
+    sess = a.get("session")
+    if sess:
+        h = {**h, "X-FairPlay-Session": sess}
     answers: dict = {}
     seq = 0
     t_end = time.monotonic() + args.duration
@@ -114,8 +139,15 @@ async def _student(client, idx: int, exam: dict, args):
         if now >= next_hb:
             next_hb += 5
             await call(client, "heartbeat", "POST", f"/api/student/attempts/{aid}/heartbeat",
-                       headers=h, json={"current_question": random.randrange(len(qs)),
-                                        "locked": True})
+                       headers=h, json={"current_question": random.randrange(len(qs))})
+            if key and sess:
+                ts = int(time.time() * 1000)
+                checks = "vm=0,displays=1,tap=1,input=1"
+                await call(client, "app_beat", "POST", f"/api/student/attempts/{aid}/app-beat",
+                           headers=h, json={
+                               "session": sess, "device_id": device, "ts": ts, "locked": True,
+                               "checks": checks,
+                               "signature": _sign(key, f"beat|{aid}|{sess}|{device}|{ts}|1|{checks}")})
             if random.random() < 0.05:
                 await call(client, "events", "POST", f"/api/student/attempts/{aid}/events",
                            headers=h, json={"events": [{"type": "blocked_shortcut",

@@ -13,3 +13,9 @@ server/data/
 .claude/
 e2e/shots/
 *.rdb
+# local Mac working files (2026-10-13)
+logs/
+*.log
+mac/FairPlay.app/
+fairplay-windows.tgz
+windows/

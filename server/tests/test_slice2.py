@@ -433,7 +433,7 @@ def test_grading_overview(client, teacher, alice, bob, graded_setup):
     submit(client, alice, e2, {0: 1})
     rows = client.get("/api/grading", headers=teacher).json()
     assert [r["exam_id"] for r in rows] == [e2["id"], graded_setup["exam"]["id"]]  # newest first
-    assert rows[0] == {"exam_id": e2["id"], "title": "Quiz", "course": "CS 1", "status": "live",
+    assert {k: v for k, v in rows[0].items() if k != "class_id"} == {"exam_id": e2["id"], "title": "Quiz", "course": "CS 1", "status": "live",
                        "pending": 0, "submitted": 1, "grades_released": False}
     assert rows[1]["pending"] == 1 and rows[1]["submitted"] == 2 and rows[1]["status"] == "closed"
     assert client.get("/api/grading", headers=alice).status_code == 403
@@ -453,11 +453,12 @@ def test_gradebook_states_and_csv(client, teacher, alice, bob, carol, graded_set
                               "total_points": 20, "status": "closed", "grades_released": False}
     st = {s["username"]: s for s in gb["students"]}
     assert [s["name"] for s in gb["students"]] == ["Alice Chen", "Bob Karimov", "Carol Wang"]
-    assert st["alice"]["cells"][e1["id"]] == {"state": "needs_grading", "score": 2, "percent": 10.0}
+    assert st["alice"]["cells"][e1["id"]] == {"state": "needs_grading", "score": 2, "percent": 10.0,
+                                             "late": False}
     assert st["alice"]["cells"][e2["id"]] == {"state": "in_progress", "score": None,
                                              "percent": None}
     assert st["alice"]["average_percent"] is None
-    assert st["bob"]["cells"][e1["id"]] == {"state": "graded", "score": 0, "percent": 0.0}
+    assert st["bob"]["cells"][e1["id"]] == {"state": "graded", "score": 0, "percent": 0.0, "late": False}
     assert st["bob"]["cells"][e2["id"]]["state"] == "graded"
     assert st["bob"]["average_percent"] == 25.0  # (0 + 50) / 2
     assert st["carol"]["cells"][e1["id"]]["state"] == "missing"
@@ -467,7 +468,7 @@ def test_gradebook_states_and_csv(client, teacher, alice, bob, carol, graded_set
     gb = client.get("/api/gradebook?course=MATH%20201", headers=teacher).json()
     assert gb["courses"] == ["CS 1", "MATH 201"] and [x["exam_id"] for x in gb["exams"]] == [e1["id"]]
     alice_row = next(s for s in gb["students"] if s["username"] == "alice")
-    assert alice_row["cells"][e1["id"]] == {"state": "graded", "score": 12, "percent": 60.0}
+    assert alice_row["cells"][e1["id"]] == {"state": "graded", "score": 12, "percent": 60.0, "late": False}
     assert alice_row["average_percent"] == 60.0 and list(alice_row["cells"]) == [e1["id"]]
     assert client.get("/api/gradebook?course=", headers=teacher).json()["exams"][1]["exam_id"] == e2["id"]
 

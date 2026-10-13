@@ -190,7 +190,9 @@ def test_print_requires_layout_and_roster(client, teacher, paper):
     r = client.put(f"/api/exams/{paper['id']}/roster", json={"usernames": ["nobody"]}, headers=teacher)
     assert r.status_code == 422
     r = client.put(f"/api/exams/{paper['id']}/roster", json={"usernames": []}, headers=teacher)
-    assert r.json()["source"] == "all" and len(r.json()["students"]) >= 3
+    assert r.json()["source"] == "class" and len(r.json()["students"]) >= 3   # the exam's class
+    info = client.get(f"/api/exams/{paper['id']}/print", headers=teacher).json()
+    assert info["roster_source"] == "class" and info["booklet_parts"] == 1 and info["needs_roster"] is False
     # overview lists the paper exam
     ov = client.get("/api/scan/exams", headers=teacher).json()
     assert [x["exam_id"] for x in ov] == [paper["id"]]
@@ -299,7 +301,7 @@ def _fake_ai(style: str, calls: list):
             text = "".join(c.get("text", "") for c in body["messages"][1]["content"] if c["type"] == "text")
             assert any(c["type"] == "image_url" for c in body["messages"][1]["content"])
         if "pi to two decimals" in text:
-            out = {"transcript": "3.14", "points": 1, "comment": "Correct value.", "confidence": 0.95,
+            out = {"transcript": "3.14", "points": 3, "comment": "Correct value.", "confidence": 0.95,
                    "mistake_tags": []}
         elif "integral test" in text:
             out = {"transcript": "terms positive decreasing", "points": 3, "comment": "Missing the integral.",
@@ -337,7 +339,8 @@ def test_ai_drafts_approve_bulk_regrade_release(client, teacher, paper, alice, m
     queue = client.get(f"/api/exams/{e['id']}/scan/queue", headers=teacher).json()
     items = {(i["username"], i["question_id"]): i for i in queue["items"]}
     dn = items[("alice", q[1])]["draft"]
-    assert dn["source"] == "key" and dn["points"] == 3 and dn["transcript"] == "3.14"  # matches key
+    assert dn["source"] == "ai" and dn["points"] == 3 and dn["transcript"] == "3.14"
+    assert dn["key_match"] is True                     # matches the key: a hint, nothing more
     de = items[("alice", q[3])]["draft"]
     assert de["source"] == "ai" and de["points"] == 3 and de["low_confidence"] is True
     assert de["mistake_tags"] == ["incomplete"]
@@ -363,7 +366,8 @@ def test_ai_drafts_approve_bulk_regrade_release(client, teacher, paper, alice, m
     r = client.post(f"/api/exams/{e['id']}/scan/answers/{al['attempt_id']}/{q[2]}/regrade",
                     json={"hint": "accept lowercase"}, headers=teacher)
     assert r.status_code == 200, r.text
-    assert r.json()["draft"]["transcript"] == "Paris" and r.json()["draft"]["source"] == "key"
+    assert r.json()["draft"]["transcript"] == "Paris" and r.json()["draft"]["key_match"] is True
+    assert r.json()["draft"]["points"] == 2 and r.json()["draft"]["source"] == "ai"
     assert "accept lowercase" in calls2[0]["messages"][1]["content"][0]["text"]
 
     # approve as-is, edit (override), validation
@@ -438,3 +442,83 @@ def test_pipeline_bubbles_relative_threshold():
     cv2.line(faint, (cx - 12, cy + 12), (cx + 12, cy - 12), 40, 3)
     res = pipeline.read_bubbles(faint, bubbles)
     assert res["marks"] in ("unclear", "one") and res["mcq"] == 1
+
+
+def test_reassigning_a_page_moves_its_answers(client, teacher, paper):
+    """Audit L-12: a matched page given to another student leaves the first one's paper."""
+    from sqlalchemy import select
+    from app import db as dbmod
+    from app.scan.models import ScanPage
+    e = paper
+    _layout, users, _up = _scan_class(client, teacher, e)
+    _wait(client, teacher, e["id"])
+    alice_id, bob_id = users["alice"]["id"], users["bob"]["id"]
+    q = [x["id"] for x in e["questions"]]
+    before = _attempt(client, teacher, e["id"], "alice")
+    assert any(a["question_id"] == q[1] and a.get("image") for a in before["answers"])
+
+    async def alice_page1():
+        async with dbmod._db.sessionmaker() as s:
+            return (await s.execute(select(ScanPage.id).where(
+                ScanPage.exam_id == e["id"], ScanPage.student_id == alice_id, ScanPage.page_no == 1))).scalar_one()
+    pid = client.portal.call(alice_page1)
+    r = client.post(f"/api/exams/{e['id']}/scans/pages/{pid}/assign", headers=teacher,
+                    json={"student_id": bob_id, "page_no": 1, "follow_on": False})
+    assert r.status_code == 200, r.text
+    after = _attempt(client, teacher, e["id"], "alice")
+    page1 = {q[0], q[1], q[2], q[3]}
+    assert not [a for a in after["answers"] if a["question_id"] in page1 and a.get("image")]
+    assert after["score"] == 0                       # her bubble point went with the page
+    bob = _attempt(client, teacher, e["id"], "bob")
+    assert any(a["question_id"] == q[1] and a.get("image") for a in bob["answers"])
+
+
+def test_key_match_never_raises_the_draft():
+    """Audit L-07: what the AI read can match the key while the AI itself gives 0."""
+    import asyncio
+    from app.scan import grading as sg
+
+    async def fake(system, prompt, images=None, max_tokens=0):
+        return {"transcript": "the answer is 3.14", "points": 0, "comment": "No working shown.",
+                "confidence": 0.3, "mistake_tags": []}
+    q = {"id": "q1", "type": "numeric", "prompt": "pi", "points": 3, "answer_number": 3.14, "tolerance": 0.005}
+    orig_en, orig_c = sg.ai.enabled, sg.ai.complete_json
+    sg.ai.enabled, sg.ai.complete_json = (lambda: True), fake
+    try:
+        d = asyncio.run(sg.draft_for(q, {"image": "x"}, b"img"))
+    finally:
+        sg.ai.enabled, sg.ai.complete_json = orig_en, orig_c
+    assert d["key_match"] is True and d["source"] == "ai"
+    assert d["points"] == 0 and d["confidence"] == 0.3 and d["low_confidence"] is True
+
+
+def test_booklets_come_in_parts_and_never_for_everyone(client, teacher, monkeypatch):
+    """Audit L-10: no whole-school booklet PDF by default; big rosters print in parts."""
+    from app import routes_scan
+    body = {k: v for k, v in PAPER_EXAM.items()}
+    r = client.post("/api/exams", json=body, headers=teacher)
+    e = r.json()
+    from app.db import get_database
+    from app.models import Exam
+
+    async def no_class():
+        async with get_database().sessionmaker() as s:
+            x = await s.get(Exam, e["id"])
+            x.class_id = None
+            await s.commit()
+    client.portal.call(no_class)
+    info = client.get(f"/api/exams/{e['id']}/print", headers=teacher).json()
+    assert info["roster_source"] == "all" and info["needs_roster"] is True
+    r = client.get(f"/api/exams/{e['id']}/print.pdf", headers=teacher)
+    assert r.status_code == 409 and "Pick the students" in r.text
+    assert client.get(f"/api/exams/{e['id']}/print.pdf?blank=1", headers=teacher).status_code == 200
+
+    client.put(f"/api/exams/{e['id']}/roster", json={"usernames": ["alice", "bob", "carol"]}, headers=teacher)
+    monkeypatch.setattr(routes_scan, "BOOKLETS_PER_PDF", 2)
+    assert client.get(f"/api/exams/{e['id']}/print", headers=teacher).json()["booklet_parts"] == 2
+    r1 = client.get(f"/api/exams/{e['id']}/print.pdf?part=1", headers=teacher)
+    r2 = client.get(f"/api/exams/{e['id']}/print.pdf?part=2", headers=teacher)
+    assert r1.headers["x-fairplay-parts"] == "2" and "part2-of-2" in r2.headers["content-disposition"]
+    with pymupdf.open(stream=r1.content) as d1, pymupdf.open(stream=r2.content) as d2:
+        assert d1.page_count == 2 * d2.page_count            # 2 students, then 1
+    assert client.get(f"/api/exams/{e['id']}/print.pdf?part=3", headers=teacher).status_code == 422

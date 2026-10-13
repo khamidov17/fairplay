@@ -1,7 +1,7 @@
 // Sends integrity events from the Mac app (lock started, blocked shortcuts, ...) to the
 // server for pages that are not the exam page itself (website exams, their finish page).
 import { useEffect } from "react";
-import { studentApi } from "../api/client";
+import { ApiError, studentApi } from "../api/client";
 import type { IntegrityEvent } from "../api/types";
 import * as bridge from "./bridge";
 
@@ -22,7 +22,9 @@ export function useForwardNativeEvents(attemptId: string): void {
       queue = [];
       try {
         await studentApi.events(attemptId, batch);
-      } catch {
+      } catch (e) {
+        // Audit W-12: a 4xx (except 429) won't change by retrying: drop the batch.
+        if (e instanceof ApiError && e.status < 500 && e.status !== 429) return;
         queue = [...batch, ...queue];
         if (alive) timer = setTimeout(() => void flush(), RETRY_MS);
       } finally {

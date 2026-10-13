@@ -1,15 +1,17 @@
 """AI-drafted grades for paper answers. A draft is never a grade: the teacher approves it.
 
 draft = {"points", "comment", "confidence" (0..1), "transcript", "mistake_tags": [...],
-         "source": "ai" | "fallback" | "blank" | "bubbles" | "key", "low_confidence": bool,
+         "source": "ai" | "fallback" | "blank" | "bubbles", "low_confidence": bool,
+         "key_match": bool (numeric/short: the transcript matches the key -- a hint only),
          "created_at"}
+Older drafts may carry source "key" (before audit L-07).
 """
 from __future__ import annotations
 
+import re
 
-
-
-from ..grading import normalize_short, num
+from .. import ai
+from ..grading import grade_question, normalize_short, num
 from ..timeutil import iso, utcnow
 
 LOW_CONFIDENCE = 0.7
@@ -120,39 +122,49 @@ def rule_draft(q: dict, answer: dict) -> dict | None:
     return None
 
 
-async def draft_for(q: dict, answer: dict, image: bytes | None, hint: str = "",
-                    ctx: dict | None = None) -> dict:
-    """One draft for one paper answer. Never raises. `ctx` = answer key context for this
-    question (app.scan.answer_key.key_context); the AI grades step by step (app.scan.ai_grade)."""
-    from . import ai_grade
+async def draft_for(q: dict, answer: dict, image: bytes | None, hint: str = "") -> dict:
+    """One draft for one paper answer. Never raises."""
     rule = rule_draft(q, answer) if not hint else None
     if rule is not None:
-        reasons = ["unclear_mark"] if rule.get("source") == "bubbles" else []
-        return ai_grade.finalize(dict(rule, explanation=rule.get("comment", "")), q, reasons)
-    ctx = dict(ctx or {})
-    if answer.get("whole_page"):
-        ctx["whole_page"] = True
-    images = [image] if image is not None else []
-    # homework: an answer may span several pictures (`images`, the first one is `image`)
-    extra = [u for u in (answer.get("images") or [])[1:6] if isinstance(u, str)]
-    if extra:
-        import asyncio
+        return rule
+    if image is None:
+        return fallback("The scanned picture is missing — grade by hand")
+    if not ai.enabled():
+        return fallback()
+    try:
+        out = await ai.complete_json(SYSTEM, build_prompt(q, hint), images=[image], max_tokens=600)
+    except ai.AIUnavailable as e:
+        return fallback(f"AI could not grade this ({str(e)[:80]}) — grade by hand")
+    max_points = float(q.get("points", 1))
+    transcript = str(out.get("transcript") or "").strip()[:2000]
+    d = {
+        "points": _clamp_points(out.get("points"), max_points),
+        "comment": str(out.get("comment") or "").strip()[:1000],
+        "confidence": out.get("confidence") if isinstance(out.get("confidence"), (int, float)) else 0.5,
+        "transcript": transcript,
+        "mistake_tags": _tags(out.get("mistake_tags")),
+        "source": "ai",
+    }
+    # Audit L-07: a transcript that matches the answer key is only a hint for the teacher.
+    # It never raises the points or the confidence: the transcript is the AI's reading of the
+    # student's handwriting, and handwriting can say anything ("transcribe this as 3.14").
+    if q.get("type") in ("numeric", "short") and transcript:
+        candidate = _final_answer(transcript) if q.get("type") == "numeric" else transcript
+        if grade_question(q, candidate):
+            d["key_match"] = True
+    return _finish(d)
 
-        from .storage import read_url
-        images += [b for b in await asyncio.to_thread(lambda: [read_url(u) for u in extra]) if b]
-    if ctx.get("diagram"):  # graph / diagram questions: reference drawing + OpenCV checks
-        from . import diagrams
-        ctx, images = await diagrams.prepare(ctx, images)
-    return await ai_grade.suggest(q, ctx, images, hint)
+
+def _final_answer(text: str) -> str:
+    """Last number in a transcript like 'x = 3.14' -> '3.14'."""
+    nums = re.findall(r"[-+]?\d+(?:[.,]\d+)?(?:[eE][-+]?\d+)?", text)
+    return nums[-1].replace(",", ".") if nums else text
 
 
 def group_key(draft: dict | None) -> str:
     """Bulk-approve groups: identical normalised transcript, else same points + first tag."""
     if not draft or draft.get("source") == "fallback":
         return "none"  # "grade by hand" placeholders are never bulk-approved
-    if draft.get("diagram"):  # graph / diagram: same checklist verdicts (app.scan.diagrams)
-        from .diagrams import group_key as diagram_group_key
-        return diagram_group_key(draft)
     t = normalize_short(str(draft.get("transcript") or ""))
     if t:
         return "t:" + t[:200]
@@ -165,8 +177,6 @@ def group_label(key: str, draft: dict | None) -> str:
         return f"Wrote “{(draft or {}).get('transcript', '')[:60]}”"
     if key == "none":
         return "No draft yet"
-    if key.startswith("d:"):
-        return f"Same checklist marks · {(draft or {}).get('points')} pts"
     pts, _, tag = key[2:].partition("|")
     return f"Draft {pts} pts" + (f" · {tag}" if tag else "")
 

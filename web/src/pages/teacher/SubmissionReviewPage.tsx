@@ -82,7 +82,10 @@ export default function SubmissionReviewPage() {
       </div>
     );
 
-  const go = (i: number) => navigate(`/teacher/exams/${examId}/submissions/${attempts[i].attempt_id}`);
+  const go = (i: number) => {
+    const a = attempts[i];
+    if (a) navigate(`/teacher/exams/${encodeURIComponent(examId)}/submissions/${encodeURIComponent(a.attempt_id)}`);
+  };
   const answers = [...attempt.answers].sort(
     (x, y) => (qIndex.get(x.question_id) ?? 0) - (qIndex.get(y.question_id) ?? 0),
   );
@@ -120,15 +123,9 @@ export default function SubmissionReviewPage() {
             <Link to={`/teacher/students/${encodeURIComponent(attempt.username)}`} className="t-row-link">
               {attempt.username} · profile
             </Link>
-            {" · "}
-            <Link
-              to={`/teacher/exams/${encodeURIComponent(examId)}/submissions/${encodeURIComponent(attempt.attempt_id)}/timeline`}
-              className="t-row-link"
-            >
-              Session timeline
-            </Link>
             {attempt.submitted_at ? ` · submitted ${formatWhen(attempt.submitted_at)}` : " · still writing"}
             {attempt.auto_submitted ? " (time ran out or exam closed)" : ""}
+            {attempt.late ? " · late" : ""}
             {attempt.receipt ? ` · receipt ${attempt.receipt}` : ""}
           </p>
         </div>
@@ -150,6 +147,30 @@ export default function SubmissionReviewPage() {
       {!editable && (
         <div className="alert alert-info" role="status">
           {attempt.name} is still writing. You can grade once they submit or you close the exam.
+        </div>
+      )}
+      {attempt.late && (
+        <div className="alert alert-warning" role="note">
+          <strong>Handed in after time.</strong> The grade uses the answers saved before time was up.
+          {Object.keys(attempt.late_answers ?? {}).length > 0 && (
+            <>
+              {" "}These answers arrived later and are not graded:
+              <ul style={{ margin: "6px 0 0", paddingLeft: 20 }}>
+                {Object.entries(attempt.late_answers ?? {})
+                  .sort(([a], [b]) => (qIndex.get(a) ?? 0) - (qIndex.get(b) ?? 0))
+                  .map(([qid, v]) => {
+                    const q = qById.get(qid);
+                    const text =
+                      q?.type === "mcq" && typeof v === "number" && q.options?.[v] != null ? q.options[v] : String(v ?? "");
+                    return (
+                      <li key={qid}>
+                        Question {(qIndex.get(qid) ?? 0) + 1}: {text.length > 300 ? `${text.slice(0, 300)}…` : text}
+                      </li>
+                    );
+                  })}
+              </ul>
+            </>
+          )}
         </div>
       )}
       {isExternal && (
@@ -183,15 +204,7 @@ export default function SubmissionReviewPage() {
           <OverallComment key={attempt.attempt_id} examId={examId} attempt={attempt} onSaved={load} />
         </section>
         <section className="t-card t-col-2" aria-labelledby="ev-h" style={{ gap: 12 }}>
-          <div className="t-card-head">
-            <h2 id="ev-h">Lockdown events</h2>
-            <Link
-              to={`/teacher/exams/${encodeURIComponent(examId)}/submissions/${encodeURIComponent(attempt.attempt_id)}/timeline`}
-              className="t-card-link"
-            >
-              Full session timeline →
-            </Link>
-          </div>
+          <h2 id="ev-h">Lockdown events</h2>
           {attempt.events.length === 0 ? (
             <p className="t-muted" style={{ margin: 0 }}>
               Nothing recorded.

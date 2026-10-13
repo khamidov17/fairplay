@@ -83,7 +83,8 @@ def test_questions_mode_defaults_and_clears_external_fields(client, teacher):
     {"external_url": "canvas.dku.edu/quiz"},
     {"external_url": "https://" + "a" * 2000 + ".com"},
     {"questions": SAMPLE_EXAM["questions"]},
-    {"allowed_domains": ["https://canvas.dku.edu/path"]},
+    {"allowed_domains": ["canvas.dku.edu/pa th"]},
+    {"allowed_domains": ["*."]},
     {"allowed_domains": ["canvas"]},
     {"allowed_domains": ["bad_host.com"]},
     {"allowed_domains": ["a..b.com"]},
@@ -223,3 +224,21 @@ def test_other_student_cannot_read_external_attempt(client, teacher, alice):
     bob = login(client, "bob")
     r = client.get(f"/api/student/attempts/{a['attempt_id']}", headers=bob)
     assert r.status_code == 404
+
+
+def test_allowed_site_grammar(client, teacher):
+    """Audit #10: exact host by default, "*." for subdomains, optional path prefix."""
+    r = client.post("/api/exams", headers=teacher, json={
+        **EXTERNAL_EXAM, "allowed_domains": ["https://Docs.Google.com/forms/d/e/AbC/viewform?x=1",
+                                        "*.DKU.edu", "canvas.dku.edu/", "dku.edu"]})
+    assert r.status_code == 201, r.text
+    assert r.json()["allowed_domains"] == ["docs.google.com/forms/d/e/AbC/viewform",
+                                           "*.dku.edu", "canvas.dku.edu", "dku.edu"]
+
+
+def test_start_url_entry_is_narrow_on_broad_hosts():
+    from app.services import start_url_entry
+    assert start_url_entry("https://canvas.dku.edu/courses/1/quizzes/2") == "canvas.dku.edu"
+    assert start_url_entry("https://docs.google.com/forms/d/e/1FAIpQL/viewform?usp=sf") == \
+        "docs.google.com/forms/d/e/1FAIpQL/"
+    assert start_url_entry("https://www.google.com/") == "www.google.com"

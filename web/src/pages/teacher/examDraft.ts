@@ -9,8 +9,6 @@ import {
   type ExternalSettingsErrors,
   type ExternalSettingsValue,
 } from "../../components/teacher/externalValidation";
-import type { DiagramSpec } from "../../api/diagrams";
-import { checklistError } from "../../components/diagrams/diagramLogic";
 
 /** UI-level kinds. "tf" is stored as an mcq with options ["True", "False"]. */
 export type DraftKind = QuestionType | "tf";
@@ -39,8 +37,6 @@ export interface DraftQuestion {
   /** slice 6: pictures above the prompt, and topic tags (≥ 1 required) */
   images: QuestionImage[];
   topics: string[];
-  /** graph / chart / diagram question (essays only): kind + feature checklist; null = written answer */
-  diagram?: DiagramSpec | null;
 }
 
 export interface DraftExam {
@@ -53,6 +49,8 @@ export interface DraftExam {
   /** HH:MM (local) */
   time: string;
   shuffle: boolean;
+  /** Audit S-03: id of the class that takes the exam ("" = none chosen yet). */
+  classId: string;
   questions: DraftQuestion[];
   /** Slice 3: where students answer (FairPlay questions or another website). */
   external: ExternalSettingsValue;
@@ -64,7 +62,7 @@ export interface DraftExam {
 
 export type QuestionErrors = Partial<
   Record<
-    "prompt" | "points" | "options" | "correct" | "answer" | "tolerance" | "accepted" | "rubric" | "words" | "topics" | "diagram",
+    "prompt" | "points" | "options" | "correct" | "answer" | "tolerance" | "accepted" | "rubric" | "words" | "topics",
     string
   >
 >;
@@ -111,6 +109,17 @@ export function newRubricRow(label = "", points = ""): DraftRubricRow {
   return { key: newKey(), label, points };
 }
 
+/** 2026-10-13: switch a question's type in place; text, points, images and topics stay. */
+export function changeKind(q: DraftQuestion, kind: DraftKind): DraftQuestion {
+  const fresh = newQuestion(kind);
+  return { ...fresh, key: q.key, prompt: q.prompt, points: q.points || fresh.points, images: q.images, topics: q.topics };
+}
+
+/** 2026-10-13: questions copied from another exam (new keys, so they are separate copies). */
+export function copyQuestions(exam: Exam): DraftQuestion[] {
+  return draftFromExam(exam).questions.map((q) => ({ ...q, key: newKey(), rubric: q.rubric.map((r) => ({ ...r, key: newKey() })) }));
+}
+
 export function newQuestion(kind: DraftKind): DraftQuestion {
   const type: QuestionType = kind === "tf" ? "mcq" : kind;
   return {
@@ -152,7 +161,7 @@ export function joinSchedule(date: string, time: string): string | null {
   if (!date.trim()) return null;
   const [y, m, d] = date.split("-").map(Number);
   const [hh, mm] = (time.trim() || "09:00").split(":").map(Number);
-  const dt = new Date(y, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
+  const dt = new Date(y ?? NaN, (m || 1) - 1, d || 1, hh || 0, mm || 0, 0, 0);
   if (Number.isNaN(dt.getTime())) return null;
   return dt.toISOString();
 }
@@ -160,7 +169,7 @@ export function joinSchedule(date: string, time: string): string | null {
 export function draftFromExam(exam?: Exam): DraftExam {
   if (!exam)
     return {
-      title: "", duration: "30", course: "", room: "", date: "", time: "", shuffle: false, questions: [],
+      title: "", duration: "30", course: "", room: "", date: "", time: "", shuffle: false, classId: "", questions: [],
       external: { ...EMPTY_EXTERNAL_SETTINGS },
       externalPoints: "100",
       delivery: "computer",
@@ -174,6 +183,7 @@ export function draftFromExam(exam?: Exam): DraftExam {
     date: sched.date,
     time: sched.time,
     shuffle: !!exam.shuffle_questions,
+    classId: exam.class_id == null ? "" : String(exam.class_id),
     external: externalSettingsFrom(exam),
     externalPoints: exam.mode === "external" && exam.total_points ? String(exam.total_points) : "100",
     delivery: exam.delivery ?? (exam.mode === "external" ? "website" : "computer"),
@@ -193,7 +203,6 @@ export function draftFromExam(exam?: Exam): DraftExam {
       max_words: q.max_words == null ? "" : String(q.max_words),
       images: (q.images ?? []).map((im) => ({ url: im.url, alt: im.alt ?? "" })),
       topics: [...(q.topics ?? [])],
-      diagram: q.type === "essay" ? (q.diagram ?? null) : null,
     })),
   };
 }
@@ -244,7 +253,7 @@ export function validateDraft(d: DraftExam): DraftErrors {
     const e: QuestionErrors = {};
     if (!q.prompt.trim()) e.prompt = "Write the question.";
     if (!isPositiveInt(q.points, 1000)) e.points = "Points must be a whole number from 1 to 1000.";
-    if ((q.topics ?? []).length === 0) e.topics = "Add at least one topic, e.g. fractions.";
+    // 2026-10-13: topics are optional (the server files a question under the course).
     if (q.type === "mcq") {
       if (q.options.length < 2 || q.options.length > 8) e.options = "Use between 2 and 8 options.";
       else if (q.options.some((o) => !o.trim())) e.options = "Fill in every option or remove empty ones.";
@@ -257,10 +266,7 @@ export function validateDraft(d: DraftExam): DraftErrors {
     } else if (q.type === "short") {
       if (splitAccepted(q.accepted).length === 0) e.accepted = "Enter at least one accepted answer.";
     } else if (q.type === "essay") {
-      if (q.diagram) {
-        const msg = checklistError(q.diagram, Number(q.points));
-        if (msg && !e.points) e.diagram = msg;
-      } else if (q.rubric.length > 0) {
+      if (q.rubric.length > 0) {
         if (q.rubric.some((r) => !r.label.trim())) e.rubric = "Describe every rubric row or remove empty ones.";
         else if (q.rubric.some((r) => !isNonNegInt(r.points))) e.rubric = "Rubric points must be whole numbers.";
         else if (!e.points && rubricSum(q.rubric) !== Number(q.points))
@@ -336,7 +342,6 @@ export function toQuestionInput(q: DraftQuestion): QuestionInput {
     rubric: q.rubric.map((r) => ({ label: r.label.trim(), points: Number(r.points) })),
     min_words: q.min_words.trim() ? Number(q.min_words) : null,
     max_words: q.max_words.trim() ? Number(q.max_words) : null,
-    ...(q.diagram ? { rubric: [], diagram: q.diagram } : {}),
   };
 }
 
@@ -348,6 +353,7 @@ export function toExamInput(d: DraftExam): ExamInput {
     room: d.room.trim(),
     scheduled_at: joinSchedule(d.date, d.time),
     shuffle_questions: d.shuffle,
+    class_id: d.classId ? Number(d.classId) : null,
     questions: d.external.mode === "external" ? [] : d.questions.map(toQuestionInput),
     ...externalExamInput(d.external),
     ...(d.external.mode === "external" ? { external_points: Number(d.externalPoints) } : {}),
@@ -360,6 +366,7 @@ export function moveItem<T>(list: T[], index: number, delta: number): T[] {
   if (to < 0 || to >= list.length) return list;
   const next = [...list];
   const [item] = next.splice(index, 1);
+  if (item === undefined) return list;
   next.splice(to, 0, item);
   return next;
 }
@@ -368,8 +375,7 @@ export function moveItem<T>(list: T[], index: number, delta: number): T[] {
 export function questionMeta(q: DraftQuestion): string {
   const parts: string[] = [KIND_LABEL[q.tf ? "tf" : q.type]];
   if (q.type === "mcq" && !q.tf) parts.push(`${q.options.length} options`);
-  if (q.type === "essay" && q.diagram) parts.push(`Graph / diagram · ${q.diagram.features.length}-feature checklist`);
-  else if (q.type === "essay" && q.rubric.length) parts.push(`${q.rubric.length}-row rubric`);
+  if (q.type === "essay" && q.rubric.length) parts.push(`${q.rubric.length}-row rubric`);
   parts.push(`${q.points || 0} ${q.points === "1" ? "pt" : "pts"}`);
   return parts.join(" · ");
 }

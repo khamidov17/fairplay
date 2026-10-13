@@ -144,23 +144,23 @@ def main():
         P.wait_for_timeout(800)
         P.screenshot(path="shots/72-paper-queue.png", full_page=True)
         graded = 0
-        # phase 2 review screen: one answer at a time, scan on the left, points + feedback on the right
         for pts, comment in (("4", "Balanced correctly."), ("1", "Water is H2O, not H2O2.")):
-            pane = P.locator(".rv-pane")
-            if pane.count() == 0:
+            edit = P.get_by_role("button", name="Edit")
+            if edit.count() == 0:
                 break
-            pane.get_by_label("Points", exact=True).fill(pts)
-            pane.get_by_label("Feedback for the student").fill(comment)
-            pane.get_by_role("button", name="Accept and next").click()
+            edit.first.click()
+            P.wait_for_timeout(300)
+            P.get_by_label(re.compile(r"^Points \(out of")).first.fill(pts)
+            P.get_by_label("Comment for the student").first.fill(comment)
+            P.get_by_role("button", name="Save grade").first.click()
             P.wait_for_timeout(1200)
             graded += 1
-        # confirm the automatic bubble reads (question 1, filter All, Enter = accept and next)
-        P.get_by_role("button", name=re.compile(r"^Question 1")).first.click()
-        P.wait_for_timeout(500)
-        P.get_by_role("button", name=re.compile(r"^All \(")).click()
-        P.wait_for_timeout(500)
-        for _ in range(2):
-            P.keyboard.press("Enter")
+        # confirm the automatic bubble reads
+        for _ in range(4):
+            c = P.get_by_role("button", name=re.compile(r"^(Confirm|Approve)$"))
+            if c.count() == 0 or not c.first.is_enabled():
+                break
+            c.first.click()
             P.wait_for_timeout(800)
         print("essays graded in the queue UI:", graded)
         res = api("GET", f"/api/exams/{eid}/results", None, T)

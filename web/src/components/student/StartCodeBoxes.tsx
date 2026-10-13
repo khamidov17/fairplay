@@ -1,6 +1,6 @@
 import { forwardRef, useImperativeHandle, useRef, type ClipboardEvent, type KeyboardEvent } from "react";
 
-export const CODE_LENGTH = 4;
+export const CODE_LENGTH = 6; // audit #13: was 4
 
 export interface StartCodeBoxesHandle {
   focus(index?: number): void;
@@ -22,7 +22,7 @@ interface Props {
 export const emptyCode = (): string[] => Array.from({ length: CODE_LENGTH }, () => "");
 
 /**
- * Start code as four single-digit boxes: typing a digit moves to the next box,
+ * Start code as CODE_LENGTH single-digit boxes: typing a digit moves to the next box,
  * Backspace clears and moves back, pasting a code fills all boxes.
  */
 export const StartCodeBoxes = forwardRef<StartCodeBoxesHandle, Props>(function StartCodeBoxes(
@@ -136,7 +136,7 @@ export const StartCodeBoxes = forwardRef<StartCodeBoxesHandle, Props>(function S
                 onChange(next);
               } else if (digits.length > 1 && value[i] !== "" && digits.length === 2) {
                 // typed into a filled box: keep the new digit
-                fill(i, digits[0] === value[i] ? digits[1] : digits[0]);
+                fill(i, (digits[0] === value[i] ? digits[1] : digits[0]) ?? "");
               } else {
                 fill(i, digits);
               }

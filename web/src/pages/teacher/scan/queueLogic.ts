@@ -1,9 +1,7 @@
 // Pure helpers for the AI grading queue (unit-tested in src/test/scan.test.tsx).
 import type { AiDraft, PaperGrade, QueueGroup, QueueItem, ScanQueue } from "../../../api/scan";
 
-/** review = not graded yet (same as "ungraded"); flagged = AI says needs review;
- *  low = AI confidence below the threshold. */
-export type QueueFilter = "review" | "ungraded" | "flagged" | "low" | "all" | "approved";
+export type QueueFilter = "review" | "all" | "approved";
 
 export const LETTERS = "ABCDEFGH";
 
@@ -13,21 +11,12 @@ export const itemKey = (it: Pick<QueueItem, "attempt_id" | "question_id">) => `$
 export function itemsFor(queue: ScanQueue, qid: string, filter: QueueFilter): QueueItem[] {
   const list = queue.items.filter((i) => i.question_id === qid);
   if (filter === "approved") return list.filter((i) => i.status === "approved");
-  const open = list.filter((i) => i.status === "needs_review");
-  if (filter === "flagged") return open.filter(isFlagged);
-  if (filter === "low") return open.filter((i) => i.low_confidence && i.draft?.source !== "fallback");
-  if (filter === "review" || filter === "ungraded") {
-    return open.sort((a, b) => Number(b.low_confidence) - Number(a.low_confidence));
+  if (filter === "review") {
+    return list
+      .filter((i) => i.status === "needs_review")
+      .sort((a, b) => Number(b.low_confidence) - Number(a.low_confidence));
   }
   return list;
-}
-
-/** The AI flagged this answer for a closer look (or there is no usable suggestion). */
-export function isFlagged(i: QueueItem): boolean {
-  if (i.status !== "needs_review") return false;
-  if (!i.draft) return true;
-  if (i.draft.needs_review !== undefined) return i.draft.needs_review;
-  return i.draft.source === "fallback" || i.low_confidence;
 }
 
 /** Groups (≥ 2 similar drafts still to review) for one question, biggest first. */
@@ -57,10 +46,8 @@ export function keyAction(ev: { key: string; target?: EventTarget | null; metaKe
   const t = ev.target as HTMLElement | null;
   const tag = t && typeof t.tagName === "string" ? t.tagName.toLowerCase() : "";
   if (tag === "input" || tag === "textarea" || tag === "select" || (t && t.isContentEditable)) return null;
-  if (ev.key === "Enter" && (tag === "button" || tag === "a")) return null; // let the focused control act
   switch (ev.key.toLowerCase()) {
     case "a":
-    case "enter":
       return "approve";
     case "e":
       return "edit";
@@ -68,24 +55,13 @@ export function keyAction(ev: { key: string; target?: EventTarget | null; metaKe
       return "regrade";
     case "j":
     case "arrowdown":
-    case "arrowright":
       return "next";
     case "k":
     case "arrowup":
-    case "arrowleft":
       return "prev";
     default:
       return null;
   }
-}
-
-/** Number keys set the points (0–9); ignored while typing or with modifiers. */
-export function digitKey(ev: { key: string; target?: EventTarget | null; metaKey?: boolean; ctrlKey?: boolean; altKey?: boolean }): number | null {
-  if (ev.metaKey || ev.ctrlKey || ev.altKey) return null;
-  const t = ev.target as HTMLElement | null;
-  const tag = t && typeof t.tagName === "string" ? t.tagName.toLowerCase() : "";
-  if (tag === "input" || tag === "textarea" || tag === "select" || (t && t.isContentEditable)) return null;
-  return /^[0-9]$/.test(ev.key) ? Number(ev.key) : null;
 }
 
 /** Queue with one item approved (local update after the server confirmed). */

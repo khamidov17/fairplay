@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { auth } from "../api/client";
-import type { Me, SessionRole } from "../api/types";
+import type { Me, Role } from "../api/types";
 
 /** Loads /api/me (also validates the token: a 401 sends the user to login). */
-export function useMe(role: SessionRole): Me | null {
+export function useMe(role: Role): Me | null {
   const [me, setMe] = useState<Me | null>(null);
   useEffect(() => {
     let alive = true;

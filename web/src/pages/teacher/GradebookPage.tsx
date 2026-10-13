@@ -1,60 +1,48 @@
-import { useEffect, useState } from "react";
+// 2026-10-13: one simple "Grades" page. Top: each exam with answers — grade it, release the
+// grades. Below: everyone's marks (all classes or one), with CSV export.
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { teacherApi } from "../../api/client";
-import { classesApi, type ClassSummary } from "../../api/classes";
-import type { Gradebook, GradebookState } from "../../api/types";
+import { classesApi, teacherApi } from "../../api/client";
+import type { Gradebook, GradingSummary, SchoolClass } from "../../api/types";
 import { Loading } from "../../components/Loading";
-import { errorText, num, pct, plural } from "../../components/teacher/util";
+import { MarksLegend, MarksTable, downloadCsv } from "../../components/teacher/MarksTable";
+import { Pill } from "../../components/teacher/TeacherLayout";
+import { errorText, plural } from "../../components/teacher/util";
 import { Icon } from "../../components/ui/Icon";
 
-const STATE_LABEL: Record<GradebookState, string> = {
-  graded: "Graded",
-  needs_grading: "Needs grading",
-  in_progress: "In progress",
-  missing: "Missing",
-  not_taken: "Not taken",
-  submitted: "Submitted",
-};
-
-export function cellText(cell: { state: GradebookState; score: number | null; percent: number | null } | undefined): string {
-  if (!cell) return "—";
-  if (cell.state === "graded") return pct(cell.percent);
-  return STATE_LABEL[cell.state];
-}
-
-export const CSV_FILENAME = "proctora-gradebook.csv";
+export { cellText } from "../../components/teacher/MarksTable";
+export const CSV_FILENAME = "fairplay-grades.csv";
 
 export default function GradebookPage() {
-  const [course, setCourse] = useState("");
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [classId, setClassId] = useState<number | null>(null);
+  const [toGrade, setToGrade] = useState<GradingSummary[] | null>(null);
   const [data, setData] = useState<Gradebook | null>(null);
-  const [courses, setCourses] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
-  const [exportError, setExportError] = useState<string | null>(null);
-  // classes: optional class filter (only shown when the teacher has classes)
-  const [classId, setClassId] = useState("");
-  const [classes, setClasses] = useState<ClassSummary[]>([]);
-  useEffect(() => {
-    let alive = true;
-    classesApi.list().then(
-      (c) => alive && Array.isArray(c) && setClasses(c),
-      () => undefined,
-    );
-    return () => {
-      alive = false;
-    };
+
+  const loadExams = useCallback(async () => {
+    try {
+      setToGrade(await teacherApi.gradingSummary());
+    } catch (e) {
+      setError(errorText(e));
+    }
   }, []);
+
+  useEffect(() => {
+    void loadExams();
+    classesApi.list().then(setClasses, () => setClasses([]));
+  }, [loadExams]);
 
   useEffect(() => {
     let alive = true;
     setLoading(true);
-    setError(null);
-    (classId ? classesApi.gradebook(course, Number(classId)) : teacherApi.gradebook(course)).then(
+    teacherApi.gradebook("", classId).then(
       (g) => {
         if (!alive) return;
         setData(g);
-        if (g.courses?.length) setCourses(g.courses);
         setLoading(false);
       },
       (e) => {
@@ -66,30 +54,36 @@ export default function GradebookPage() {
     return () => {
       alive = false;
     };
-  }, [course, classId]);
+  }, [classId]);
+
+  async function release(g: GradingSummary) {
+    setBusy(g.exam_id);
+    setError(null);
+    try {
+      await teacherApi.release(g.exam_id);
+      await loadExams();
+      setData(await teacherApi.gradebook("", classId));
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   async function exportCsv() {
     setExporting(true);
-    setExportError(null);
     try {
-      const blob = classId
-        ? await classesApi.gradebookCsv(course, Number(classId))
-        : await teacherApi.gradebookCsv(course);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = CSV_FILENAME;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      await downloadCsv(await teacherApi.gradebookCsv("", classId), CSV_FILENAME);
     } catch (e) {
-      setExportError(errorText(e, "Could not download the CSV. Try again."));
+      setError(errorText(e, "Could not download the CSV. Try again."));
     } finally {
       setExporting(false);
     }
   }
 
+  const className = (id: number | null | undefined) => classes.find((k) => k.id === id)?.name ?? "";
+  const shown = (toGrade ?? []).filter((g) => classId == null || g.class_id === classId);
+  const pendingTotal = shown.reduce((s, g) => s + g.pending, 0);
   const exams = data?.exams ?? [];
   const students = data?.students ?? [];
 
@@ -97,132 +91,148 @@ export default function GradebookPage() {
     <>
       <header className="t-page-head" style={{ alignItems: "center" }}>
         <div className="t-head-text">
-          <h1>Gradebook{course ? ` · ${course}` : ""}</h1>
+          <h1>Grades{classId != null && className(classId) ? ` · ${className(classId)}` : ""}</h1>
           <p>
-            {data ? `${plural(students.length, "student")} · ${plural(exams.length, "exam")}` : "Every student and exam in one table."}
+            {toGrade === null
+              ? "Check answers, grade them and release grades to students."
+              : pendingTotal > 0
+                ? `${plural(pendingTotal, "answer")} waiting for you.`
+                : "Nothing waiting. You are all caught up."}
           </p>
         </div>
         <div className="t-head-actions">
-          <label className="t-gb-filter" htmlFor="gb-course">
-            Course
-            <select id="gb-course" className="t-select" value={course} onChange={(e) => setCourse(e.target.value)}>
-              <option value="">All courses</option>
-              {courses.map((c) => (
-                <option key={c} value={c}>
-                  {c}
+          <label className="t-gb-filter" htmlFor="gb-class">
+            Class
+            <select
+              id="gb-class"
+              className="t-select"
+              value={classId ?? ""}
+              onChange={(e) => setClassId(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">All classes</option>
+              {classes.map((k) => (
+                <option key={k.id} value={k.id}>
+                  {k.name}
                 </option>
               ))}
             </select>
           </label>
-          {classes.length > 0 && (
-            <label className="t-gb-filter" htmlFor="gb-class">
-              Class
-              <select id="gb-class" className="t-select" value={classId} onChange={(e) => setClassId(e.target.value)}>
-                <option value="">All students</option>
-                {classes.map((c) => (
-                  <option key={c.id} value={String(c.id)}>
-                    {c.name}
-                    {c.section ? ` · ${c.section}` : ""}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-          <button type="button" className="t-btn-outline" onClick={exportCsv} disabled={exporting || !data}>
-            <Icon name="download" size={18} />
-            {exporting ? "Exporting…" : "Export CSV"}
-          </button>
         </div>
       </header>
 
-      {exportError && (
-        <div className="alert alert-error" role="alert">
-          {exportError}
-        </div>
-      )}
       {error && (
         <div className="alert alert-error" role="alert">
           {error}
         </div>
       )}
 
-      <div className="t-legend" aria-label="Legend">
-        <span>
-          <i className="t-swatch needs_grading" />
-          Needs grading
-        </span>
-        <span>
-          <i className="t-swatch in_progress" />
-          In progress
-        </span>
-        <span>
-          <i className="t-swatch missing" />
-          Missing
-        </span>
-        <span>
-          <i className="t-swatch not_taken" />
-          Not taken
-        </span>
-        <span className="t-muted">· Average counts graded exams only</span>
-      </div>
-
-      {loading && !data ? (
-        <Loading label="Loading gradebook…" />
-      ) : !data ? null : students.length === 0 || exams.length === 0 ? (
-        <div className="t-card">
+      <section className="t-card" aria-labelledby="gr-exams-h">
+        <h2 id="gr-exams-h">1. Grade and release</h2>
+        {toGrade === null && !error ? (
+          <Loading label="Loading…" />
+        ) : shown.length === 0 ? (
           <div className="t-empty">
-            <strong>{exams.length === 0 ? "No exams yet" : "No students yet"}</strong>
-            {exams.length === 0 ? "Exams you create show up here as columns." : "Students appear once they have accounts."}
+            <strong>No answers yet</strong>
+            Exams show up here once students hand in.
           </div>
-        </div>
-      ) : (
-        <section aria-label="Grades" className="t-gb-wrap" aria-busy={loading}>
-          <table className="t-table t-gb" style={{ minWidth: Math.max(560, 220 + exams.length * 140) }}>
-            <thead>
-              <tr>
-                <th scope="col">Student</th>
-                {exams.map((e) => (
-                  <th scope="col" key={e.exam_id}>
-                    <Link to={`/teacher/exams/${e.exam_id}?tab=results`} className="t-row-link" style={{ fontWeight: 600 }}>
-                      {e.title}
-                    </Link>
-                    <span className="t-gb-course">
-                      {[e.course, `${e.total_points} pts`, e.grades_released ? "released" : null].filter(Boolean).join(" · ")}
-                    </span>
+        ) : (
+          <div className="t-table-scroll">
+            <table className="t-table" style={{ minWidth: 620 }}>
+              <thead>
+                <tr>
+                  <th scope="col">Exam</th>
+                  <th scope="col">Class</th>
+                  <th scope="col" className="num">
+                    Handed in
                   </th>
-                ))}
-                <th scope="col">Average</th>
-              </tr>
-            </thead>
-            <tbody>
-              {students.map((s) => (
-                <tr key={s.username}>
-                  <th scope="row" style={{ color: "var(--text)", fontWeight: 600, borderBottom: "1px solid var(--divider)" }}>
-                    {s.name}
-                    <span className="t-gb-course">{s.username}</span>
+                  <th scope="col">To grade</th>
+                  <th scope="col">Students see grades</th>
+                  <th scope="col">
+                    <span className="sr-only">Actions</span>
                   </th>
-                  {exams.map((e) => {
-                    const cell = s.cells[e.exam_id];
-                    const state = cell?.state ?? "not_taken";
-                    const title =
-                      cell && cell.score != null
-                        ? `${num(cell.score)} / ${e.total_points} points${state === "needs_grading" ? " so far" : ""}`
-                        : STATE_LABEL[state];
-                    return (
-                      <td key={e.exam_id} className="cell">
-                        <span className={`t-cell ${state}`} title={title}>
-                          {cellText(cell)}
+                </tr>
+              </thead>
+              <tbody>
+                {shown.map((g) => {
+                  const canRelease = !g.grades_released && g.pending === 0 && g.status === "closed";
+                  return (
+                    <tr key={g.exam_id}>
+                      <td>
+                        <Link className="t-row-link" to={`/teacher/exams/${encodeURIComponent(g.exam_id)}?tab=results`}>
+                          {g.title}
+                        </Link>
+                        {g.status === "live" && (
+                          <span style={{ marginLeft: 8 }}>
+                            <Pill tone="green" live>
+                              Live
+                            </Pill>
+                          </span>
+                        )}
+                      </td>
+                      <td>{className(g.class_id) || <span className="t-muted">—</span>}</td>
+                      <td className="num">{g.submitted}</td>
+                      <td>{g.pending > 0 ? <Pill tone="orange">{g.pending} to grade</Pill> : <Pill tone="green">Done</Pill>}</td>
+                      <td>
+                        {g.grades_released ? (
+                          <Pill tone="blue">Released</Pill>
+                        ) : (
+                          <span className="t-muted">{g.status === "live" ? "After you close it" : "Not yet"}</span>
+                        )}
+                      </td>
+                      <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <span style={{ display: "inline-flex", gap: 8 }}>
+                          <Link
+                            to={`/teacher/exams/${encodeURIComponent(g.exam_id)}/grading`}
+                            className={g.pending > 0 ? "btn btn-primary" : "t-btn-outline"}
+                            aria-label={`${g.pending > 0 ? "Grade" : "Review"} ${g.title}`}
+                          >
+                            {g.pending > 0 ? "Grade" : "Review"}
+                          </Link>
+                          {canRelease && (
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              disabled={busy !== null}
+                              onClick={() => void release(g)}
+                              aria-label={`Release grades for ${g.title}`}
+                            >
+                              {busy === g.exam_id ? "Releasing…" : "Release grades"}
+                            </button>
+                          )}
                         </span>
                       </td>
-                    );
-                  })}
-                  <td style={{ fontWeight: 700 }}>{pct(s.average_percent)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </section>
-      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="t-card" aria-labelledby="gr-marks-h" style={{ gap: 12 }}>
+        <div className="t-card-head">
+          <h2 id="gr-marks-h">2. Marks</h2>
+          <button type="button" className="t-btn-outline" onClick={exportCsv} disabled={exporting || !data}>
+            <Icon name="download" size={18} />
+            {exporting ? "Exporting…" : "Export CSV"}
+          </button>
+        </div>
+        <p className="t-muted" style={{ margin: 0 }}>
+          {data ? `${plural(students.length, "student")} · ${plural(exams.length, "exam")}` : "Every student and exam in one table."}
+        </p>
+        <MarksLegend />
+        {loading && !data ? (
+          <Loading label="Loading marks…" />
+        ) : !data ? null : students.length === 0 || exams.length === 0 ? (
+          <div className="t-empty">
+            <strong>{exams.length === 0 ? "No opened exams yet" : "No students yet"}</strong>
+            {exams.length === 0 ? "Exams show up here as columns once you open them." : "Add students to a class first."}
+          </div>
+        ) : (
+          <MarksTable data={data} busy={loading} />
+        )}
+      </section>
     </>
   );
 }

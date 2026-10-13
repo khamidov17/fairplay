@@ -10,7 +10,6 @@ import { LiveRoom } from "./LiveRoom";
 import { QuestionsView } from "./QuestionsView";
 import { ResultsView } from "./ResultsView";
 import { ScanSteps } from "./scan/ScanSteps";
-import { ExamClassesBar } from "../../components/teacher/classes/ExamClassesBar";
 
 type Tab = "live" | "questions" | "results" | "scan";
 
@@ -174,7 +173,6 @@ export default function TeacherExamPage() {
           {actionError}
         </div>
       )}
-      <ExamClassesBar examId={exam.id} />
       {exam.status === "draft" && exam.delivery !== "paper" && (
         <div className="alert alert-info">
           This exam is a draft. When the class is seated, press <strong>Open exam</strong> to get a start code.
@@ -198,6 +196,7 @@ export default function TeacherExamPage() {
               if (ev.key === "ArrowRight" || ev.key === "ArrowLeft") {
                 ev.preventDefault();
                 const next = tabs[(i + (ev.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+                if (!next) return;
                 selectTab(next.id);
                 document.getElementById(`tab-${next.id}`)?.focus();
               }

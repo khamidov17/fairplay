@@ -6,14 +6,13 @@ button (each from a fresh load of the page). Destructive buttons are skipped (th
 covered by the flow tests). Prints a list of problems; exit code 1 if any.
 Server on :8000 with a fresh database.
 """
-import os
 import json
 import re
 import sys
 import urllib.request
 from playwright.sync_api import sync_playwright
 
-BASE = os.environ.get("FAIRPLAY_BASE", "http://127.0.0.1:8000").rstrip("/")
+BASE = "http://127.0.0.1:8000"
 SKIP = re.compile(r"^(sign out|log out|delete|close exam|yes, close|remove|move question|"
                   r"cancel|keep working|submit exam|yes, submit|finish|hide grades|reset)", re.I)
 BAD_TEXT = re.compile(r"\bundefined\b|\bNaN\b|\[object Object\]|Infinity")

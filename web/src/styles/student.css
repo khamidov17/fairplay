@@ -775,9 +775,9 @@ a.stu-result-row:hover {
 }
 .stu-code-boxes {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  max-width: 296px;
+  grid-template-columns: repeat(6, minmax(0, 1fr)); /* 6-digit start code (audit #13) */
+  gap: 8px;
+  max-width: 372px;
 }
 .stu-code-box {
   height: 60px;
