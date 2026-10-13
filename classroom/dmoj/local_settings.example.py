@@ -56,6 +56,8 @@ DATABASES = {
         },
         'TEST': {
             'CHARSET': 'utf8mb4',
+            # Parallel worktrees each need their own test database.
+            'NAME': _env('CLASSROOM_TEST_DB_NAME', 'test_classroom'),
         },
     },
 }
