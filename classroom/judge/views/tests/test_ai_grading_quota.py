@@ -409,6 +409,7 @@ class AIGradingQuotaTestCase(CommonDataMixin, TestCase):
         self.assertIn(resp.status_code, (403, 404), resp.content)
         run_ai.assert_not_called()
 
+
 class AIGradingRateLimitConcurrencyTestCase(TestCase):
     """AI-8: parallel requests cannot all read the same short rate list and pass."""
 
