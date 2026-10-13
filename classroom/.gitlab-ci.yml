@@ -6,6 +6,14 @@
 #   * build-image pushes the site image to the GitLab Container Registry.
 #   * deploy:* run on the dedicated, project-locked runner on the DEV server
 #     (tag: dku-deploy). deploy:dev acts locally; deploy:prod SSHes to prod.
+#
+# Security (CA-10):
+#   * Every image is pinned to an exact version tag (never :latest or a bare major).
+#     Prefer replacing the tags with @sha256 digests once they are resolved.
+#   * Jobs that receive credentials (build, deploy, backup, pr_agent) only run on
+#     protected refs ($CI_COMMIT_REF_PROTECTED). Their CI/CD variables must be marked
+#     "Protected" in GitLab, and the dku-deploy runner must be set to "Run on protected
+#     branches only"; a rules: clause alone cannot stop a branch that edits this file.
 
 stages:
   - lint
@@ -38,7 +46,7 @@ workflow:
 # ---------------------------------------------------------------------------
 lint:
   stage: lint
-  image: python:3.11
+  image: python:3.11.9-bookworm
   script:
     - pip install flake8 flake8-import-order flake8-future-import flake8-commas flake8-logging-format flake8-quotes flake8-gl-codeclimate
     - flake8 --version
@@ -53,7 +61,7 @@ lint:
 
 styles:
   stage: lint
-  image: node:20
+  image: node:20.15.1-bookworm
   script:
     - npm install -g sass postcss-cli postcss autoprefixer
     - npm ci
@@ -72,7 +80,7 @@ test:
   image: $PY_IMAGE
   parallel:
     matrix:
-      - PY_IMAGE: ["python:3.11", "python:3.12"]
+      - PY_IMAGE: ["python:3.11.9-bookworm", "python:3.12.4-bookworm"]
   services:
     # The OIT shared runners (docker+machine, ci-shared-*.oit.duke.edu) run on
     # CPUs without the x86-64-v2 baseline. The official mysql:8 image is built on
@@ -80,7 +88,7 @@ test:
     # ("Fatal glibc error: CPU does not support x86-64-v2") and the DB never comes
     # up. MariaDB's images are Ubuntu-based (x86-64-v1), run fine on these CPUs,
     # are wire-compatible with mysqlclient, and are a first-class DMOJ database.
-    - name: mariadb:11
+    - name: mariadb:11.4.2
       alias: mysql
   variables:
     MYSQL_DATABASE: dmoj
@@ -139,10 +147,10 @@ test:
 .build-image:
   stage: build
   image:
-    name: gcr.io/kaniko-project/executor:debug
+    name: gcr.io/kaniko-project/executor:v1.23.2-debug
     entrypoint: [""]
   rules:
-    - if: '$CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && ($CI_COMMIT_BRANCH == "develop" || $CI_COMMIT_BRANCH == "main")'
   before_script:
     - mkdir -p /kaniko/.docker
     - echo "{\"auths\":{\"$CI_REGISTRY\":{\"auth\":\"$(printf '%s:%s' "$CI_REGISTRY_USER" "$CI_REGISTRY_PASSWORD" | base64 | tr -d '\n')\"}}}" > /kaniko/.docker/config.json
@@ -188,7 +196,7 @@ deploy:dev:
     name: dev
     url: http://10.200.14.8
   rules:
-    - if: '$CI_COMMIT_BRANCH == "develop"'
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == "develop"'
   script:
     # Runs locally on the dev host where this runner lives.
     - export DKUOJ_IMAGE="$CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA"
@@ -204,7 +212,7 @@ backup:prod:
     url: https://oj.dukekunshan.edu.cn
     action: prepare
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == "main"'
       when: manual
   allow_failure: true                    # optional; deploy remains independently runnable
   script:
@@ -246,7 +254,7 @@ deploy:prod:
     name: production
     url: https://oj.dukekunshan.edu.cn
   rules:
-    - if: '$CI_COMMIT_BRANCH == "main"'
+    - if: '$CI_COMMIT_REF_PROTECTED == "true" && $CI_COMMIT_BRANCH == "main"'
       when: manual                             # protected environment + manual gate
   script:
     # Runs on the dev runner, deploys to prod over SSH (key lives on the dev host).
@@ -262,13 +270,15 @@ deploy:prod:
 # review — AI merge-request review (pr-agent -> school OpenAI-compatible model)
 # Runs only on MR events, on the OIT shared runners, and never blocks the MR.
 # The model is reached via litellm's `openai/` route ($LLM_API_BASE/chat/completions).
-# Secrets come from masked (NOT protected) CI/CD variables — protected vars are not
-# injected into the unprotected feature-branch pipelines that MR events run on.
+# Secrets (GITLAB_PERSONAL_ACCESS_TOKEN, LLM_API_KEY) must be masked AND protected
+# CI/CD variables (CA-10): any branch that can run a pipeline can read an unprotected
+# variable. The job therefore only runs for MRs whose source branch is protected.
+# Use a project access token scoped to this project (api) rather than a personal one.
 # ---------------------------------------------------------------------------
 pr_agent:
   stage: review
   image:
-    name: pragent/pr-agent:latest            # pin to a released tag once a version is chosen
+    name: pragent/pr-agent:0.29              # pinned release; replace with @sha256 digest
     entrypoint: [""]
   needs: []                                   # start immediately; don't wait on lint/test
   variables:
@@ -278,7 +288,7 @@ pr_agent:
     # Skip the develop -> main release-promotion MR (already reviewed into develop).
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_SOURCE_BRANCH_NAME == "develop" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == "main"'
       when: never
-    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event" && $CI_COMMIT_REF_PROTECTED == "true"'
   allow_failure: true                         # a model/API hiccup must never block merging
   script:
     - export config__git_provider="gitlab"

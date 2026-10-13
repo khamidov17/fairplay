@@ -582,9 +582,14 @@ class Contest(models.Model):
         if self.is_viewable_by_org_admin(user):
             return
 
-        # Course teachers can view org-private assignments in their course
-        if self.is_organization_private and self.is_viewable_by_course_teacher(user):
-            return
+        # Course teachers can view org-private assignments in their course, but an
+        # unpublished (hidden) one only by its own editors/testers and the course
+        # admins of a course it is linked to, not by every teacher who joined the course.
+        if self.is_organization_private:
+            if self.is_visible and self.is_viewable_by_course_teacher(user):
+                return
+            if not self.is_visible and self.is_viewable_by_linked_course_admin(user):
+                return
 
         # Contest is not publicly visible
         if not self.is_visible:
@@ -634,10 +639,13 @@ class Contest(models.Model):
         if not user.is_authenticated:
             return False
 
-        # Can be populated using annotate for performance in list views.
+        # Can be populated using annotate for performance in list views. Spectators are
+        # included (SEB-2): a spectator skips the SEB gate, so they may only spectate,
+        # never sit the assignment as a live participant.
         editor_or_tester = getattr(self, 'editor_or_tester', None)
         if editor_or_tester is None:
-            editor_or_tester = user.profile.id in self.editor_ids or user.profile.id in self.tester_ids
+            pid = user.profile.id
+            editor_or_tester = pid in self.editor_ids or pid in self.tester_ids or pid in self.spectator_ids
 
         if editor_or_tester:
             return False
@@ -658,7 +666,8 @@ class Contest(models.Model):
         if not user.is_authenticated:
             return False
 
-        if user.profile.id in self.editor_ids or user.profile.id in self.tester_ids:
+        pid = user.profile.id
+        if pid in self.editor_ids or pid in self.tester_ids or pid in self.spectator_ids:
             return True
 
         # Spectating is opt-in for each assignment. Virtual participation uses
@@ -722,6 +731,15 @@ class Contest(models.Model):
         org_ids = set(self.organizations.values_list('id', flat=True))
         org_ids.update(self.classes.values_list('organization_id', flat=True))
         return org_ids
+
+    def is_viewable_by_linked_course_admin(self, user):
+        """Course administrators (Organization.admins) of a course linked to this contest."""
+        if not user.is_authenticated:
+            return False
+        org_ids = self.linked_organization_ids()
+        if not org_ids:
+            return False
+        return Organization.objects.filter(id__in=org_ids, admins=user.profile).exists()
 
     def is_viewable_by_course_teacher(self, user):
         """Course admins, instructors, and class instructors for linked courses."""
@@ -841,8 +859,10 @@ class Contest(models.Model):
             teaching_orgs = Organization.objects.filter(
                 Q(instructors=user.profile) | Q(admins=user.profile) | Q(class__admins=user.profile),
             ).distinct()
-            q |= Q(is_organization_private=True, organizations__in=teaching_orgs)
-            q |= Q(is_organization_private=True, classes__organization__in=teaching_orgs)
+            # Hidden (unpublished) assignments: course admins only, see access_check.
+            q |= Q(is_organization_private=True, is_visible=True, organizations__in=teaching_orgs)
+            q |= Q(is_organization_private=True, is_visible=True, classes__organization__in=teaching_orgs)
+            q |= Q(is_organization_private=True, classes__organization__admins=user.profile)
             queryset = queryset.filter(q)
         return queryset.distinct()
 

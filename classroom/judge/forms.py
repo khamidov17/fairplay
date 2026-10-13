@@ -590,14 +590,50 @@ class ClassAssignmentsForm(Form):
         widget=HeavySelect2MultipleWidget(data_view='contest_select2', attrs={'style': 'width: 100%'}),
     )
 
-    def __init__(self, *args, class_obj=None, **kwargs):
+    def __init__(self, *args, class_obj=None, user=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.class_obj = class_obj
-        self.fields['contests'].queryset = Contest.objects.order_by('-start_time')
+        self.user = user
+        # CA-3: only contests the user can edit may be linked. Contests that are
+        # already linked to this class stay selectable so that saving the form
+        # does not drop them (or reject the whole submit).
+        self.fields['contests'].queryset = self.linkable_contests(user, class_obj).order_by('-start_time')
         if class_obj is not None and class_obj.pk:
             self.fields['contests'].initial = list(
                 Contest.objects.filter(classes=class_obj).values_list('id', flat=True),
             )
+
+    @staticmethod
+    def editable_contests(user):
+        if user is None or not user.is_authenticated:
+            return Contest.objects.none()
+        if user.has_perm('judge.edit_all_contest'):
+            return Contest.objects.all()
+        profile = user.profile
+        return Contest.objects.filter(Q(authors=profile) | Q(curators=profile)).distinct()
+
+    @classmethod
+    def linkable_contests(cls, user, class_obj):
+        editable_ids = cls.editable_contests(user).values('id')
+        q = Q(id__in=editable_ids)
+        if class_obj is not None and class_obj.pk:
+            q |= Q(classes=class_obj)
+        return Contest.objects.filter(q).distinct()
+
+    def clean_contests(self):
+        contests = self.cleaned_data.get('contests')
+        if not contests:
+            return contests
+        already = set()
+        if self.class_obj is not None and self.class_obj.pk:
+            already = set(Contest.objects.filter(classes=self.class_obj).values_list('id', flat=True))
+        for contest in contests:
+            if contest.id not in already and (self.user is None or not contest.is_editable_by(self.user)):
+                raise ValidationError(
+                    _('You can only add assignments that you can edit: %(contest)s'),
+                    params={'contest': contest.name},
+                )
+        return contests
 
 
 class CustomAuthenticationForm(AuthenticationForm):

@@ -429,9 +429,17 @@ class CourseTeacherClassScopedContestAccessTest(ExamContestTestMixin, TestCase):
 
         self.contest.organizations.clear()
         self.contest.classes.set([klass])
-        Contest.objects.filter(id=self.contest.id).update(is_organization_private=True)
+        # Unpublished: course teachers do not see it (P1, REVIEW.md section 5).
+        Contest.objects.filter(id=self.contest.id).update(is_organization_private=True, is_visible=False)
         self.contest.refresh_from_db()
+        self.assertFalse(self.contest.is_accessible_by(course_teacher))
+        self.assertNotIn(
+            self.contest.key,
+            Contest.get_visible_contests(course_teacher).values_list('key', flat=True),
+        )
 
+        Contest.objects.filter(id=self.contest.id).update(is_visible=True)
+        self.contest.refresh_from_db()
         self.assertTrue(self.contest.is_accessible_by(course_teacher))
         self.assertIn(
             self.contest.key,
@@ -451,9 +459,13 @@ class CourseTeacherClassScopedContestAccessTest(ExamContestTestMixin, TestCase):
 
         self.contest.organizations.clear()
         self.contest.classes.set([other_class])
-        Contest.objects.filter(id=self.contest.id).update(is_organization_private=True)
+        # Unpublished: a sibling class's instructor does not see it (P1, REVIEW.md section 5).
+        Contest.objects.filter(id=self.contest.id).update(is_organization_private=True, is_visible=False)
         self.contest.refresh_from_db()
+        self.assertFalse(self.contest.is_accessible_by(class_teacher))
 
+        Contest.objects.filter(id=self.contest.id).update(is_visible=True)
+        self.contest.refresh_from_db()
         self.assertTrue(self.contest.is_accessible_by(class_teacher))
         self.assertIn(
             self.contest.key,

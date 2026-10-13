@@ -1040,6 +1040,64 @@ class ContestTestCase(CommonDataMixin, TestCase):
         values_list.assert_called_once_with('key', flat=True)
 
 
+class P1ContestAccessTestCase(CommonDataMixin, TestCase):
+    """SEB-2 (spectators never live-join) and the course-teacher breadth risk (REVIEW.md 5)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from judge.models import Class
+        from judge.models.tests.util import create_organization
+        cls.spectator = create_user(username='p1_spectator')
+        cls.seb_exam = create_contest(key='p1_seb_exam', seb_required=True, spectators=('p1_spectator',))
+
+        cls.course = create_organization(name='p1_course', admins=('staff_organization_admin',))
+        cls.klass = Class.objects.create(organization=cls.course, name='P1 Course Class', slug='p1-course-class')
+        cls.joined_teacher = create_user(username='p1_joined_teacher')
+        cls.course.members.add(cls.joined_teacher.profile)
+        cls.course.instructors.add(cls.joined_teacher.profile)
+        cls.class_instructor = create_user(username='p1_class_instructor')
+        cls.klass.admins.add(cls.class_instructor.profile)
+        cls.author = create_user(username='p1_author')
+        cls.tester = create_user(username='p1_tester')
+        cls.draft = create_contest(
+            key='p1_unpublished', is_visible=False, is_organization_private=True,
+            organizations=('p1_course',), authors=('p1_author',), testers=('p1_tester',),
+        )
+        cls.published = create_contest(
+            key='p1_published', is_visible=True, is_organization_private=True, organizations=('p1_course',),
+        )
+
+    def test_spectator_cannot_live_join(self):
+        self.assertTrue(self.seb_exam.is_accessible_by(self.spectator))
+        self.assertFalse(self.seb_exam.is_live_joinable_by(self.spectator))
+        self.assertTrue(self.seb_exam.is_spectatable_by(self.spectator))
+        # Annotated list views use the same rule.
+        contest = Contest.objects.get(id=self.seb_exam.id)
+        self.assertFalse(contest.is_live_joinable_by(self.spectator))
+
+    def test_spectator_cannot_live_join_through_view(self):
+        self.client.force_login(self.spectator)
+        self.client.post('/contest/%s/join' % self.seb_exam.key)
+        self.assertFalse(ContestParticipation.objects.filter(
+            contest=self.seb_exam, user=self.spectator.profile, virtual=ContestParticipation.LIVE).exists())
+
+    def test_unpublished_assignment_hidden_from_course_teachers(self):
+        for user in (self.joined_teacher, self.class_instructor):
+            with self.subTest(user=user.username):
+                self.assertFalse(self.draft.is_accessible_by(user))
+                self.assertNotIn(self.draft, Contest.get_visible_contests(user))
+                # Published course assignments stay visible to them.
+                self.assertTrue(self.published.is_accessible_by(user))
+                self.assertIn(self.published, Contest.get_visible_contests(user))
+
+    def test_unpublished_assignment_visible_to_editors_testers_and_course_admin(self):
+        for user in (self.author, self.tester, self.users['staff_organization_admin']):
+            with self.subTest(user=user.username):
+                self.assertTrue(self.draft.is_accessible_by(user))
+                self.assertIn(self.draft, Contest.get_visible_contests(user))
+
+
 class ContestTagTestCase(TestCase):
     @classmethod
     def setUpTestData(self):

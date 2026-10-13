@@ -687,3 +687,205 @@ class ClassSiteFormTests(CommonDataMixin, TestCase):
         }, organization=org)
         self.assertTrue(form.is_valid(), form.errors)
         self.assertEqual(form.cleaned_data['name'], '2026-2027 Spring - Session 1 Prof. Huang')
+
+
+class P1AccountsCourseSecurityTest(CommonDataMixin, TestCase):
+    """P1 regression tests: CA-1, CA-2, CA-3, CA-8, CA-11 (docs/classroom/REVIEW.md)."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from judge.models.tests.util import create_organization
+        cls.org = cls.organizations['open']
+        cls.org.is_open = False
+        cls.org.save()
+        cls.other_org = create_organization(name='p1_other_course')
+        cls.teacher = create_user(username='p1_class_teacher')
+        cls.klass = Class.objects.create(organization=cls.org, name='P1 Class X', slug='p1-class-x')
+        cls.klass.admins.add(cls.teacher.profile)
+        cls.sibling = Class.objects.create(organization=cls.org, name='P1 Class Y', slug='p1-class-y')
+        cls.foreign_class = Class.objects.create(
+            organization=cls.other_org, name='P1 Foreign Class', slug='p1-foreign-class')
+
+    def _class_url(self, name, klass):
+        org = klass.organization
+        return reverse(name, args=[org.id, org.slug, klass.id, klass.slug])
+
+    # --- CA-1 ---------------------------------------------------------------
+    def _upload_roster(self, rows, klass=None):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        klass = klass or self.klass
+        content = ('username,first_name,last_name,email\n' + '\n'.join(rows)).encode('utf-8')
+        self.client.force_login(self.teacher)
+        return self.client.post(self._class_url('class_import_members', klass), {
+            'member_csv': SimpleUploadedFile('roster.csv', content, content_type='text/csv'),
+        })
+
+    def test_ca1_class_import_cannot_rewrite_superuser_email(self):
+        admin = self.users['superuser']
+        admin.email = 'root@example.com'
+        admin.save()
+        response = self._upload_roster(['superuser,Evil,Name,attacker@evil.example'])
+        self.assertEqual(response.status_code, 302)
+        admin.refresh_from_db()
+        self.assertEqual(admin.email, 'root@example.com')
+        self.assertEqual(admin.first_name, '')
+
+    def test_ca1_class_import_does_not_touch_existing_student_or_reactivate(self):
+        victim = create_user(username='p1_victim', email='victim@example.com', is_active=False)
+        self.org.members.add(victim.profile)
+        self.klass.members.add(victim.profile)
+        self._upload_roster(['p1_victim,New,Name,attacker@evil.example'])
+        victim.refresh_from_db()
+        self.assertEqual(victim.email, 'victim@example.com')
+        self.assertEqual(victim.first_name, '')
+        self.assertFalse(victim.is_active)
+
+    def test_ca1_class_import_still_creates_and_links(self):
+        existing = create_user(username='p1_existing', email='keep@example.com')
+        self._upload_roster(['p1_newbie,New,Bie,newbie@example.com', 'p1_existing,X,Y,other@example.com'])
+        from django.contrib.auth.models import User
+        newbie = User.objects.get(username='p1_newbie')
+        self.assertEqual(newbie.email, 'newbie@example.com')
+        self.assertTrue(self.klass.members.filter(id=newbie.profile.id).exists())
+        existing.refresh_from_db()
+        self.assertEqual(existing.email, 'keep@example.com')
+        self.assertTrue(self.klass.members.filter(id=existing.profile.id).exists())
+
+    # --- CA-2 ---------------------------------------------------------------
+    def test_ca2_site_teacher_cannot_delete_other_courses_class(self):
+        from judge.models.notification import ensure_instructors_group
+        from judge.views.organization import grant_site_teacher_role
+        ensure_instructors_group()
+        grant_site_teacher_role(self.teacher.profile)
+        self.teacher.refresh_from_db()
+        self.assertTrue(self.teacher.has_perm('judge.delete_class'))
+        self.client.force_login(self.teacher)
+        response = self.client.post(self._class_url('class_delete', self.foreign_class))
+        self.assertEqual(response.status_code, 403)
+        self.assertTrue(Class.objects.filter(id=self.foreign_class.id).exists())
+
+    def test_ca2_class_admin_can_still_delete_own_class(self):
+        doomed = Class.objects.create(organization=self.org, name='P1 Doomed', slug='p1-doomed')
+        doomed.admins.add(self.teacher.profile)
+        self.client.force_login(self.teacher)
+        response = self.client.post(self._class_url('class_delete', doomed))
+        self.assertEqual(response.status_code, 302)
+        self.assertFalse(Class.objects.filter(id=doomed.id).exists())
+
+    # --- CA-3 ---------------------------------------------------------------
+    def test_ca3_cannot_link_contest_the_user_cannot_edit(self):
+        from judge.models import Contest
+        from judge.models.tests.util import create_contest
+        foreign = create_contest(key='p1_foreign_exam', is_organization_private=True,
+                                 organizations=('p1_other_course',))
+        self.client.force_login(self.teacher)
+        response = self.client.post(self._class_url('class_link_assignments', self.klass),
+                                    {'contests': [foreign.id]})
+        self.assertEqual(response.status_code, 200)  # form re-rendered with an error
+        self.assertFalse(Contest.objects.get(id=foreign.id).classes.filter(id=self.klass.id).exists())
+
+    def test_ca3_can_link_own_contest_and_keep_existing_links(self):
+        from judge.models.tests.util import create_contest
+        own = create_contest(key='p1_own_hw', authors=('p1_class_teacher',))
+        legacy = create_contest(key='p1_legacy_link')
+        legacy.classes.add(self.klass)  # linked earlier by someone else
+        self.client.force_login(self.teacher)
+        response = self.client.post(self._class_url('class_link_assignments', self.klass),
+                                    {'contests': [own.id, legacy.id]})
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(own.classes.filter(id=self.klass.id).exists())
+        self.assertTrue(legacy.classes.filter(id=self.klass.id).exists())
+
+    def test_ca3_form_queryset_only_offers_editable_contests(self):
+        from judge.forms import ClassAssignmentsForm
+        from judge.models.tests.util import create_contest
+        own = create_contest(key='p1_qs_own', authors=('p1_class_teacher',))
+        foreign = create_contest(key='p1_qs_foreign')
+        form = ClassAssignmentsForm(class_obj=self.klass, user=self.teacher)
+        ids = set(form.fields['contests'].queryset.values_list('id', flat=True))
+        self.assertIn(own.id, ids)
+        self.assertNotIn(foreign.id, ids)
+
+    # --- CA-8 ---------------------------------------------------------------
+    def test_ca8_class_instructor_reject_only_removes_own_class(self):
+        student = create_user(username='p1_ca8_student').profile
+        req = OrganizationRequest.objects.create(
+            user=student, organization=self.org, request_class=self.klass,
+            state='A', reason='join', grants_organization=True,
+        )
+        student.organizations.add(self.org)
+        student.classes.add(self.klass, self.sibling)
+        self.client.force_login(self.teacher)
+        response = self.client.post(reverse('organization_join_requests'),
+                                    {'action': 'reject', 'request_ids': ['j:%d' % req.id]})
+        self.assertEqual(response.status_code, 302)
+        req.refresh_from_db()
+        self.assertEqual(req.state, 'R')
+        self.assertFalse(student.classes.filter(id=self.klass.id).exists())
+        self.assertTrue(student.classes.filter(id=self.sibling.id).exists())
+        self.assertTrue(student.organizations.filter(id=self.org.id).exists())
+
+    def test_ca8_class_instructor_reopen_keeps_coteacher_admin_elsewhere(self):
+        coteacher = create_user(username='p1_ca8_coteacher').profile
+        req = OrganizationRequest.objects.create(
+            user=coteacher, organization=self.org, request_class=self.klass,
+            state='A', reason='co-teach', grants_organization=True,
+        )
+        coteacher.organizations.add(self.org)
+        self.klass.admins.add(coteacher)
+        self.sibling.admins.add(coteacher)
+        self.client.force_login(self.teacher)
+        self.client.post(reverse('organization_join_requests'),
+                         {'action': 'reopen', 'request_ids': ['j:%d' % req.id]})
+        self.assertFalse(self.klass.admins.filter(id=coteacher.id).exists())
+        self.assertTrue(self.sibling.admins.filter(id=coteacher.id).exists())
+        self.assertTrue(coteacher.organizations.filter(id=self.org.id).exists())
+
+    # --- CA-11 --------------------------------------------------------------
+    def test_ca11_student_cannot_apply_as_class_instructor(self):
+        student = self.users['normal']
+        self.client.force_login(student)
+        self.client.post(reverse('organization_instructor_verification'), {
+            'kind': 'class_instructor',
+            'organization': self.org.id,
+            'request_class': self.klass.id,
+            'reason': 'let me in',
+        })
+        self.assertFalse(InstructorVerificationRequest.objects.filter(user=student.profile).exists())
+
+    def test_ca11_class_instructor_approval_does_not_grant_staff(self):
+        from judge.models.notification import ensure_instructors_group
+        from django.contrib.auth.models import Permission
+        ensure_instructors_group()
+        teacher = create_user(username='p1_ca11_teacher')
+        teacher.user_permissions.add(Permission.objects.get(codename='add_organization'))
+        self.assertFalse(teacher.is_staff)
+        req = InstructorVerificationRequest.objects.create(
+            user=teacher.profile, kind=InstructorVerificationRequest.KIND_CLASS_INSTRUCTOR,
+            organization=self.org, request_class=self.klass, reason='co-teach', state='P',
+        )
+        self.client.force_login(self.users['staff_organization_admin'])
+        self.client.post(reverse('organization_join_requests'),
+                         {'action': 'approve', 'request_ids': ['v:%d' % req.id]})
+        req.refresh_from_db()
+        self.assertEqual(req.state, 'A')
+        self.assertTrue(self.klass.admins.filter(id=teacher.profile.id).exists())
+        teacher.refresh_from_db()
+        self.assertFalse(teacher.is_staff)
+        self.assertFalse(req.granted_staff)
+
+    def test_ca11_approval_refused_for_non_teacher_applicant(self):
+        student = create_user(username='p1_ca11_student')
+        req = InstructorVerificationRequest.objects.create(
+            user=student.profile, kind=InstructorVerificationRequest.KIND_CLASS_INSTRUCTOR,
+            organization=self.org, request_class=self.klass, reason='legacy pending', state='P',
+        )
+        self.client.force_login(self.users['staff_organization_admin'])
+        self.client.post(reverse('organization_join_requests'),
+                         {'action': 'approve', 'request_ids': ['v:%d' % req.id]})
+        req.refresh_from_db()
+        self.assertEqual(req.state, 'P')
+        self.assertFalse(self.klass.admins.filter(id=student.profile.id).exists())
+        student.refresh_from_db()
+        self.assertFalse(student.is_staff)
