@@ -316,11 +316,19 @@ class AIGradingQuotaTestCase(CommonDataMixin, TestCase):
         sub = _sub(self.student, problem)
         self.assertFalse(is_teacher_viewer(staff, sub))
 
-    def test_is_teacher_viewer_true_with_rejudge_permission(self):
+    def test_is_teacher_viewer_false_with_bare_rejudge_permission(self):
+        # G-5: a site-wide permission alone does not make someone the teacher
+        # of a submission they do not edit.
         grader = create_user(username='ai_quota_grader', user_permissions=('rejudge_submission',))
         problem = create_problem(code='ai_quota_grader', is_public=True)
         sub = _sub(self.student, problem)
-        self.assertTrue(is_teacher_viewer(grader, sub))
+        self.assertFalse(is_teacher_viewer(grader, sub))
+
+    def test_is_teacher_viewer_true_for_practice_problem_editor(self):
+        author = create_user(username='ai_quota_prob_author', user_permissions=('edit_own_problem',))
+        problem = create_problem(code='ai_quota_prob_author', is_public=True, authors=('ai_quota_prob_author',))
+        sub = _sub(self.student, problem)
+        self.assertTrue(is_teacher_viewer(author, sub))
 
     def test_is_teacher_viewer_true_with_edit_all_contest_permission(self):
         editor = create_user(username='ai_quota_editor', user_permissions=('edit_all_contest',))
@@ -328,13 +336,17 @@ class AIGradingQuotaTestCase(CommonDataMixin, TestCase):
         sub = _sub(self.student, problem)
         self.assertTrue(is_teacher_viewer(editor, sub))
 
-    def test_is_teacher_viewer_true_with_create_course_permission(self):
-        # judge.add_organization is the site-teacher grant (same as
-        # profile_is_site_teacher's permission branch — no group lookup).
+    def test_is_teacher_viewer_false_with_create_course_permission(self):
+        # G-5: judge.add_organization is held by every instructor (migration
+        # 0206). It must not let a teacher of course A re-run AI scoring on a
+        # submission of course B's assignment, nor on someone else's practice.
         teacher = create_user(username='ai_quota_site_teacher', user_permissions=('add_organization',))
         problem = create_problem(code='ai_quota_teacher', is_public=True)
         sub = _sub(self.student, problem)
-        self.assertTrue(is_teacher_viewer(teacher, sub))
+        self.assertFalse(is_teacher_viewer(teacher, sub))
+        contest = create_contest(key='aiq_other', authors=('ai_quota_author',))
+        sub = _sub(self.student, problem, contest)
+        self.assertFalse(is_teacher_viewer(teacher, sub))
 
     def test_is_teacher_viewer_true_for_contest_editor(self):
         # The author has no special permissions; only their contest
@@ -378,3 +390,21 @@ class AIGradingQuotaTestCase(CommonDataMixin, TestCase):
         secs = int(match.group(1))
         self.assertGreater(secs, 0)
         self.assertLessEqual(secs, 43)
+
+    def test_ai_grade_view_refuses_instructor_of_another_course(self):
+        """G-5: an instructor (add_organization) who does not edit the assignment
+        cannot re-run AI scoring on its submissions through the view."""
+        from judge.models import ProblemShortAnswerConfig
+        problem = create_problem(code='ai_quota_g5', submission_type='S', points=10, is_public=True)
+        ProblemShortAnswerConfig.objects.create(problem=problem, ai_enabled=True, reference_answer='r')
+        contest = create_contest(key='ai_quota_g5', authors=('ai_quota_author',))
+        sub = _sub(self.student, problem, contest)
+        outsider = create_user(username='ai_quota_g5_outsider', user_permissions=('add_organization',))
+
+        client = Client()
+        client.force_login(outsider)
+        with mock.patch('judge.llm.is_configured', return_value=True), \
+                mock.patch('judge.utils.contest_ai.run_ai_for_submission') as run_ai:
+            resp = client.post(reverse('submission_ai_grade', args=[sub.id]))
+        self.assertIn(resp.status_code, (403, 404), resp.content)
+        run_ai.assert_not_called()

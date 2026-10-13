@@ -703,3 +703,27 @@ class StudentVisibleScoreTestCase(GradeTestBase):
         status = self._status_as(self.student, self.submission)
         self.assertContains(status, '12.5/25')
         self.assertNotContains(status, '20/25')
+
+
+class CodeAIRubricStudentScoreTestCase(GradeTestBase):
+    """G-10: for code with a supplementary AI rubric, the student-visible score
+    equals the ranking (``ContestSubmission.points``), not the test cases alone."""
+
+    def test_student_display_matches_ranking(self):
+        from judge.submission_grading import _refresh_contest_score
+        from judge.utils.contest_grade import student_display_points
+        self.problem.points = 10
+        self.problem.partial = True
+        self.problem.save(update_fields=['points', 'partial'])
+        self.contest_problem.points = 10
+        self.contest_problem.partial = True
+        self.contest_problem.save(update_fields=['points', 'partial'])
+        # Test cases 6/10, AI rubric 9/10 → combined score 7.2 on the problem.
+        Submission.objects.filter(id=self.submission.id).update(
+            case_points=6, case_total=10, points=7.2, ai_points=9.0, result='WA')
+        sub = Submission.objects.get(id=self.submission.id)
+        _refresh_contest_score(sub)
+        self.contest_submission.refresh_from_db()
+        self.assertAlmostEqual(self.contest_submission.points, 7.2)
+        sub = Submission.objects.get(id=self.submission.id)
+        self.assertAlmostEqual(student_display_points(sub), self.contest_submission.points)

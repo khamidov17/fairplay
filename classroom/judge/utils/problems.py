@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.translation import gettext_noop
 
 from judge.models import ContestParticipation, ContestSubmission, Problem, Submission
+from judge.utils.result_visibility import results_hidden_q
 
 __all__ = [
     'assignment_problem_stats', 'contest_completed_ids', 'get_result_data',
@@ -65,7 +66,7 @@ def log_workspace_progress(step, participation=None, progress=None, **fields):
     progress_log.info('workspace-progress %s', json.dumps(payload, ensure_ascii=False, default=str))
 
 
-def assignment_problem_stats(contest):
+def assignment_problem_stats(contest, user=None):
     """Per-problem Users / AC rate from this assignment's live submissions.
 
     Users = distinct students who submitted the problem in this assignment.
@@ -74,7 +75,16 @@ def assignment_problem_stats(contest):
 
     Counted from each submission's own ContestSubmission → participation,
     not from all participations on the contest.
+
+    The AC rate only counts submissions whose verdict ``user`` may see
+    (``results_visible_q``): while an exam's results are hidden, students get no
+    AC rate for hidden problems (it would reveal verdicts). ``user=None`` means
+    an anonymous viewer.
     """
+    from django.contrib.auth.models import AnonymousUser
+
+    from judge.utils.result_visibility import results_visible_q
+    visible = results_visible_q(user if user is not None else AnonymousUser(), prefix='submission__')
     rows = (
         ContestSubmission.objects.filter(
             participation__contest=contest,
@@ -83,8 +93,8 @@ def assignment_problem_stats(contest):
         .values('problem__problem_id')
         .annotate(
             user_count=Count('participation__user', distinct=True),
-            submission_total=Count('id'),
-            submission_ac=Count('id', filter=Q(submission__result='AC')),
+            submission_total=Count('id', filter=visible) if visible else Count('id'),
+            submission_ac=Count('id', filter=Q(submission__result='AC') & visible),
         )
     )
     stats = {}
@@ -153,7 +163,9 @@ def contest_completed_ids(participation):
     key = 'contest_complete:%d' % participation.id
     result = cache.get(key)
     if result is None:
+        # Own "solved" markers: a hidden exam verdict must not show up as a checkmark.
         result = set(participation.submissions.filter(submission__result='AC', points__gte=F('problem__points'))
+                     .exclude(results_hidden_q('submission__'))
                      .values_list('problem__problem_id', flat=True).distinct())
         cache.set(key, result, 86400)
     return result
@@ -164,6 +176,7 @@ def user_completed_ids(profile):
     result = cache.get(key)
     if result is None:
         result = set(Submission.objects.filter(user=profile, result='AC', case_points__gte=F('case_total'))
+                     .exclude(results_hidden_q())
                      .values_list('problem_id', flat=True).distinct())
         cache.set(key, result, 86400)
     return result

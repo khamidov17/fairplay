@@ -45,15 +45,24 @@ class ECOOContestFormat(DefaultContestFormat):
         self.config.update(config or {})
         self.contest = contest
 
+    # Upstream ECOO rule: a judge internal error, a compile error, or a submission that
+    # is still being judged never becomes the "latest" (scoring) submission.
+    IGNORED_RESULTS = ('IE', 'CE')
+
     def scoring_uses_latest(self, contest_problem):
         return True
+
+    def counts_as_latest(self, submission):
+        return submission.result is not None and submission.result not in self.IGNORED_RESULTS
 
     def update_participation(self, participation):
         cumtime = 0
         score = 0
         format_data = {}
 
-        submissions = participation.submissions.all()
+        submissions = (participation.submissions
+                       .exclude(submission__result__in=self.IGNORED_RESULTS)
+                       .exclude(submission__result__isnull=True))
 
         submission_counts = {
             data['problem_id']: data['count'] for data in submissions.values('problem_id').annotate(count=Count('id'))

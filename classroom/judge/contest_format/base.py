@@ -122,6 +122,10 @@ class BaseContestFormat(metaclass=ABCMeta):
         """
         return False
 
+    def counts_as_latest(self, submission):
+        """Whether ``submission`` may be the "latest" scoring submission (formats using latest)."""
+        return True
+
     @classmethod
     def best_solution_state(cls, points, total):
         if not points:

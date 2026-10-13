@@ -216,7 +216,6 @@ urlpatterns = [
         path('/ai-hint', submission.SubmissionAIHint.as_view(), name='submission_ai_hint'),
         path('/ai-grade', submission.SubmissionAIGrade.as_view(), name='submission_ai_grade'),
         path('/file', file_upload.submission_file_download, name='submission_file_download'),
-        path('/grade-file', file_upload.submission_file_grade, name='submission_file_grade'),
     ])),
 
     path('users/', include([

@@ -1011,8 +1011,9 @@ class IndexMatchingTests(StdlibTestCase):
 
     @mock.patch('judge.question_types.short_answer.call_llm')
     @mock.patch('judge.llm')
-    def test_extra_sub_scores_get_default_max(self, mock_llm, mock_call):
-        """If LLM returns more items than sub_questions, extras get max_pts=1.0."""
+    def test_extra_sub_scores_are_ignored(self, mock_llm, mock_call):
+        """If LLM returns more items than sub_questions, extras are ignored (G-4 / AI-1): the
+        configured table is the denominator, so an extra row never adds points."""
         mock_llm.is_configured.return_value = True
         mock_call.return_value = json.dumps({
             'sub_scores': [
@@ -1042,11 +1043,8 @@ class IndexMatchingTests(StdlibTestCase):
 
         self.assertIsNotNone(result)
         calibrated, _total = result
-        self.assertEqual(len(calibrated), 3)
-        # First two use sub_questions max_points
+        self.assertEqual(len(calibrated), 1)
         self.assertEqual(calibrated[0]['max_points'], 2.0)
-        # EXTRA (index 2 ≥ len(sub_questions)=1) defaults to 1.0
-        self.assertEqual(calibrated[2]['max_points'], 1.0)
 
 
 # ── Django-integration tests ─────────────────────────────────────────

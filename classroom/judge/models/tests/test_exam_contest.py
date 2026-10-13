@@ -592,3 +592,118 @@ class FileUploadDefaultFormatNotHiddenTest(CommonDataMixin, TestCase):
             submission=sub, problem=self.cp, participation=self.participation, points=0)
         self.assertFalse(sub.contest_results_hidden)
         self.assertTrue(sub.results_visible_to(self.users['normal']))
+
+
+class EcooLatestSubmissionTest(CommonDataMixin, TestCase):
+    """G-11: ECOO scores the latest submission, but (like upstream) an IE/CE or a
+    still-judging submission never counts as the latest one."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.contest = create_contest(key='ecoo', format_name='ecoo', problems=())
+        cls.problem = create_problem(code='ecooprob', points=100)
+        cls.cp = create_contest_problem(contest=cls.contest, problem=cls.problem, points=100, order=1)
+        cls.participation = create_contest_participation(contest=cls.contest, user=cls.users['normal'].profile)
+
+    def _sub(self, *, result, points, minutes, status='D'):
+        sub = Submission.objects.create(
+            user=self.participation.user, problem=self.problem,
+            language=Language.get_answer_language(), points=points, result=result, status=status,
+            contest_object=self.contest,
+        )
+        Submission.objects.filter(id=sub.id).update(date=self.participation.start + timedelta(minutes=minutes))
+        ContestSubmission.objects.create(
+            submission=sub, problem=self.cp, participation=self.participation, points=points)
+        return sub
+
+    def test_ie_ce_and_in_flight_do_not_replace_earlier_ac(self):
+        from judge.utils.contest_grade import final_submissions_for_contest
+        ac = self._sub(result='AC', points=100, minutes=1)
+        self._sub(result='CE', points=0, minutes=2)
+        self._sub(result='IE', points=0, minutes=3)
+        self._sub(result=None, points=0, minutes=4, status='P')
+        self.participation.recompute_results()
+        self.participation.refresh_from_db()
+        self.assertEqual(self.participation.format_data[str(self.cp.id)]['points'], 100)
+        self.assertGreaterEqual(self.participation.score, 100)
+        final = final_submissions_for_contest(self.contest)
+        self.assertEqual(final[(self.participation.id, self.cp.id)].id, ac.id)
+
+    def test_later_wrong_answer_still_counts(self):
+        self._sub(result='AC', points=100, minutes=1)
+        self._sub(result='WA', points=0, minutes=2)
+        self.participation.recompute_results()
+        self.participation.refresh_from_db()
+        self.assertEqual(self.participation.format_data[str(self.cp.id)]['points'], 0)
+
+
+class FinalizeKeepsAIScoresTest(CommonDataMixin, TestCase):
+    """G-2: Finalize (and plain / bulk / admin rejudge) must not reset AI-graded
+    short-answer and fill-blank scores to 0. Only an explicit AI run re-scores."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        from judge.models import ProblemFillBlankConfig, ProblemShortAnswerConfig
+        from judge.models.question import GRADE_AI
+        cls.contest = create_contest(key='examai', format_name='exam', problems=())
+        cls.sa = create_problem(code='examai-sa', submission_type='S', points=10, partial=True)
+        ProblemShortAnswerConfig.objects.create(problem=cls.sa, ai_enabled=True, reference_answer='42')
+        cls.fb = create_problem(code='examai-fb', submission_type='B', points=10, partial=True)
+        ProblemFillBlankConfig.objects.create(problem=cls.fb, grading_mode=GRADE_AI)
+        cls.fb.blanks.create(order=0, answers='x')
+        cls.sa_cp = create_contest_problem(contest=cls.contest, problem=cls.sa, points=10, order=1, partial=True)
+        cls.fb_cp = create_contest_problem(contest=cls.contest, problem=cls.fb, points=10, order=2, partial=True)
+        cls.participation = create_contest_participation(contest=cls.contest, user=cls.users['normal'].profile)
+
+    def _ai_scored(self, cp, source):
+        from judge.models import SubmissionSource
+        sub = Submission.objects.create(
+            user=self.participation.user, problem=cp.problem, language=Language.get_answer_language(),
+            status='D', result='WA', points=8, case_points=8, case_total=10, contest_object=self.contest,
+        )
+        SubmissionSource.objects.create(submission=sub, source=source)
+        ContestSubmission.objects.create(submission=sub, problem=cp, participation=self.participation, points=8)
+        return sub
+
+    def test_finalize_keeps_ai_scores(self):
+        sa_sub = self._ai_scored(self.sa_cp, '{"text": "forty-two"}')
+        fb_sub = self._ai_scored(self.fb_cp, '{"answers": ["y"]}')
+        with mock.patch('judge.tasks.contest.Progress', _NoProgress):
+            finalize_contest_results(self.contest.key)
+        for sub in (sa_sub, fb_sub):
+            sub.refresh_from_db()
+            self.assertEqual((sub.result, sub.points), ('WA', 8))
+            self.assertEqual(ContestSubmission.objects.get(submission=sub).points, 8)
+        self.participation.refresh_from_db()
+        self.assertEqual(self.participation.score, 16)
+
+    def test_plain_rejudge_keeps_ai_score(self):
+        sa_sub = self._ai_scored(self.sa_cp, '{"text": "forty-two"}')
+        Submission.objects.get(id=sa_sub.id).judge(rejudge=True, force_judge=True)
+        sa_sub.refresh_from_db()
+        self.assertEqual((sa_sub.result, sa_sub.points), ('WA', 8))
+        self.assertIsNotNone(sa_sub.rejudged_date)
+
+    def test_explicit_ai_run_rescores(self):
+        import json
+        from judge.utils.contest_ai import run_ai_for_submission
+        sa_sub = self._ai_scored(self.sa_cp, '{"text": "forty-two"}')
+
+        class FakeResult:
+            text = json.dumps({'sub_scores': [{'name': 'Overall', 'score': 10, 'feedback': 'ok'}]})
+
+        with mock.patch('judge.llm.is_configured', return_value=True), \
+                mock.patch('judge.llm.chat', return_value=FakeResult()):
+            status = run_ai_for_submission(Submission.objects.get(id=sa_sub.id), batch_pass=True)
+        self.assertEqual(status, 'internal-ai')
+        sa_sub.refresh_from_db()
+        self.assertEqual((sa_sub.result, sa_sub.points), ('AC', 10))
+
+    def test_released_manual_grade_survives_rejudge(self):
+        sa_sub = self._ai_scored(self.sa_cp, '{"text": "forty-two"}')
+        SubmissionManualGrade.objects.create(submission=sa_sub, points=3, machine_points=8, released=True)
+        ContestSubmission.objects.filter(submission=sa_sub).update(points=3)
+        Submission.objects.get(id=sa_sub.id).judge(rejudge=True, force_judge=True)
+        self.assertEqual(ContestSubmission.objects.get(submission=sa_sub).points, 3)

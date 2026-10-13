@@ -302,6 +302,13 @@ class SubmissionGradeEntryTestCase(CommonDataMixin, TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response.json()['score'], 5)
 
+    def test_practice_grade_save_rejects_non_finite_score(self):
+        for value in ('nan', 'inf', '-inf'):
+            response = self._client(self.teacher).post(reverse('practice_grade_save'), {
+                'submission': self.practice_sub.id, 'score': value,
+            })
+            self.assertEqual(response.status_code, 400, value)
+
     def test_practice_grade_save_updates_score(self):
         response = self._client(self.teacher).post(reverse('practice_grade_save'), {
             'submission': self.practice_sub.id, 'score': '80', 'note': 'ok',

@@ -26,6 +26,92 @@ def ordered_options_for(problem, profile):
     return options
 
 
+def selected_option_ids(problem):
+    """Ids of every option of ``problem`` that some stored submission selected.
+
+    Stored MCQ answers reference options by primary key, so these options must keep their
+    identity: an editor may change their text or correctness, but deleting one would turn the
+    students' answers into "no answer" on the next rejudge.
+    """
+    from judge.models import SubmissionSource
+    ids = set()
+    sources = SubmissionSource.objects.filter(submission__problem=problem).values_list('source', flat=True)
+    for source in sources.iterator():
+        try:
+            selected = json.loads(source).get('selected', [])
+        except (ValueError, TypeError, AttributeError):
+            continue
+        if not isinstance(selected, list):
+            continue
+        for value in selected:
+            try:
+                ids.add(int(value))
+            except (TypeError, ValueError):
+                continue
+    return ids
+
+
+def sync_mcq_options(problem, options):
+    """Update ``problem``'s options in place from ``options`` (``[{id?, text, is_correct}]``, in order).
+
+    Option identity is preserved so stored answers keep pointing at the same choices:
+
+    * an item whose ``id`` is one of this problem's options updates that row;
+    * when the payload carries no ids at all (older clients), items are matched by position;
+    * anything unmatched is created; existing rows left over are deleted.
+
+    Raises ``ValueError`` (nothing changed) when a row to delete was selected by a stored
+    submission, so the teacher edits that option instead of silently breaking the answers.
+    """
+    from judge.models import ProblemMCQOption
+    existing = list(problem.mcq_options.order_by('order', 'id'))
+    by_id = {o.id: o for o in existing}
+
+    def _id(item):
+        try:
+            return int(item.get('id'))
+        except (TypeError, ValueError):
+            return None
+
+    use_ids = any(_id(item) is not None for item in options)
+    plan = []  # (row or None, item)
+    taken = set()
+    for index, item in enumerate(options):
+        row = None
+        if use_ids:
+            oid = _id(item)
+            if oid in by_id and oid not in taken:
+                row = by_id[oid]
+        elif index < len(existing):
+            row = existing[index]
+        if row is not None:
+            taken.add(row.id)
+        plan.append((row, item))
+
+    removed = [o for o in existing if o.id not in taken]
+    if removed:
+        used = selected_option_ids(problem)
+        blocked = [o for o in removed if o.id in used]
+        if blocked:
+            raise ValueError(_(
+                'Choice "%(text)s" was already selected in student submissions and cannot be '
+                'deleted. Edit its text or correctness instead.') % {'text': blocked[0].text[:60]})
+        ProblemMCQOption.objects.filter(id__in=[o.id for o in removed]).delete()
+
+    # Move kept rows out of the way first: (problem, order) is unique.
+    offset = len(existing) + len(options) + 1
+    for row, _item in plan:
+        if row is not None:
+            ProblemMCQOption.objects.filter(id=row.id).update(order=row.order + offset)
+    for index, (row, item) in enumerate(plan):
+        text = item.get('text', '')
+        is_correct = bool(item.get('is_correct'))
+        if row is None:
+            ProblemMCQOption.objects.create(problem=problem, order=index, text=text, is_correct=is_correct)
+        else:
+            ProblemMCQOption.objects.filter(id=row.id).update(order=index, text=text, is_correct=is_correct)
+
+
 def _config(problem):
     try:
         return problem.mcq_config

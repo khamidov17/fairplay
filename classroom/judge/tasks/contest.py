@@ -16,6 +16,27 @@ __all__ = ('rescore_contest', 'finalize_contest_results', 'unfinalize_contest_re
            'run_moss', 'batch_ai_grade', 'auto_grade_contest', 'ai_rejudge_submission')
 
 
+def _refresh_hidden_result_aggregates(contest):
+    """Recompute what is derived from verdicts that just became hidden or visible.
+
+    Solved markers (cached), public problem stats and profile points leave out hidden exam
+    verdicts (``judge.utils.result_visibility``); after (un)finalizing, refresh them so they
+    neither keep a now-hidden verdict nor miss a newly revealed one.
+    """
+    from django.core.cache import cache
+    keys = []
+    for participation_id, profile_id in contest.users.values_list('id', 'user_id'):
+        keys += ['user_complete:%d' % profile_id, 'contest_complete:%d' % participation_id]
+    if keys:
+        cache.delete_many(keys)
+    for problem in contest.problems.all():
+        problem._updating_stats_only = True
+        problem.update_stats()
+    for participation in contest.users.select_related('user').iterator():
+        participation.user._updating_stats_only = True
+        participation.user.calculate_points()
+
+
 @shared_task(bind=True)
 def rescore_contest(self, contest_key):
     contest = Contest.objects.get(key=contest_key)
@@ -71,6 +92,7 @@ def finalize_contest_results(self, contest_key):
     # rejudges land asynchronously and recompute themselves again as they finish).
     for participation in contest.users.iterator():
         participation.recompute_results()
+    _refresh_hidden_result_aggregates(contest)
 
     return rejudged
 
@@ -95,6 +117,7 @@ def unfinalize_contest_results(self, contest_key):
             rescored += 1
             if rescored % 10 == 0:
                 p.done = rescored
+    _refresh_hidden_result_aggregates(contest)
     return rescored
 
 

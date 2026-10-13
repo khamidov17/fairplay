@@ -415,20 +415,25 @@ class Profile(models.Model):
     _pp_table = [pow(settings.DMOJ_PP_STEP, i) for i in range(settings.DMOJ_PP_ENTRIES)]
 
     def calculate_points(self, table=_pp_table):
-        from judge.models import Problem
+        from judge.models import Problem, Submission
+        from judge.utils.result_visibility import results_hidden_q
         public_problems = Problem.get_public_problems()
-        data = (
-            public_problems.filter(submission__user=self, submission__points__isnull=False)
-                           .annotate(max_points=Max('submission__points')).order_by('-max_points')
-                           .values_list('max_points', flat=True).filter(max_points__gt=0)
+        # Hidden exam verdicts (not finalized yet) do not count towards profile points or the
+        # solved count: both are public and would reveal them.
+        submissions = Submission.objects.filter(user=self, problem__in=public_problems.values('id')) \
+            .exclude(results_hidden_q())
+        data = list(
+            submissions.filter(points__isnull=False)
+                       .values('problem_id').annotate(max_points=Max('points'))
+                       .filter(max_points__gt=0).order_by('-max_points')
+                       .values_list('max_points', flat=True),
         )
         bonus_function = settings.DMOJ_PP_BONUS_FUNCTION
         points = sum(data)
         entries = min(len(data), len(table))
         problems = (
-            public_problems.filter(submission__user=self, submission__result='AC',
-                                   submission__case_points__gte=F('submission__case_total'))
-            .values('id').distinct().count()
+            submissions.filter(result='AC', case_points__gte=F('case_total'))
+            .values('problem_id').order_by().distinct().count()
         )
         pp = sum(map(mul, table[:entries], data[:entries])) + bonus_function(problems)
         if self.points != points or problems != self.problem_count or self.performance_points != pp:

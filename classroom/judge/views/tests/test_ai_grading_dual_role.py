@@ -592,11 +592,13 @@ class CodeAIJudgeIRTestCase(CommonDataMixin, TestCase):
         super().setUpTestData()
         cls.teacher = create_user(
             username='codeir_teacher',
-            user_permissions=('view_all_submission', 'rejudge_submission'),
+            # A teacher is scoped to what they edit (G-5): author of the problems.
+            user_permissions=('view_all_submission', 'rejudge_submission', 'edit_own_problem'),
         )
         cls.student = create_user(username='codeir_student')
         cls.py = Language.objects.get(key='PY3')
-        cls.codeai = create_problem(code='codeir-ai', submission_type='C', points=10, is_public=True)
+        cls.codeai = create_problem(code='codeir-ai', submission_type='C', points=10, is_public=True,
+                                    authors=('codeir_teacher',))
         cls.codeai.allowed_languages.add(cls.py)
         ProblemCodeConfig.objects.create(problem=cls.codeai, ai_enabled=True, ai_rubric='style')
         cls.codeno = create_problem(code='codeir-no', submission_type='C', points=10, is_public=True)

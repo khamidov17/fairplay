@@ -26,7 +26,6 @@ pin the current behavior so the diff is visible when the gap is fixed.
 """
 
 import json
-import unittest
 from datetime import timedelta
 from unittest import mock
 
@@ -198,24 +197,12 @@ class ContestGradeSaveVariantTestCase(GradeTestBase):
         self.assertEqual(
             SubmissionManualGrade.objects.get(submission=self.submission).points, 0.0)
 
-    def test_infinity_clamps_to_total(self):
-        response = self._save({'submission': str(self.submission.id), 'score': 'inf'})
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(
-            SubmissionManualGrade.objects.get(submission=self.submission).points, 100.0)
-
-    def test_negative_infinity_clamps_to_zero(self):
-        response = self._save({'submission': str(self.submission.id), 'score': '-inf'})
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(
-            SubmissionManualGrade.objects.get(submission=self.submission).points, 0.0)
-
-    def test_huge_exponent_clamps_to_total(self):
-        # float('1e309') overflows to inf without raising — must clamp, not 500.
-        response = self._save({'submission': str(self.submission.id), 'score': '1e309'})
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertEqual(
-            SubmissionManualGrade.objects.get(submission=self.submission).points, 100.0)
+    def test_infinity_rejected(self):
+        # Non-finite scores are rejected (400) rather than clamped: they are
+        # never a real grade, and NaN cannot be stored at all.
+        for value in ('inf', '-inf', '1e309'):
+            response = self._save({'submission': str(self.submission.id), 'score': value})
+            self.assertEqual(response.status_code, 400, value)
 
     def test_fractional_score_persisted(self):
         response = self._save({'submission': str(self.submission.id), 'score': '3.14159'})
@@ -253,14 +240,13 @@ class ContestGradeSaveVariantTestCase(GradeTestBase):
         self.assertEqual(
             SubmissionManualGrade.objects.get(submission=self.submission).points, 42.0)
 
-    @unittest.expectedFailure
     def test_nan_score_does_not_crash(self):
-        # Desired contract: a hostile 'nan' payload is rejected or clamped to a
-        # real number, never a 500. Current gap: float('nan') passes the clamp
-        # (min/max both return nan), and writing NaN into a MySQL DOUBLE raises
-        # in strict mode → the view's save() is outside any try/except → 500.
-        response = self._save({'submission': str(self.submission.id), 'score': 'nan'})
-        self.assertEqual(response.status_code, 400)
+        # A hostile 'nan' / 'inf' payload is rejected with a 400, never a 500
+        # (float('nan') passes the clamp and NaN cannot be stored in a DOUBLE).
+        for value in ('nan', 'inf', '-inf', '1e309'):
+            response = self._save({'submission': str(self.submission.id), 'score': value})
+            self.assertEqual(response.status_code, 400, value)
+        self.assertFalse(SubmissionManualGrade.objects.filter(submission=self.submission).exists())
 
 
 class ContestGradeScorePropagationTestCase(GradeTestBase):

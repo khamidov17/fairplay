@@ -42,28 +42,31 @@ def student_quota_limit() -> int:
 
 
 def is_teacher_viewer(user, submission) -> bool:
-    """Whether ``user`` counts as a teacher for AI grading purposes.
+    """Whether ``user`` counts as a teacher of ``submission`` for AI grading purposes.
 
-    Permission-based only — never bare ``is_staff`` and never group/roster
-    membership. A user is a teacher when they hold an explicit grading or
-    course-editing permission (rejudge, edit all contests, or create course),
-    or when they are an editor (author/curator) of the contest the submission
-    belongs to (``is_editable_by`` is itself permission-first and falls back to
-    contest membership for course instructors).
+    Scoped to the submission: a teacher is an editor of the assignment the
+    submission belongs to (``Contest.is_editable_by``: ``edit_all_contest`` or an
+    author/curator holding ``edit_own_contest``), or, for a practice submission,
+    an editor of its problem (``Problem.is_editable_by``). Site-wide course
+    permissions (``add_organization``, held by every instructor) and bare
+    ``rejudge_submission`` do not make someone a teacher of another course's
+    submissions. ``edit_all_contest`` (site contest admin) always counts. Never
+    bare ``is_staff`` and never group/roster membership.
     """
-    if user is None or not user.is_authenticated:
+    if user is None or not user.is_authenticated or submission is None:
         return False
-    if user.has_perm('judge.rejudge_submission') or \
-            user.has_perm('judge.edit_all_contest') or \
-            user.has_perm('judge.add_organization'):
+    if user.has_perm('judge.edit_all_contest'):
         return True
     try:
         contest = submission.contest_object
-        if contest is not None and contest.is_editable_by(user):
-            return True
     except Exception:
-        pass
-    return False
+        contest = None
+    try:
+        if contest is not None:
+            return bool(contest.is_editable_by(user))
+        return bool(submission.problem.is_editable_by(user))
+    except Exception:
+        return False
 
 
 def _recent_timestamps(user_id: int, problem_id: int) -> list[float]:

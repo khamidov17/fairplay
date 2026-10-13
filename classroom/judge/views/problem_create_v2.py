@@ -47,6 +47,7 @@ from judge.models import (Class, Language, LanguageLimit, License, Organization,
                           Solution, SubmissionSourceAccess)
 from judge.models.problem_data import CHECKERS
 from judge.models.question import GRADE_AI, GRADE_EXACT
+from judge.question_types.mcq import sync_mcq_options
 from judge.utils.problem_create import (apply_simple_problem_defaults, default_problem_group, default_problem_type,
                                         generate_problem_code, log_problem_admin_entry,
                                         problem_admin_changed_fields, problem_admin_snapshot)
@@ -416,14 +417,17 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             raise PermissionError(_('You do not have permission to edit this problem.'))
         return problem
 
-    def _clear_type_children(self, problem, *, clear_cases=True):
+    def _clear_type_children(self, problem, *, clear_cases=True, keep_mcq_options=False):
         """Remove every question-type-specific child before repopulating on edit (also handles a
         type switch, e.g. single -> programming).
 
         ``clear_cases`` is False when editing a code problem without a ``testcases`` payload so
         cases managed on the embedded test_data page are not wiped accidentally.
+        ``keep_mcq_options`` is True when an MCQ / true-false stays an MCQ: its options are then
+        updated in place (``sync_mcq_options``) so stored answers keep their option ids.
         """
-        ProblemMCQOption.objects.filter(problem=problem).delete()
+        if not keep_mcq_options:
+            ProblemMCQOption.objects.filter(problem=problem).delete()
         ProblemMCQConfig.objects.filter(problem=problem).delete()
         ProblemBlank.objects.filter(problem=problem).delete()
         ProblemFillBlankConfig.objects.filter(problem=problem).delete()
@@ -498,7 +502,7 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
                 data['harness'] = None
         elif st == ProblemSubmissionType.MCQ:
             config = getattr(problem, 'mcq_config', None)
-            options = list(problem.mcq_options.order_by('order').values('text', 'is_correct'))
+            options = list(problem.mcq_options.order_by('order').values('id', 'text', 'is_correct'))
             if config is not None and config.is_true_false:
                 data['type'] = 'truefalse'
                 correct_true = next((o for o in options if o['is_correct']), None)
@@ -506,7 +510,8 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             else:
                 data['type'] = 'multiple' if (config and config.multiple_select) else 'single'
                 data['multiple'] = bool(config and config.multiple_select)
-                data['options'] = [{'text': o['text'], 'correct': o['is_correct']} for o in options]
+                # ``id`` lets the editor send the option back so a save updates it in place.
+                data['options'] = [{'id': o['id'], 'text': o['text'], 'correct': o['is_correct']} for o in options]
                 if config and config.multiple_select:
                     data['mcqScoring'] = config.scoring_mode or ProblemMCQConfig.SCORE_PROPORTIONAL
                     data['mcqUnderselectPoints'] = config.underselect_points
@@ -1476,8 +1481,9 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             if is_create:
                 problem = Problem(submission_type=ProblemSubmissionType.MCQ)
             else:
+                was_mcq = problem.submission_type == ProblemSubmissionType.MCQ
                 problem.submission_type = ProblemSubmissionType.MCQ
-                self._clear_type_children(problem)
+                self._clear_type_children(problem, keep_mcq_options=was_mcq)
             problem.name = name
             problem.description = payload.get('description') or ''
             problem.points = self._num(payload.get('points'), 1)
@@ -1505,10 +1511,11 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             ProblemMCQConfig.objects.create(
                 problem=problem, multiple_select=multiple, shuffle_options=bool(payload.get('shuffle')),
                 scoring_mode=scoring_mode, underselect_points=underselect_points)
-            for index, option in enumerate(options):
-                ProblemMCQOption.objects.create(
-                    problem=problem, order=index,
-                    text=(option.get('text') or '').strip(), is_correct=bool(option.get('correct')))
+            sync_mcq_options(problem, [
+                {'id': option.get('id'), 'text': (option.get('text') or '').strip(),
+                 'is_correct': bool(option.get('correct'))}
+                for option in options
+            ])
         return problem
 
     # ------------------------------------------------------------------ true / false
@@ -1526,8 +1533,9 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
             if is_create:
                 problem = Problem(submission_type=ProblemSubmissionType.MCQ)
             else:
+                was_mcq = problem.submission_type == ProblemSubmissionType.MCQ
                 problem.submission_type = ProblemSubmissionType.MCQ
-                self._clear_type_children(problem)
+                self._clear_type_children(problem, keep_mcq_options=was_mcq)
             problem.name = name
             problem.description = payload.get('description') or ''
             problem.points = self._num(payload.get('points'), 1)
@@ -1545,8 +1553,11 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
 
             ProblemMCQConfig.objects.create(problem=problem, multiple_select=False, shuffle_options=False,
                                             is_true_false=True)
-            ProblemMCQOption.objects.create(problem=problem, order=0, text=_('True'), is_correct=(answer == 'true'))
-            ProblemMCQOption.objects.create(problem=problem, order=1, text=_('False'), is_correct=(answer == 'false'))
+            # Matched by position (True = 0, False = 1), so an edit keeps both option ids.
+            sync_mcq_options(problem, [
+                {'text': _('True'), 'is_correct': answer == 'true'},
+                {'text': _('False'), 'is_correct': answer == 'false'},
+            ])
         return problem
 
     # ------------------------------------------------------------------ fill in the blank

@@ -2125,3 +2125,104 @@ class ProblemCreateV2SaveRedirectTestCase(CommonDataMixin, TestCase):
 
         edit = self.client.get(reverse('problem_edit_v2', args=[code]))
         self.assertEqual(edit.status_code, 404)
+
+
+class MCQEditKeepsOptionIdentityTestCase(CommonDataMixin, TestCase):
+    """G-3: editing an MCQ / true-false in the main editor updates options in place, so stored
+    answers (which reference option ids) still regrade correctly after the edit."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.group = default_problem_group()
+        cls.users['creator'] = create_user(
+            username='mcq_identity_creator', user_permissions=('create_private_problem', 'edit_own_problem'))
+
+    def _save(self, payload, code=None):
+        url = reverse('problem_edit_v2', args=[code]) if code else reverse('problem_create_v2')
+        base = {'problemTypes': ['Graph Theory'], 'name': 'Proto', 'description': 'Which?',
+                'points': 5, 'group_id': self.group.id}
+        base.update(payload)
+        return self.client.post(url, data=json.dumps(base), content_type='application/json')
+
+    def _answer(self, problem, option):
+        from judge.models import Submission, SubmissionSource
+        sub = Submission.objects.create(
+            user=self.users['normal'].profile, problem=problem, language=Language.get_answer_language())
+        SubmissionSource.objects.create(submission=sub, source=json.dumps({
+            'selected': [option.id], 'choices': [{'id': option.id, 'order': option.order, 'text': option.text}]}))
+        return sub
+
+    def _regrade(self, sub):
+        from judge.models import Submission
+        sub = Submission.objects.get(id=sub.id)
+        sub.judge(rejudge=True, force_judge=True)
+        sub.refresh_from_db()
+        return sub.result
+
+    def setUp(self):
+        self.client.force_login(self.users['creator'])
+        response = self._save({'type': 'single', 'options': [
+            {'text': 'HTTP', 'correct': False}, {'text': 'TPC', 'correct': True}, {'text': 'UDP', 'correct': False}]})
+        self.assertEqual(response.status_code, 200, response.content)
+        self.problem = Problem.objects.get(code=response.json()['code'])
+        self.tcp = self.problem.mcq_options.get(order=1)
+        self.sub = self._answer(self.problem, self.tcp)
+        self.assertEqual(self._regrade(self.sub), 'AC')
+
+    def test_typo_fix_round_trip_keeps_ids_and_answers(self):
+        data = ProblemCreateV2View()._build_edit_data(self.problem)
+        ids_before = [o['id'] for o in data['options']]
+        data['options'][1]['text'] = 'TCP'
+        response = self._save({'type': 'single', 'options': data['options']}, code=self.problem.code)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(list(self.problem.mcq_options.order_by('order').values_list('id', flat=True)), ids_before)
+        self.assertEqual(self.problem.mcq_options.get(id=self.tcp.id).text, 'TCP')
+        self.assertEqual(self._regrade(self.sub), 'AC')
+
+    def test_payload_without_ids_matches_by_position(self):
+        response = self._save({'type': 'single', 'options': [
+            {'text': 'HTTP', 'correct': False}, {'text': 'TCP', 'correct': True}, {'text': 'UDP', 'correct': False}]},
+            code=self.problem.code)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(self.problem.mcq_options.filter(id=self.tcp.id, text='TCP').exists())
+        self.assertEqual(self._regrade(self.sub), 'AC')
+
+    def test_answer_key_change_regrades(self):
+        data = ProblemCreateV2View()._build_edit_data(self.problem)
+        data['options'][1]['correct'] = False
+        data['options'][2]['correct'] = True
+        self.assertEqual(self._save({'type': 'single', 'options': data['options']},
+                                    code=self.problem.code).status_code, 200)
+        self.assertEqual(self._regrade(self.sub), 'WA')
+
+    def test_deleting_unused_option_and_reordering_keeps_identity(self):
+        data = ProblemCreateV2View()._build_edit_data(self.problem)
+        http, tcp, _udp = data['options']
+        response = self._save({'type': 'single', 'options': [tcp, http, {'text': 'QUIC', 'correct': False}]},
+                              code=self.problem.code)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(self.problem.mcq_options.get(id=self.tcp.id).order, 0)
+        self.assertEqual(sorted(self.problem.mcq_options.values_list('text', flat=True)), ['HTTP', 'QUIC', 'TPC'])
+        self.assertEqual(self._regrade(self.sub), 'AC')
+
+    def test_deleting_selected_option_is_refused(self):
+        data = ProblemCreateV2View()._build_edit_data(self.problem)
+        http, _tcp, udp = data['options']
+        http['correct'] = True
+        response = self._save({'type': 'single', 'options': [http, udp]}, code=self.problem.code)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('already selected', response.json()['error'])
+        self.assertTrue(self.problem.mcq_options.filter(id=self.tcp.id, is_correct=True).exists())
+        self.assertEqual(self.problem.mcq_options.count(), 3)
+
+    def test_true_false_edit_keeps_ids(self):
+        response = self._save({'type': 'truefalse', 'tfAnswer': 'true'})
+        problem = Problem.objects.get(code=response.json()['code'])
+        true_option = problem.mcq_options.get(order=0)
+        sub = self._answer(problem, true_option)
+        self.assertEqual(self._regrade(sub), 'AC')
+        response = self._save({'type': 'truefalse', 'tfAnswer': 'false', 'name': 'Proto v2'}, code=problem.code)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertTrue(problem.mcq_options.filter(id=true_option.id, order=0).exists())
+        self.assertEqual(self._regrade(sub), 'WA')

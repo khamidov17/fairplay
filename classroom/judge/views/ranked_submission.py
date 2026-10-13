@@ -6,6 +6,7 @@ from django.utils.translation import gettext as _
 from judge.models import Language, Submission
 from judge.utils.problems import get_result_data
 from judge.utils.raw_sql import join_sql_subquery
+from judge.utils.result_visibility import results_visible_q, sees_all_results, visible_results
 from judge.views.submission import ForceContestMixin, ProblemSubmissions
 
 __all__ = ['RankedSubmissions', 'ContestRankedSubmission']
@@ -33,6 +34,16 @@ class RankedSubmissions(ProblemSubmissions):
                 constraint += f' AND sub.language_id IN ({", ".join(["%s"] * len(lang_ids))})'
                 params.extend(lang_ids)
             self.selected_languages = set()
+
+        # Leave out submissions whose verdict is hidden from this viewer before ranking, so the
+        # "best" row (or its absence) never reveals a hidden exam score.
+        hidden_ids = [] if sees_all_results(self.request.user) else list(
+            Submission.objects.filter(problem_id=self.problem.id)
+            .exclude(results_visible_q(self.request.user)).values_list('id', flat=True),
+        )
+        if hidden_ids:
+            constraint += f' AND sub.id NOT IN ({", ".join(["%s"] * len(hidden_ids))})'
+            params.extend(hidden_ids)
 
         queryset = super(RankedSubmissions, self).get_queryset().filter(user__is_unlisted=False)
         join_sql_subquery(
@@ -75,7 +86,7 @@ class RankedSubmissions(ProblemSubmissions):
     def _get_result_data(self, queryset=None):
         if queryset is None:
             queryset = super(RankedSubmissions, self).get_queryset()
-        return get_result_data(queryset.order_by())
+        return get_result_data(visible_results(queryset, self.request.user).order_by())
 
 
 class ContestRankedSubmission(ForceContestMixin, RankedSubmissions):
