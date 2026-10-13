@@ -2876,6 +2876,16 @@
                                     {{ _('Hide IDE / Run Test output') }}{{ tip(_('Hide sandbox stdout from students. The verdict, compile errors, and runtime exceptions remain visible. This does not close the IDE, lock problems, or change Submit.')) }}
                                 </label>
                             </div>
+                            <div class="form-row">
+                                <label for="id_lock_site_during_participation">
+                                    {{ _('Lock the site during participation') }}{{ tip(_('While a student is in this assignment, only its pages, its problems and workspace, their own submissions in it, and logout work. The IDE page, other problems, comments, tickets, blogs and user pages are blocked. Automatic means on for Safe Exam Browser and Exam-format assignments.')) }}
+                                </label>
+                                <select id="id_lock_site_during_participation" name="lock_site_during_participation">
+                                    {% for value, label in (('auto', _('Automatic')), ('on', _('On')), ('off', _('Off'))) %}
+                                    <option value="{{ value }}"{% if prefill.lock_site_during_participation == value %} selected{% endif %}>{{ label }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
                             <div class="form-row form-row-check">
                                 <label>
                                     <input type="checkbox" id="id_allow_ai_hints" name="allow_ai_hints"{% if prefill.allow_ai_hints %} checked{% endif %}>
@@ -3144,7 +3154,7 @@
                                             {% if seb_shown_preset %}
                                             <div class="ac-help">
                                                 <strong>{{ seb_shown_preset.name }}</strong>{% if seb_shown_preset.description %} — {{ seb_shown_preset.description }}{% endif %}
-                                                <a href="{{ url('seb_preset_config', seb_shown_preset.id) }}">{{ _('Preview .seb') }}</a>
+                                                {% if seb_linked_preset and contest %}<a href="{{ url('seb_preset_config', seb_linked_preset.id) }}?contest={{ contest.key|urlencode }}">{{ _('Preview .seb') }}</a>{% endif %}
                                             </div>
                                             {% if seb_linked_preset and seb_linked_preset != seb_default_preset %}
                                             <div class="ac-help">

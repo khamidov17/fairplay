@@ -32,6 +32,7 @@ from judge.utils.problems import get_result_data, user_completed_ids, user_edita
 from judge.utils.raw_sql import join_sql_subquery, use_straight_join
 from judge.utils.result_visibility import results_hidden_q, solved_source_visibility_applies, visible_results
 from judge.utils.safe_json import script_json
+from judge.utils.sandbox_output import submission_output_hidden_for
 from judge.utils.views import DiggPaginatorMixin, TitleMixin, generic_message
 from judge.views.ide import IDE_PROBLEM_CODE
 
@@ -256,6 +257,9 @@ class SubmissionStatus(SubmissionCommentMixin, SubmissionDetailBase):
         self._finalize_queued_timeout(submission)
 
         context['batches'], statuses, context['max_execution_time'] = group_test_cases(submission.test_cases.all())
+        # "Hide IDE / Run Test output": never print a run's stdout on this page while
+        # the assignment that hid it is running (see judge.utils.sandbox_output).
+        context['sandbox_output_hidden'] = submission_output_hidden_for(submission, self.request.user)
         context['statuses'] = combine_statuses(statuses, submission)
 
         context['time_limit'] = submission.problem.time_limit
@@ -279,9 +283,12 @@ class SubmissionStatus(SubmissionCommentMixin, SubmissionDetailBase):
         if first_failed:
             context['first_failed_case_id'] = first_failed.case
 
-        # AI hints context: problem flag OR the assignment this submission belongs to.
+        # AI hints context: the assignment this submission belongs to decides,
+        # else the problem flag. Never offered while the verdict is hidden from
+        # this viewer: whether the button appears would reveal AC / not AC.
         context['ai_hints_possible'] = (
-            ai_hints.hints_enabled_for(submission.problem, submission.contest_object)
+            ai_hints.hints_enabled_for(submission.problem, submission.contest_object, self.request.user)
+            and submission.results_visible_to(self.request.user)
             and ai_hints.is_configured()
         )
         context['ai_hints_enabled'] = (
@@ -395,10 +402,15 @@ class SubmissionAIHint(LoginRequiredMixin, SubmissionMixin, DetailView):
     def post(self, request, *args, **kwargs):
         submission = self.get_object()
 
-        # Gate 1: feature enabled on this problem, or on the assignment this
-        # submission was made in (does not mutate Problem.ai_hints_enabled).
-        if not ai_hints.hints_enabled_for(submission.problem, submission.contest_object):
+        # Gate 1: the assignment this submission was made in decides, else the
+        # problem flag (does not mutate Problem.ai_hints_enabled).
+        if not ai_hints.hints_enabled_for(submission.problem, submission.contest_object, request.user):
             return JsonResponse({'error': 'AI hints are not enabled for this problem.'}, status=403)
+
+        # Gate 1b: a hint is built from the verdict and failing cases, so it must
+        # not be answered while that verdict is hidden from this user.
+        if not submission.results_visible_to(request.user):
+            return JsonResponse({'error': 'AI hints are not available while results are hidden.'}, status=403)
 
         # Gate 2: backend configured
         if not ai_hints.is_configured():
@@ -410,7 +422,7 @@ class SubmissionAIHint(LoginRequiredMixin, SubmissionMixin, DetailView):
 
         # Gate 4: quota — atomically reserve a slot up front; refunded if the call fails
         if not ai_hints.try_reserve(request.profile.id):
-            return JsonResponse({'error': 'You have used all your AI hints for today. Try again tomorrow.'}, status=429)
+            return JsonResponse({'error': ai_hints.quota_exhausted_message()}, status=429)
 
         from judge.models.ai_hints import AIHintLog
 

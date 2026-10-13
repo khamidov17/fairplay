@@ -90,6 +90,10 @@
         .anomaly-low {
             color: #28a745;
         }
+        .anomaly-insufficient {
+            color: #6c757d;
+            font-weight: normal;
+        }
 
         .student-detail {
             display: none;
@@ -582,10 +586,10 @@
                     data-problems_solved="{{ student.problems_solved }}"
                     data-total_submissions="{{ student.total_submissions }}"
                     data-first_try_ac_rate="{{ student.attempt.first_try_ac_rate }}"
-                    data-avg_attempts="{{ student.attempt.avg_attempts_before_ac }}"
+                    data-avg_attempts="{{ student.attempt.avg_attempts_before_ac if student.attempt.avg_attempts_before_ac is not none else '' }}"
                     data-comment_density="{{ student.code.avg_comment_density }}"
                     data-avg_source_length="{{ student.code.avg_source_length }}"
-                    data-anomaly_score="{{ student.anomaly_score }}">
+                    data-anomaly_score="{{ student.anomaly_score if student.anomaly_score is not none else -1 }}">
                     <td><strong><a href="{{ url('contest_all_user_submissions', contest.key, student.username) }}" target="_blank" rel="noopener" onclick="event.stopPropagation()">{{ student.username }}</a></strong></td>
                     <td>{{ student.score }}</td>
                     <td>{{ student.problems_solved }}</td>
@@ -604,7 +608,7 @@
                     {% else %}
                         <td>{{ ftac }}%</td>
                     {% endif %}
-                    <td>{{ student.attempt.avg_attempts_before_ac }}</td>
+                    <td>{{ student.attempt.avg_attempts_before_ac if student.attempt.avg_attempts_before_ac is not none else '-' }}</td>
                     {% set cd = student.code.avg_comment_density %}
                     {% if class_stats.get('code.avg_comment_density') %}
                         {% set cs = class_stats['code.avg_comment_density'] %}
@@ -620,9 +624,15 @@
                         <td>{{ cd }}%</td>
                     {% endif %}
                     <td>{{ student.code.avg_source_length|int }}</td>
-                    <td class="anomaly-score {% if student.anomaly_percentile >= 90 %}anomaly-high{% elif student.anomaly_percentile >= 70 %}anomaly-medium{% else %}anomaly-low{% endif %}">
+                    {% if student.insufficient_data %}
+                    <td class="anomaly-score anomaly-insufficient" title="{{ _('Too few submissions to compare with the class.') }}">
+                        {{ _('Not enough data') }}
+                    </td>
+                    {% else %}
+                    <td class="anomaly-score anomaly-{{ student.anomaly_level }}">
                         {{ student.anomaly_percentile|int }}th
                     </td>
+                    {% endif %}
                     <td>
                         <div class="outlier-badges">
                         {% for flag in student.outlier_metrics %}
@@ -644,7 +654,7 @@
                                 </div>
                                 <div class="metric">
                                     <span class="metric-label">{{ _('Avg Attempts Before AC') }}</span>
-                                    <span>{{ student.attempt.avg_attempts_before_ac }}</span>
+                                    <span>{{ student.attempt.avg_attempts_before_ac if student.attempt.avg_attempts_before_ac is not none else '-' }}</span>
                                 </div>
                                 <div class="metric">
                                     <span class="metric-label">{{ _('No-Progression Rate') }}</span>

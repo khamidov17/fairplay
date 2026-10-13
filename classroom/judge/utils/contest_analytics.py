@@ -3,6 +3,7 @@ import statistics
 from collections import defaultdict
 from itertools import combinations
 
+from django.conf import settings
 from pygments.lexers import get_lexer_by_name
 from pygments.token import Token
 from pygments.util import ClassNotFound
@@ -236,8 +237,10 @@ def _compute_attempt_metrics(uid, user_subs, subs_by_user_problem, problem_ids, 
 
     first_try_ac_rate = round(first_try_ac / problems_attempted * 100, 1) if problems_attempted > 0 else 0
     no_progression_rate = round(no_progression_count / problems_attempted * 100, 1) if problems_attempted > 0 else 0
+    # None (not 0) without data: this metric is "lower is suspicious", so a 0 for a
+    # student who attempted nothing would rank them as an anomaly.
     avg_attempts = (
-        round(statistics.mean(attempts_per_attempted_problem), 2) if attempts_per_attempted_problem else 0
+        round(statistics.mean(attempts_per_attempted_problem), 2) if attempts_per_attempted_problem else None
     )
 
     return {
@@ -274,11 +277,13 @@ def _compute_timing_metrics(uid, user_subs, subs_by_user_problem, problem_ids, p
             burst_count += 1
 
     # Submission spacing variance
+    # Needs at least three submissions (two gaps); None otherwise, because this
+    # metric is "lower is suspicious" and a 0 would flag students with no data.
     all_times = sorted(s.date for s in user_subs)
-    spacing_variance = 0
+    spacing_variance = None
     if len(all_times) > 2:
         gaps = [(all_times[i] - all_times[i - 1]).total_seconds() for i in range(1, len(all_times))]
-        spacing_variance = round(statistics.variance(gaps), 1) if len(gaps) > 1 else 0
+        spacing_variance = round(statistics.variance(gaps), 1)
 
     avg_solve_time = round(statistics.mean(solve_times), 1) if solve_times else None
 
@@ -493,13 +498,53 @@ def _compute_cross_student_similarity(subs_by_user_problem, problem_ids, sources
     return similarity_by_problem
 
 
+def min_submissions_for_anomaly():
+    """Students with fewer completed submissions than this are "not enough data"."""
+    return int(getattr(settings, 'DMOJ_ANALYTICS_MIN_SUBMISSIONS', 3))
+
+
+def anomaly_level(score, percentile):
+    """Colour band for the anomaly column: only a real excess over the class is high."""
+    if score is None:
+        return 'insufficient'
+    if score <= 0:
+        return 'low'
+    if percentile >= 90:
+        return 'high'
+    if percentile >= 70:
+        return 'medium'
+    return 'low'
+
+
 def _compute_anomaly_scores(student_metrics):
-    """Compute composite anomaly scores based on z-scores across all metrics."""
-    if len(student_metrics) < 3:
-        for uid in student_metrics:
-            student_metrics[uid]['anomaly_score'] = 0
-            student_metrics[uid]['anomaly_percentile'] = 0
-            student_metrics[uid]['outlier_metrics'] = []
+    """Compute composite anomaly scores based on z-scores across all metrics.
+
+    Students with fewer than ``min_submissions_for_anomaly()`` submissions are left out
+    of the class statistics and get ``insufficient_data`` with no score: their metrics
+    are mostly empty, and "lower is suspicious" metrics would otherwise rank them first.
+
+    The percentile is the share of ranked students with a strictly lower composite
+    score, so ties (most students have 0) share the lowest percentile instead of the
+    highest.
+    """
+    min_subs = min_submissions_for_anomaly()
+    ranked = {}
+    for uid, m in student_metrics.items():
+        m['outlier_metrics'] = []
+        if m.get('total_submissions', 0) < min_subs:
+            m['insufficient_data'] = True
+            m['anomaly_score'] = None
+            m['anomaly_percentile'] = None
+            m['anomaly_level'] = 'insufficient'
+        else:
+            m['insufficient_data'] = False
+            ranked[uid] = m
+
+    if len(ranked) < 3:
+        for m in ranked.values():
+            m['anomaly_score'] = 0
+            m['anomaly_percentile'] = 0
+            m['anomaly_level'] = 'low'
         return
 
     # Metrics to evaluate: (path, higher_is_suspicious)
@@ -516,12 +561,9 @@ def _compute_anomaly_scores(student_metrics):
 
     threshold = 1.5
 
-    for uid in student_metrics:
-        student_metrics[uid]['outlier_metrics'] = []
-
     for metric_path, higher_is_suspicious in metric_defs:
         values = {}
-        for uid, m in student_metrics.items():
+        for uid, m in ranked.items():
             val = _get_nested(m, metric_path)
             if val is not None:
                 values[uid] = val
@@ -541,7 +583,7 @@ def _compute_anomaly_scores(student_metrics):
             if not higher_is_suspicious:
                 z = -z
             if z > threshold:
-                student_metrics[uid]['outlier_metrics'].append({
+                ranked[uid]['outlier_metrics'].append({
                     'metric': metric_path,
                     'z_score': round(z, 2),
                     'value': val,
@@ -549,17 +591,18 @@ def _compute_anomaly_scores(student_metrics):
 
     # Composite score: sum of excess z-scores
     raw_scores = {}
-    for uid in student_metrics:
-        outliers = student_metrics[uid]['outlier_metrics']
-        raw_scores[uid] = sum(o['z_score'] - threshold for o in outliers)
+    for uid, m in ranked.items():
+        raw_scores[uid] = sum(o['z_score'] - threshold for o in m['outlier_metrics'])
 
-    # Convert to percentile
-    all_scores = sorted(raw_scores.values())
-    for uid in student_metrics:
+    # Percentile: share of the class with a strictly lower score (ties share it).
+    all_scores = list(raw_scores.values())
+    for uid, m in ranked.items():
         score = raw_scores[uid]
-        rank = sum(1 for s in all_scores if s <= score)
-        student_metrics[uid]['anomaly_score'] = round(score, 2)
-        student_metrics[uid]['anomaly_percentile'] = round(rank / len(all_scores) * 100, 0)
+        below = sum(1 for s in all_scores if s < score)
+        percentile = round(below / len(all_scores) * 100, 0)
+        m['anomaly_score'] = round(score, 2)
+        m['anomaly_percentile'] = percentile
+        m['anomaly_level'] = anomaly_level(score, percentile)
 
 
 def _build_timeline_data(submissions, participations, sources, contest, problem_info):
