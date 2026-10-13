@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+
+{% block media %}
+    <style>
+        #access-code-form {
+            margin: 50px auto 0;
+            display: block;
+            max-width: 500px;
+        }
+
+        #id_access_code {
+            width: 100%;
+        }
+
+        .button-line {
+            text-align: right;
+        }
+
+        .code-hint {
+            color: var(--oj-text-muted, #666);
+            font-size: 12px;
+            margin: 0.4rem 0;
+        }
+    </style>
+{% endblock %}
+
+{% block body %}
+    <form id="access-code-form" action="" method="post" class="form-area">
+        {% csrf_token %}
+        {% if form.errors or wrong_code %}
+            <div id="form-errors">
+                <p class="error">{{ _('Invalid access code.') }}</p>
+            </div>
+        {% endif %}
+        <p>{{ _('Please enter your access code:') }}</p>
+        <p>{{ form.access_code }}</p>
+        <p id="code-hint" class="code-hint" style="display:none;"></p>
+        <p class="button-line">
+            <button type="submit">{{ _('Join Contest') }}</button>
+        </p>
+    </form>
+    <script type="text/javascript">
+        // Remember the access code for THIS browser tab/session once it has
+        // been entered, per assignment (multiple exams keep separate entries),
+        // and re-submit it automatically on the next visit — no more retyping.
+        // Uses sessionStorage (not localStorage) so the code never outlives the
+        // session: on shared/lab machines a later user opening a fresh session
+        // cannot inherit a previously cached code. A code that stops working is
+        // dropped so we never loop on a stale value.
+        (function () {
+            var KEY = 'dmoj_access_codes';
+            var input = document.getElementById('id_access_code');
+            var form = document.getElementById('access-code-form');
+            if (!input || !form) return;
+
+            var cache = {};
+            try { cache = JSON.parse(sessionStorage.getItem(KEY) || '{}') || {}; } catch (e) {}
+
+            var contestKey = {{ contest.key|tojson }};
+            var wrongCode = {{ 'true' if wrong_code else 'false' }};
+            var hint = document.getElementById('code-hint');
+
+            if (wrongCode) {
+                // The submitted code was rejected (stale cache or a typo) —
+                // drop it so we don't auto-submit it again, and focus for
+                // re-entry.
+                delete cache[contestKey];
+                try { sessionStorage.setItem(KEY, JSON.stringify(cache)); } catch (e) {}
+                input.focus();
+            } else if (cache[contestKey]) {
+                input.value = cache[contestKey];
+                if (hint) {
+                    hint.textContent = {{ _('Access code remembered for this session — joining automatically...')|htmltojs }};
+                    hint.style.display = '';
+                }
+                // Auto-submit shortly after load; typing or focusing cancels it
+                // so the user can switch to a different code instead.
+                var timer = setTimeout(function () {
+                    if (document.activeElement !== input) form.submit();
+                }, 600);
+                input.addEventListener('input', function () { clearTimeout(timer); }, { once: true });
+            }
+
+            // Persist whatever code was submitted; a rejected one is removed
+            // by the wrong_code branch on the next page load.
+            form.addEventListener('submit', function () {
+                var code = input.value.trim();
+                if (code) {
+                    cache[contestKey] = code;
+                    try { sessionStorage.setItem(KEY, JSON.stringify(cache)); } catch (e) {}
+                }
+            });
+        })();
+    </script>
+{% endblock %}

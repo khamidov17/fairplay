@@ -1,0 +1,30 @@
+name: autofix.ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  autofix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install fixers
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff
+
+      # Fix specific flake8 violations
+      - name: Fix lint (safe autofixes only)
+        run: |
+          ruff check --fix-only --select COM812,W293,W292 dmoj judge django_ace martor manage.py
+
+      - uses: autofix-ci/action@635ffb0c9798bd160680f18fd73371e355b85f27
+

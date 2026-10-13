@@ -1,0 +1,103 @@
+{# Workspace Submissions row — same chrome as submission/row.html; view opens Result in-page. #}
+{% set can_view, can_edit = submission_layout(submission, profile_id, request.user, completed_problem_ids, editable_problem_ids, tester_problem_ids) %}
+{% set results_hidden = not submission.results_visible_to(request.user) %}
+{% set is_code = submission.problem.submission_type not in ('M', 'B', 'S', 'T') %}
+{% set status_url = url('problem_workspace_submission_status', submission.problem.code, submission.id) %}
+{% set view_url = '%s?submission=%d' % (url('problem_detail', submission.problem.code), submission.id) %}
+<div class="submission-row" data-id="{{ submission.id }}">
+<div class="sub-result {% if results_hidden %}submission-hidden{% else %}{{ submission.result_class }}{% endif %}">
+    <div class="score">
+        {%- if results_hidden -%}
+            <i class="fa fa-check" title="{{ _('Submitted') }}"></i>
+        {%- elif submission.is_graded -%}
+            {%- if submission.status in ('IE', 'CE', 'AB') -%}
+                ----
+            {%- else -%}
+                {{ submission.display_points|floatformat(-1) }} / {{ submission.display_points_total|floatformat(-1) }}
+            {%- endif -%}
+        {%- else -%}
+            <i class="fa fa-spinner fa-pulse grading-spinner"></i>
+        {%- endif -%}
+    </div>
+
+    <div class="state">
+        {%- if results_hidden -%}
+            <span class="status">{{ _('Submitted') }}</span> |
+        {%- else -%}
+            <span title="{{ submission.long_status }}" class="status">{{ submission.short_status }}</span> |
+        {%- endif -%}
+        <span class="language">{{ submission.language.short_display_name }}</span>
+        {% if submission.display_released %}
+            <span class="ws-released-mini" title="{{ _('Teacher review released') }}">{{ _('released') }}</span>
+        {% endif %}
+    </div>
+</div>
+
+<div class="sub-main">
+    <div class="sub-info{% if submission.status == 'G' %} sub-info-grading{% endif %}">
+        <div>
+            {{ link_user(submission.user) }}
+            <br class="xs-br">
+            <span class="time">{{ relative_time(submission.date) }}</span>
+            {% if not request.in_contest and submission.contest_object_id %}
+                <a href="{{ url('contest_view', submission.contest_object.key) }}"
+                   class="submission-contest">
+                    <i title="{{ submission.contest_object.name }}" class="fa fa-dot-circle-o"></i>
+                </a>
+            {% endif %}
+        </div>
+    </div>
+
+    {% if submission.status == 'G' %}
+        <div class="sub-testcase">
+            {%- if submission.current_testcase > 0 -%}
+                {{ _('Case #%(case)s', case=submission.current_testcase) }}
+            {%- else -%}
+                ...
+            {%- endif -%}
+        </div>
+    {% endif %}
+
+    {% if can_view %}
+        <div class="sub-prop"><div>
+            <a class="ws-submission-link" href="{{ view_url }}" data-status-url="{{ status_url }}">
+                <i class="fa fa-eye fa-fw"></i><span class="label">{{ _('view') }}</span>
+            </a>
+            {% if perms.judge.rejudge_submission and can_edit %} ·
+                {% if not submission.is_locked %}
+                    <a href="#" onclick="rejudge_submission({{ submission.id }}, event);return false">
+                        <i class="fa fa-refresh fa-fw"></i><span class="label">{{ _('rejudge') }}</span>
+                    </a>
+                {% else %}
+                    <i class="fa fa-refresh fa-fw grey-icon"></i>
+                    <span class="label grey-label"
+                          title="{{ _('This submission has been locked, and cannot be rejudged.') }}">
+                        {{ _('locked') }}
+                    </span>
+                {% endif %}
+            {% endif %}
+            {% if can_edit %} ·
+                <a href="{{ url('admin:judge_submission_change', submission.id) }}">
+                    <i class="fa fa-cog fa-fw"></i><span class="label">{{ _('admin') }}</span>
+                </a>
+            {% endif %}
+        </div></div>
+    {% endif %}
+</div>
+
+<div class="sub-usage">
+    {% if (not is_code) or results_hidden or submission.status in ('QU', 'P', 'G', 'CE', 'IE', 'AB') %}
+        <div class="time">----</div>
+        <div class="memory">----</div>
+    {% else %}
+        {% if "TLE" != submission.result %}
+            <div title="{{ submission.time or 0 }}s" class="time">
+                {{ (submission.time or 0)|floatformat(2) }}s
+            </div>
+        {% else %}
+            <div class="time">----</div>
+        {% endif %}
+        <div class="memory">{{ submission.memory|kbdetailformat if submission.memory is not none else '----' }}</div>
+    {% endif %}
+</div>
+</div>

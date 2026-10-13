@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block js_media %}
+    <script type="text/javascript">
+        $(function () {
+            $('#id_reason').keydown(function (e) {
+                if (e.ctrlKey && (e.keyCode === 13 || e.keyCode === 10)) {
+                    $(this).closest('form').submit();
+                }
+            });
+        });
+    </script>
+{% endblock %}
+
+{% block body %}
+<div class="course-redesign oj-ui">
+    <div class="course-form-wrap">
+        <h1>{{ title }}</h1>
+        {% include "messages.html" %}
+        <form action="" method="post" class="course-form">
+            {% csrf_token %}
+            {% if form.non_field_errors() %}
+                <div class="form-errors">{{ form.non_field_errors() }}</div>
+            {% endif %}
+            {% if form.show_classes %}
+                <div class="form-row">
+                    <label for="{{ form.class_.id_for_label }}"><b>
+                        {% if form.for_teacher %}{{ _('Class (optional):') }}
+                        {% else %}{{ _('Select your class:') }}{% endif %}
+                    </b></label>
+                    {{ form.class_ }}
+                    {{ form.class_.errors }}
+                    {% if form.for_teacher %}
+                        <p>{{ _('Leave empty unless you will co-teach that section.') }}</p>
+                    {% endif %}
+                </div>
+            {% endif %}
+            <div class="form-row">
+                <label for="{{ form.reason.id_for_label }}"><b>{{ _('Your reason for joining:') }}</b></label>
+                {{ form.reason }}
+                {{ form.reason.errors }}
+            </div>
+            <div class="course-form-actions">
+                <button type="submit" class="button">{{ _('Request!') }}</button>
+                <a class="button" href="javascript:history.go(-1)">{{ _('Cancel') }}</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,767 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: dmoj\n"
+"Report-Msgid-Bugs-To: \n"
+"POT-Creation-Date: 2023-01-23 05:23+0000\n"
+"PO-Revision-Date: 2024-03-13 00:40\n"
+"Last-Translator: \n"
+"Language-Team: Chinese Simplified\n"
+"Language: zh_CN\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+"X-Crowdin-Project: dmoj\n"
+"X-Crowdin-Project-ID: 142963\n"
+"X-Crowdin-Language: zh-CN\n"
+"X-Crowdin-File: djangojs.po\n"
+"X-Crowdin-File-ID: 12\n"
+
+#: resources/common.js:194
+msgctxt "time format with day"
+msgid "%d day %h:%m:%s"
+msgid_plural "%d days %h:%m:%s"
+msgstr[0] "%d 天 %h:%m:%s"
+
+#: resources/common.js:197
+msgctxt "time format without day"
+msgid "%h:%m:%s"
+msgstr "%h:%m:%s"
+
+#: resources/problem-vote.js:11
+msgid "Vote on problem points"
+msgstr "对题目评分"
+
+#: resources/problem-vote.js:16
+#, javascript-format
+msgid "Unable to delete vote: %s"
+msgstr "删除评分投票失败: %s"
+
+#: resources/problem-vote.js:28
+#, javascript-format
+msgid "Edit points vote (%s)"
+msgstr "修改评分 (%s)"
+
+#: resources/problem-vote.js:34
+#, javascript-format
+msgid "Unable to cast vote: %s"
+msgstr "无法评分: %s"
+
+#: resources/problem-vote.js:63
+msgid "Number of votes for this point value"
+msgstr "该分值的评分人数"
+
+#: resources/user_profile.js:47
+msgid "past year"
+msgstr "最近一年"
+
+#: resources/user_profile.js:64
+msgid "%(cnt)d total submission"
+msgid_plural "%(cnt)d total submissions"
+msgstr[0] "%(cnt)d 个提交"
+
+#: resources/user_profile.js:69
+msgid "%(cnt)d submission in the last year"
+msgid_plural "%(cnt)d submissions in the last year"
+msgstr[0] "最近一年有 %(cnt)d 个提交"
+
+#: resources/user_profile.js:74
+msgid "%(cnt)d submission in %(year)d"
+msgid_plural "%(cnt)d submissions in %(year)d"
+msgstr[0] "%(year)d 年有 %(cnt)d 个提交"
+
+#: resources/user_profile.js:88
+msgid "%(cnt)d submission on %(date)s"
+msgid_plural "%(cnt)d submissions on %(date)s"
+msgstr[0] "%(date)s 有 %(cnt)d 个提交"
+
+
+
+# --- create_v2 / rich_editor i18n ---
+
+#: problem create_v2 / rich_editor i18n
+#, javascript-format
+msgid " (target %(total)s)"
+msgstr "（目标 %(total)s）"
+
+#: problem create_v2 / rich_editor i18n
+#, javascript-format
+msgid "%s pts"
+msgstr "%s 分"
+
+#: problem create_v2 / rich_editor i18n
+msgid "(select all correct answers)"
+msgstr "（勾选所有正确答案）"
+
+#: problem create_v2 / rich_editor i18n
+msgid "(select the correct answer)"
+msgstr "（勾选正确答案）"
+
+#: problem create_v2 / rich_editor i18n
+msgid "AI / keyword scoring awards a score between 0 and full points"
+msgstr "由 AI / 关键词评分给出 0~满分之间的分数"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Add option"
+msgstr "添加选项"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Add test cases first."
+msgstr "请先添加测试用例。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Align center"
+msgstr "居中"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Align left"
+msgstr "左对齐"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Align right"
+msgstr "右对齐"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Answer"
+msgstr "答案"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Answer (separate multiple with |)"
+msgstr "答案（多个用 | 分隔）"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Answer:"
+msgstr "答案："
+
+#: problem create_v2 / rich_editor i18n
+#, javascript-format
+msgid "Blank %s"
+msgstr "第 %s 空"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Block quote"
+msgstr "引用块"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Body"
+msgstr "正文"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Bold"
+msgstr "加粗"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Bold (Ctrl+B)"
+msgstr "加粗 (Ctrl+B)"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Cancel"
+msgstr "取消"
+
+#: problem create_v2 / rich_editor i18n
+#, javascript-format
+msgid "Case #%s"
+msgstr "用例 #%s"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Close"
+msgstr "关闭"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Code"
+msgstr "代码"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Collapse"
+msgstr "折叠"
+
+#: problem create_v2 / rich_editor i18n
+#, javascript-format
+msgid "Column %s"
+msgstr "列%s"
+
+#: problem create_v2 / rich_editor i18n
+#, javascript-format
+msgid "Could not parse zip: %s"
+msgstr "无法解析该 zip：%s"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Decoded content exceeds 8MB; please upload via legacy test_data."
+msgstr "解压后总内容超过 8MB，请改用旧版 test_data 上传。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Delete"
+msgstr "删除"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Difficulty"
+msgstr "难度"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Each blank is scored separately; points for each correct blank"
+msgstr "每个填空位单独计分，答对几空得几空的分"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Enter answer"
+msgstr "请输入答案"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Enter content…"
+msgstr "请输入内容…"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Enter option text…"
+msgstr "请输入选项内容…"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Expected answer"
+msgstr "标准答案"
+
+#: problem create_v2 / rich_editor i18n
+msgid "False"
+msgstr "错误"
+
+#: problem create_v2 / rich_editor i18n
+#, javascript-format
+msgid "File too large (1MB per file limit): %s / %s. Use legacy test_data for large packages."
+msgstr "文件过大（单文件上限 1MB）：%s / %s。超大包请用旧版 test_data。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Heading"
+msgstr "标题"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Heading 1"
+msgstr "标题1"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Heading 2"
+msgstr "标题2"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Heading 3"
+msgstr "标题3"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Highlight"
+msgstr "高亮"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Image"
+msgstr "图片"
+
+#: problem create_v2 / rich_editor i18n
+#, javascript-format
+msgid "Imported %s pairs (saved as a ZIP file upload, same limits as legacy test_data)."
+msgstr "已导入 %s 组（保存时按文件上传，与旧版测试数据页相同上限）。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Preview content is large; the browser may be slow, but save still uploads the ZIP file."
+msgstr "预览内容较大，浏览器可能较慢；保存仍走 ZIP 文件上传。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Importing a zip will replace the current test cases. Continue?"
+msgstr "导入 zip 将替换当前表格中的测试用例，是否继续？"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Insert"
+msgstr "插入"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Insert blank"
+msgstr "插入填空位"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Insert link"
+msgstr "插入链接"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Italic"
+msgstr "斜体"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Italic (Ctrl+I)"
+msgstr "斜体 (Ctrl+I)"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Keep at least 2 options"
+msgstr "至少保留 2 个选项"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Level-1 heading (larger in preview)"
+msgstr "一级标题（预览为较大标题）"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Level-2 heading"
+msgstr "二级标题"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Level-3 heading"
+msgstr "三级标题"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Link"
+msgstr "链接"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Link (Ctrl+L)"
+msgstr "链接 (Ctrl+L)"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Link text"
+msgstr "链接文字"
+
+#: problem create_v2 / rich_editor i18n
+msgid "List"
+msgstr "列表"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Main stem"
+msgstr "主题干"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Mark as sample/pretest"
+msgstr "设为样例/pretest"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Enter Markdown…"
+msgstr "请输入 Markdown…"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Markdown help"
+msgstr "Markdown 帮助"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Math"
+msgstr "公式"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Math (Ctrl+Alt+D)"
+msgstr "公式 (Ctrl+Alt+D)"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Mention user"
+msgstr "提及用户"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Mention user (Ctrl+M)"
+msgstr "提及用户 (Ctrl+M)"
+
+#: problem create_v2 / rich_editor i18n
+msgid "No match; you can still insert"
+msgstr "无匹配用户，可直接插入"
+
+#: problem create_v2 / rich_editor i18n
+msgid "No pairable test files found (supports N.in/N.out, N.in.txt/N.out.txt, inputN.txt/outputN.txt)."
+msgstr "未找到可配对的测试文件（支持 N.in/N.out、N.in.txt/N.out.txt、inputN.txt/outputN.txt）。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "No readable text test cases in the zip."
+msgstr "zip 内没有可读的文本测试用例。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "No sub-questions yet."
+msgstr "尚未添加子题目。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Open legacy test-data page (finer editing)"
+msgstr "打开旧版测试数据页（更细致编辑）"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Option"
+msgstr "选项"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Option text"
+msgstr "选项内容"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Options (select the correct answer)"
+msgstr "选项（勾选正确答案）"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Ordered list (Ctrl+Shift+O)"
+msgstr "有序列表 (Ctrl+Shift+O)"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Other type: statement only; manual grading."
+msgstr "其他题型：仅展示题面，人工评分。"
+
+#: problem create_v2 / rich_editor i18n
+#, javascript-format
+msgid "Parsing %s …"
+msgstr "正在解析 %s …"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Partial credit for under-selection; wrong selections follow the rule below"
+msgstr "少选得部分分，错选按下方规则处理"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Per-blank points are enabled; set points for each blank under Answers above."
+msgstr "已为每个填空位启用独立分值，请在上方“答案”里为每空填写分数。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Please choose a .zip file."
+msgstr "请选择 .zip 文件。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Points"
+msgstr "分值"
+
+#: problem create_v2 / rich_editor i18n
+#, javascript-format
+msgid "Points distributed evenly: %(n)s cases totaling %(sum)s points%(suffix)s."
+msgstr "已按题目总分均分：%(n)s 组合计 %(sum)s 分%(suffix)s。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Points for this blank"
+msgstr "本空分值"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Problem statements use Markdown. Full syntax:"
+msgstr "本站题目描述使用 Markdown。完整语法见"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Programming partial score = sum of points from passed cases; set points per case in the Test cases table (Batch subtasks supported)."
+msgstr "编程题部分分 = 通过测试点的分值之和；在“测试用例”表逐点设置分值即可（支持 Batch 子任务打包）。"
+
+#: problem create_v2
+msgid "Programming partial score uses relative case weights (passed / total). Set Weight per case below; they need not sum to problem Points. Batch subtasks supported."
+msgstr "编程题部分分按用例相对权重计算（通过权重 / 总权重）。请在下方设置各用例权重；不必加总等于题目分数。支持 Batch 子任务。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Proportional credit: score = full points × (correct − wrong) / number of correct options, minimum 0"
+msgstr "比例给分：得分 = 满分 ×（选对数 − 选错数）/ 正确项数，最低 0 分"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Question"
+msgstr "题目"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Quote (Ctrl+Q)"
+msgstr "引用 (Ctrl+Q)"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Reference answer"
+msgstr "参考答案"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Reference answer…"
+msgstr "参考答案…"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Rich text"
+msgstr "富文本"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Score is the sum of points from passed test cases (configure points per case in the test-case table)"
+msgstr "按通过的测试点分值累加得分（在测试用例表逐点配置分值）"
+
+#: problem create_v2
+msgid "Partial score uses relative case weights (passed / total); weights need not equal problem Points"
+msgstr "部分分按用例相对权重计算（通过 / 总计）；权重不必等于题目分数"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Search failed"
+msgstr "搜索失败"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Search users…"
+msgstr "搜索用户…"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Searching…"
+msgstr "搜索中…"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Short-answer partial scoring depends on <b>AI grading</b> or keyword matching (configure tiers in the AI grading Rubric below)."
+msgstr "简答题部分分依赖 <b>AI 判题</b> 或关键词匹配（在下方 AI 判题的 Rubric 中配置分档）。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Shortcut"
+msgstr "快捷键"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Statement preview…"
+msgstr "题目内容预览…"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Sub-question stem…"
+msgstr "子题干…"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Sub-stem…"
+msgstr "子题干…"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Syntax"
+msgstr "写法"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Table"
+msgstr "表格"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Table actions"
+msgstr "表格操作"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Text"
+msgstr "文字"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Text level"
+msgstr "文字等级"
+
+#: problem create_v2 / rich_editor i18n
+msgid "True"
+msgstr "正确"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Type"
+msgstr "题型"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Type part of a username to search"
+msgstr "输入用户名片段以搜索"
+
+#: problem create_v2 / rich_editor i18n
+msgid "URL"
+msgstr "地址"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Under-select credit:"
+msgstr "少选给分："
+
+#: problem create_v2 / rich_editor i18n
+msgid "Unordered list (Ctrl+U)"
+msgstr "无序列表 (Ctrl+U)"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Username"
+msgstr "用户名"
+
+#: problem create_v2 / rich_editor i18n
+msgid "View/edit content"
+msgstr "查看/编辑内容"
+
+#: problem create_v2 / rich_editor i18n
+msgid "ZIP parser not loaded. Please refresh and try again."
+msgstr "ZIP 解析库未加载，请刷新页面重试。"
+
+#: problem create_v2 / rich_editor i18n
+msgid "alt"
+msgstr "说明"
+
+#: problem create_v2 / rich_editor i18n
+msgid "bold"
+msgstr "粗体"
+
+#: problem create_v2 / rich_editor i18n
+msgid "each correct choice earns"
+msgstr "每选对 1 个得"
+
+#: problem create_v2 / rich_editor i18n
+msgid "fenced code block"
+msgstr "围栏代码块"
+
+#: problem create_v2 / rich_editor i18n
+msgid "highlight"
+msgstr "高亮"
+
+#: problem create_v2 / rich_editor i18n
+msgid "invalid archive"
+msgstr "无效的压缩包"
+
+#: problem create_v2 / rich_editor i18n
+msgid "italic"
+msgstr "斜体"
+
+#: problem create_v2 / rich_editor i18n
+msgid "list"
+msgstr "列表"
+
+#: problem create_v2 / rich_editor i18n
+msgid "points; any wrong choice scores 0"
+msgstr "分，选错即 0 分"
+
+#: problem create_v2 / rich_editor i18n
+msgid "quote"
+msgstr "引用"
+
+#: problem create_v2 / rich_editor i18n
+msgid "text"
+msgstr "文字"
+
+#: problem create_v2 / rich_editor i18n
+msgid "Result"
+msgstr "结果"
+
+#: problem create_v2 / rich_editor i18n
+msgid "username"
+msgstr "用户名"
+
+# --- create_v2 main labels round 2 ---
+
+#: problem create_v2 main-label i18n
+msgid "Description"
+msgstr "描述"
+
+# --- create_v2 Advanced section i18n (JS gettext) ---
+
+#: problem create_v2 advanced i18n
+msgid "Advanced"
+msgstr "高级"
+
+#: problem create_v2 advanced i18n
+msgid "Hide advanced settings"
+msgstr "隐藏高级设置"
+
+#: problem create_v2 advanced i18n
+msgid "No file selected"
+msgstr "未选择文件"
+
+#: resources/workspace.js
+msgid "Failed to load submission."
+msgstr "加载提交失败。"
+
+#: resources/workspace.js
+msgid "Failed to load submissions."
+msgstr "加载提交列表失败。"
+
+#: resources/workspace.js
+msgid "Could not delete this problem."
+msgstr "无法删除该题目。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Action"
+msgstr "操作"
+
+#: resources/js/rich_editor help / math palette
+msgid "Arrows"
+msgstr "箭头"
+
+#: resources/js/rich_editor help / math palette
+msgid "Basic"
+msgstr "常用"
+
+#: resources/js/rich_editor help / math palette
+msgid "Blank"
+msgstr "填空"
+
+#: resources/js/rich_editor help / math palette
+msgid "Click an existing formula in the document to edit it."
+msgstr "已经写好的公式，点一下就能再改。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Click the formula button, then click a symbol. Dashed boxes are slots you can type into."
+msgstr "点公式按钮，再点符号。虚线方块是可以填内容的空位。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Close dialog"
+msgstr "关闭弹窗"
+
+#: resources/js/rich_editor help / math palette
+msgid "Delimiters"
+msgstr "括号"
+
+#: resources/js/rich_editor help / math palette
+msgid "Editor help"
+msgstr "编辑器说明"
+
+#: resources/js/rich_editor help / math palette
+msgid "Equation"
+msgstr "公式"
+
+#: resources/js/rich_editor help / math palette
+msgid "Equations"
+msgstr "公式"
+
+#: resources/js/rich_editor help / math palette
+msgid "Fill-in blanks"
+msgstr "填空"
+
+#: resources/js/rich_editor help / math palette
+msgid "Greek"
+msgstr "希腊字母"
+
+#: resources/js/rich_editor help / math palette
+msgid "If you prefer typing markup, switch to the Markdown tab. These are the site-specific bits:"
+msgstr "如果更习惯写标记，可切到 Markdown。下面是本站额外支持的写法："
+
+#: resources/js/rich_editor help / math palette
+msgid "In a code block, press Ctrl+Enter to leave the block."
+msgstr "在代码块里按 Ctrl+Enter 可以跳出代码块。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Insert a table, then use the cell menu to add or delete rows and columns."
+msgstr "插入表格后，用单元格菜单增删行和列。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Keyboard shortcuts"
+msgstr "快捷键"
+
+#: resources/js/rich_editor help / math palette
+msgid "Mention"
+msgstr "提及"
+
+#: resources/js/rich_editor help / math palette
+msgid "Misc"
+msgstr "其他"
+
+#: resources/js/rich_editor help / math palette
+msgid "On fill-in problems, click the blank button. Chips are numbered automatically."
+msgstr "出填空题时点空格按钮，空会自动编号。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Operators"
+msgstr "运算符"
+
+#: resources/js/rich_editor help / math palette
+msgid "Ordered list"
+msgstr "有序列表"
+
+#: resources/js/rich_editor help / math palette
+msgid "Press Enter for a new line. Leave a blank line when you want a new paragraph."
+msgstr "按 Enter 换行。需要新段落时，空一行再写。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Quote"
+msgstr "引用"
+
+#: resources/js/rich_editor help / math palette
+msgid "Relationships"
+msgstr "关系"
+
+#: resources/js/rich_editor help / math palette
+msgid "Select text, then use the toolbar for headings, bold, italic, highlight, inline code, quotes, lists, and alignment."
+msgstr "先选中文字，再用工具栏设置标题、加粗、斜体、高亮、行内代码、引用、列表和对齐。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Style"
+msgstr "效果"
+
+#: resources/js/rich_editor help / math palette
+msgid "Switch between Rich text and Markdown at any time. The toolbar works in both modes. Students see the same formatting as you."
+msgstr "可以随时在「富文本」和 Markdown 之间切换，工具栏两边都能用。学生看到的格式和你在编辑框里看到的一样。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Tables, images, links"
+msgstr "表格、图片、链接"
+
+#: resources/js/rich_editor help / math palette
+msgid "Turn on “Directly edit LaTeX” only if you want to type raw LaTeX."
+msgstr "只有需要手写 LaTeX 时，再勾选「直接编辑 LaTeX」。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Unordered list"
+msgstr "无序列表"
+
+#: resources/js/rich_editor help / math palette
+msgid "Use the link button for a web link, or @ to mention a user."
+msgstr "用链接按钮加网址，或用 @ 提及用户。"
+
+#: resources/js/rich_editor help / math palette
+msgid "Use the paperclip to upload an image or file, or paste an image from the clipboard."
+msgstr "点回形针上传图片或文件，也可以直接把图片粘贴进编辑框。"
+

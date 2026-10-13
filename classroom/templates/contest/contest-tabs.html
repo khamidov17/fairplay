@@ -1,0 +1,121 @@
+{% extends "tabs-base.html" %}
+
+{% block tabs %}
+    {{ make_tab('detail', 'fa-info-circle', url('contest_view', contest.key), _('Info')) }}
+    {% if contest.ended or can_edit %}
+        {{ make_tab('stats', 'fa-pie-chart', url('contest_stats', contest.key), _('Statistics')) }}
+    {% endif %}
+    {% if can_edit %}
+        {{ make_tab('grade', 'fa-check-square-o', url('contest_grade', contest.key), _('Grade')) }}
+        {{ make_tab('analytics', 'fa-line-chart', url('contest_analytics', contest.key), _('Analytics')) }}
+    {% endif %}
+
+    {% if contest.start_time <= now or perms.judge.see_private_contest %}
+        {% if contest.can_see_own_scoreboard(request.user) %}
+            {{ make_tab('ranking', 'fa-bar-chart', url('contest_ranking', contest.key), _('Rankings')) }}
+            {% if request.user.is_authenticated %}
+                {{ make_tab('participation', 'fa-users', url('contest_participation_own', contest.key), _('Participation')) }}
+            {% endif %}
+        {% else %}
+            {{ make_tab('ranking', 'fa-bar-chart', None, _('Hidden Rankings')) }}
+        {% endif %}
+    {% endif %}
+    {% if can_change %}
+        {% if perms.judge.moss_contest and has_moss_api_key %}
+            {{ make_tab('moss', 'fa-gavel', url('contest_moss', contest.key), _('MOSS')) }}
+        {% endif %}
+        {{ make_tab('edit', 'fa-edit', url('contest_edit', contest.key), _('Edit')) }}
+    {% endif %}
+    {% if can_clone %}
+        {{ make_tab('clone', 'fa-copy', url('contest_clone', contest.key), _('Clone')) }}
+    {% endif %}
+
+    {% if request.user.is_authenticated %}
+        {% if contest.started or is_editor or is_tester %}
+            {% set in_contest = contest.is_in_contest(request.user) %}
+            {% set seb_block_join = seb_required and not seb_user_bypasses and not seb_request_valid and not in_contest %}
+            {% if seb_block_join %}
+                <div class="contest-join-pseudotab unselectable" style="display:flex; gap:8px; align-items:center;">
+                    {% if seb_launch.sebs_url %}
+                        <a class="button" href="{{ seb_launch.sebs_url }}"
+                           data-seb-token-url="{{ seb_launch.token_url }}">{{ _('Launch in SEB') }}</a>
+                    {% endif %}
+                    {% if seb_launch.download_url %}
+                        <a class="button" href="{{ seb_launch.download_url }}">{{ _('Download config file') }}</a>
+                    {% endif %}
+                </div>
+                {% include "contest/seb-launch-js.html" %}
+            {% elif contest.ended %}
+                {# Allow users to leave the virtual contest #}
+                {% if in_contest %}
+                    <form action="{{ url('contest_leave', contest.key) }}" method="post"
+                          class="contest-join-pseudotab unselectable button">
+                        {% csrf_token %}
+                        <input type="submit" class="leaving-forever" value="{{ _('Leave contest') }}">
+                    </form>
+                {% elif contest.allow_virtual_participation %}
+                    {# Allow users to virtual join #}
+                    <form action="{{ url('contest_join', contest.key) }}" method="post"
+                          class="contest-join-pseudotab unselectable button">
+                        {% csrf_token %}
+                        <input type="submit" value="{{ _('Virtual join') }}" class="contest-join">
+                    </form>
+                {% endif %}
+            {% else %}
+                {# Allow users to leave the contest #}
+                {% if in_contest %}
+                    {% set _progress = participation_submit_progress(request.participation) %}
+                    <form action="{{ url('contest_leave', contest.key) }}" method="post"
+                          class="contest-join-pseudotab unselectable button"
+                          data-submitted="{{ _progress.submitted }}"
+                          data-total="{{ _progress.total }}"
+                          data-unsubmitted="{{ _progress.unsubmitted }}"
+                          data-submitted-names="{{ _progress.submitted_names|json }}"
+                          data-unsubmitted-names="{{ _progress.unsubmitted_names|json }}"
+                          {% if request.participation.spectate %}data-spectate="1"{% endif %}
+                          {% if contest.seb_required and not request.participation.spectate %}data-seb-exit="1"{% endif %}>
+                        {% csrf_token %}
+                        <input type="submit"
+                               {% if contest.seb_required and not request.participation.spectate %}class="seb-exit"{% endif %}
+                               value="
+                            {%- if request.participation.spectate %}
+                                {{- _('Stop spectating') -}}
+                            {% elif contest.seb_required %}
+                                {{- _('Exit SEB') -}}
+                            {% else %}
+                                {{- _('Leave contest') -}}
+                            {% endif %}">
+                    </form>
+                {% elif contest.is_live_joinable_by(request.user) %}
+                    <form action="{{ url('contest_join', contest.key) }}" method="post"
+                          class="contest-join-pseudotab unselectable button">
+                        {% csrf_token %}
+                        <input type="submit"
+                               class="contest-join{% if not has_joined %} first-join{% endif %}"
+                               value="{{ _('Join contest') }}">
+                    </form>
+                {% elif contest.is_spectatable_by(request.user) %}
+                    <form action="{{ url('contest_join', contest.key) }}" method="post"
+                          class="contest-join-pseudotab unselectable button">
+                        {% csrf_token %}
+                        <input type="submit" value="{{ _('Spectate assignment') }}" class="contest-join">
+                    </form>
+                {% else %}
+                    <form action="{{ url('contest_join', contest.key) }}" method="post"
+                          class="contest-join-pseudotab unselectable button disabled">
+                        {% csrf_token %}
+                        <input type="submit" class="disabled"
+                               title="{{ _('You cannot join this contest.') }}"
+                               value="{{ _('Join contest') }}" disabled>
+                    </form>
+                {% endif %}
+            {% endif %}
+        {% endif %}
+    {% elif contest.started %}
+        <form action="{{ url('auth_login') }}" method="get"
+              class="contest-join-pseudotab unselectable button">
+            <input type="hidden" name="next" value="{{ LOGIN_RETURN_PATH|urlencode }}">
+            <input type="submit" value="{{ _('Log in to participate') }}">
+        </form>
+    {% endif %}
+{% endblock %}

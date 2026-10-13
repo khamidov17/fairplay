@@ -1,0 +1,611 @@
+{% extends "base.html" %}
+{% block title %}{{ title }}{% endblock %}
+{% block html_class %}ide-page{% endblock %}
+{% block body_class %}ide-page{% endblock %}
+{% block title_row %}{% endblock %}
+{% block title_ruler %}{% endblock %}
+
+{% block js_media %}
+    {# Same locally vendored Monaco as the problem workspace (jsDelivr is blocked on campus). #}
+    <script type="text/javascript">
+        window.MONACO_VS_URL = '{{ static("libs/monaco/vs") }}';
+    </script>
+    <script type="text/javascript" src="{{ static('libs/monaco/vs/loader.js') }}"></script>
+    <script src="{{ static('ide_run_result.js') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}"></script>
+    {% if REQUIRE_JAX %}
+        {% include "mathjax-load.html" %}
+    {% endif %}
+    <script type="text/javascript">
+        $(function() {
+            // ACE mode keys → Monaco language ids (from problem-workspace resources/workspace.js)
+            var ACE_TO_MONACO = {
+                c_cpp: 'cpp', cpp: 'cpp', c: 'c', csharp: 'csharp', golang: 'go', go: 'go',
+                java: 'java', javascript: 'javascript', python: 'python', rust: 'rust',
+                ruby: 'ruby', php: 'php', kotlin: 'kotlin', swift: 'swift', typescript: 'typescript',
+                pascal: 'pascal', haskell: 'haskell', lua: 'lua', perl: 'perl', r: 'r', scala: 'scala'
+            };
+            var ACE_DARK_THEMES = {
+                ambiance: 1, chaos: 1, clouds_midnight: 1, cobalt: 1, idle_fingers: 1,
+                kr_theme: 1, merbivore: 1, merbivore_soft: 1, mono_industrial: 1,
+                monokai: 1, pastel_on_dark: 1, solarized_dark: 1, terminal: 1,
+                tomorrow_night: 1, tomorrow_night_blue: 1, tomorrow_night_bright: 1,
+                tomorrow_night_eighties: 1, twilight: 1, vibrant_ink: 1
+            };
+            var aceTheme = {% if ace_theme %}'{{ ace_theme }}'{% else %}null{% endif %};
+            var darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+            function monacoTheme() {
+                if (aceTheme) {
+                    return ACE_DARK_THEMES[aceTheme] ? 'vs-dark' : 'vs';
+                }
+                return darkQuery.matches ? 'vs-dark' : 'vs';
+            }
+
+            function monacoLanguageFromOption($option) {
+                var key = ($option.data('monaco') || $option.data('ace') || '') + '';
+                if (ACE_TO_MONACO[key]) return ACE_TO_MONACO[key];
+                if (key) return key;
+                var name = ($option.text() || '').toLowerCase();
+                if (name.indexOf('python') >= 0) return 'python';
+                if (name.indexOf('java') >= 0 && name.indexOf('script') < 0) return 'java';
+                return 'plaintext';
+            }
+
+            var $outputDisplay = $('#output-display');
+            var codeEditor = null;
+            var inputEditor = null;
+
+            function escHtml(s) {
+                return $('<div/>').text(s == null ? '' : String(s)).html();
+            }
+
+            // Sets the output panel contents. Callers must pre-escape any
+            // untrusted text with escHtml(); values that originate from the
+            // server's ansi2html conversion are already safe HTML and can
+            // be inserted as-is.
+            function setOutputHtml(html) {
+                $outputDisplay.html(html).scrollTop(0);
+            }
+
+            function setOutputText(text) {
+                setOutputHtml(escHtml(text));
+            }
+
+            function codeValue() {
+                return codeEditor ? codeEditor.getValue() : '';
+            }
+
+            function setCodeValue(value) {
+                if (codeEditor) {
+                    codeEditor.setValue(value == null ? '' : String(value));
+                }
+            }
+
+            function inputValue() {
+                return inputEditor ? inputEditor.getValue() : '';
+            }
+
+            function setInputValue(value) {
+                if (inputEditor) {
+                    inputEditor.setValue(value == null ? '' : String(value));
+                }
+            }
+
+            function setCodeLanguage() {
+                if (!codeEditor || !window.monaco) return;
+                var $option = $('#language-select').find('option:selected');
+                window.monaco.editor.setModelLanguage(
+                    codeEditor.getModel(),
+                    monacoLanguageFromOption($option)
+                );
+            }
+
+            function syncMonacoTheme() {
+                if (window.monaco) {
+                    window.monaco.editor.setTheme(monacoTheme());
+                }
+            }
+
+            // Language selection
+            $('#language-select').select2({
+                theme: '{{ DMOJ_SELECT2_THEME }}'
+            });
+
+            // Language change handler
+            $('#language-select').change(function() {
+                setCodeLanguage();
+
+                // Load template from localStorage or AJAX
+                var langId = $(this).val();
+                var storageKey = 'ide_code:' + langId;
+                var cached = localStorage.getItem(storageKey);
+
+                if (cached != null && codeValue().trim() === '') {
+                    setCodeValue(cached);
+                } else if (codeValue().trim() === '') {
+                    // Load language template via AJAX
+                    $.get('{{ url("language_template_ajax") }}', {
+                        id: langId,
+                        _: Date.now() + Math.random()
+                    }, function(template) {
+                        if (template && template.trim()) {
+                            setCodeValue(template);
+                            localStorage.setItem(storageKey, template);
+                        }
+                    }).fail(function() {
+                        console.log('Failed to load language template');
+                    });
+                }
+            });
+
+            // Auto-save code to localStorage
+            var saveTimer;
+            function onCodeChange() {
+                clearTimeout(saveTimer);
+                saveTimer = setTimeout(function() {
+                    var langId = $('#language-select').val();
+                    if (langId) {
+                        localStorage.setItem('ide_code:' + langId, codeValue());
+                    }
+                }, 1000);
+            }
+
+            // Auto-save input to localStorage
+            var inputSaveTimer;
+            function onInputChange() {
+                clearTimeout(inputSaveTimer);
+                inputSaveTimer = setTimeout(function() {
+                    localStorage.setItem('ide_input', inputValue());
+                }, 1000);
+            }
+
+            // Run button handler
+            var currentSubmissionId = null;
+            var statusCheckInterval = null;
+
+            $('#run-button').click(function() {
+                var button = $(this);
+                var sourceCode = codeValue();
+                var languageId = $('#language-select').val();
+                var customInput = inputValue();
+
+                if (!sourceCode.trim()) {
+                    setOutputText('{{ _("Error: Source code cannot be empty") }}');
+                    return;
+                }
+
+                if (!languageId) {
+                    setOutputText('{{ _("Error: Please select a language") }}');
+                    return;
+                }
+
+                button.prop('disabled', true).text('{{ _("Running...") }}');
+                setOutputText('{{ _("Submitting code to judge...") }}');
+
+                $.ajax({
+                    url: '{{ url("ide_submit") }}',
+                    method: 'POST',
+                    data: {
+                        source: sourceCode,
+                        language: languageId,
+                        input: customInput,
+                        csrfmiddlewaretoken: '{{ csrf_token }}'
+                    },
+                    success: function(response) {
+                        currentSubmissionId = response.submission_id;
+                        setOutputText('{{ _("Submission received. Judging...") }}\n');
+
+                        // Start polling for status
+                        statusCheckInterval = setInterval(checkSubmissionStatus, 500);
+                    },
+                    error: function(xhr) {
+                        button.prop('disabled', false).text('{{ _("Run Code") }}');
+                        var error = '{{ _("Error:") }} ';
+                        if (xhr.responseJSON && xhr.responseJSON.error) {
+                            error += xhr.responseJSON.error;
+                        } else {
+                            error += '{{ _("Unknown error occurred") }}';
+                        }
+                        setOutputText(error);
+                    }
+                });
+            });
+
+            function checkSubmissionStatus() {
+                if (!currentSubmissionId) {
+                    clearInterval(statusCheckInterval);
+                    return;
+                }
+
+                $.get('{{ url("ide_submission_status", 0) }}'.replace('0', currentSubmissionId))
+                    .done(function(data) {
+                        // Check if submission is complete
+                        if (data.status === 'D' || data.status === 'IE' || data.status === 'CE' || data.status === 'AB') {
+                            // Submission complete
+                            clearInterval(statusCheckInterval);
+                            $('#run-button').prop('disabled', false).text('{{ _("Run Code") }}');
+
+                            if (typeof formatIdeRunResult === 'function') {
+                                setOutputHtml(formatIdeRunResult(data));
+                            }
+                        } else {
+                            setOutputText(typeof formatIdeRunPending === 'function'
+                                ? formatIdeRunPending(data.status) : '');
+                        }
+                    })
+                    .fail(function(xhr) {
+                        clearInterval(statusCheckInterval);
+                        $('#run-button').prop('disabled', false).text('{{ _("Run Code") }}');
+                        var error = '{{ _("Error checking status:") }} ';
+                        if (xhr.responseJSON && xhr.responseJSON.error) {
+                            error += xhr.responseJSON.error;
+                        } else {
+                            error += '{{ _("Failed to retrieve submission status") }}';
+                        }
+                        setOutputText(error);
+                    });
+            }
+
+            // Responsive sizing
+            function resizeEditors() {
+                var windowHeight = $(window).height();
+                var headerHeight = $('.ide-controls').outerHeight(true) + 100; // controls + header
+                var availableHeight = Math.max(windowHeight - headerHeight, 400);
+
+                var codeHeight = Math.floor(availableHeight * 0.9);
+                var sideHeight = Math.floor(availableHeight * 0.42);
+
+                $('#code-editor').height(codeHeight);
+                $('#input-editor').height(sideHeight);
+
+                if (codeEditor) codeEditor.layout();
+                if (inputEditor) inputEditor.layout();
+            }
+
+            $(window).resize(resizeEditors);
+
+            function bindEditorShortcuts() {
+                if (!codeEditor || !window.monaco) return;
+                codeEditor.addCommand(
+                    window.monaco.KeyMod.CtrlCmd | window.monaco.KeyCode.Enter,
+                    function() {
+                        $('#run-button').click();
+                    }
+                );
+            }
+
+            function initEditors() {
+                var theme = monacoTheme();
+                var $langOption = $('#language-select').find('option:selected');
+
+                codeEditor = window.monaco.editor.create(document.getElementById('code-editor'), {
+                    value: '',
+                    language: monacoLanguageFromOption($langOption),
+                    theme: theme,
+                    fontSize: 14,
+                    wordWrap: 'on',
+                    automaticLayout: true,
+                    minimap: {enabled: false},
+                    scrollBeyondLastLine: false,
+                    renderLineHighlight: 'line'
+                });
+
+                inputEditor = window.monaco.editor.create(document.getElementById('input-editor'), {
+                    value: '',
+                    language: 'plaintext',
+                    theme: theme,
+                    fontSize: 14,
+                    wordWrap: 'on',
+                    automaticLayout: true,
+                    minimap: {enabled: false},
+                    scrollBeyondLastLine: false,
+                    lineNumbers: 'off',
+                    glyphMargin: false,
+                    folding: false,
+                    renderLineHighlight: 'none'
+                });
+
+                codeEditor.onDidChangeModelContent(onCodeChange);
+                inputEditor.onDidChangeModelContent(onInputChange);
+                bindEditorShortcuts();
+
+                // Load saved input from localStorage
+                var savedInput = localStorage.getItem('ide_input');
+                if (savedInput) {
+                    setInputValue(savedInput);
+                }
+
+                if (darkQuery.addEventListener) {
+                    darkQuery.addEventListener('change', syncMonacoTheme);
+                } else if (darkQuery.addListener) {
+                    darkQuery.addListener(syncMonacoTheme);
+                }
+
+                resizeEditors();
+
+                // Initialize with default language
+                {% if default_lang %}
+                $('#language-select').val({{ default_lang.id }}).trigger('change');
+                {% else %}
+                $('#language-select').trigger('change');
+                {% endif %}
+            }
+
+            window.require.config({paths: {vs: window.MONACO_VS_URL}});
+            window.require(['vs/editor/editor.main'], function() {
+                initEditors();
+            }, function(err) {
+                console.error('Failed to load Monaco Editor', err);
+                setOutputText('{{ _("Failed to load code editor. Please refresh the page.") }}');
+            });
+        });
+    </script>
+{% endblock %}
+
+{% block media %}
+    <style>
+        html.ide-page, body.ide-page {
+            height: 100%;
+            overflow: hidden;
+        }
+        body.ide-page #page-container {
+            margin: 0;
+            min-height: 0;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        body.ide-page #page-container > br,
+        body.ide-page footer { display: none; }
+        body.ide-page #content {
+            margin: 0;
+            width: 100%;
+            max-width: none;
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        body.ide-page #content-body {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            padding: 0;
+        }
+        .ide-app {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            height: calc(100dvh - var(--nav-height, 52px));
+        }
+
+        .ide-header {
+            padding: 15px 20px;
+            background: var(--header-bg, #f8f9fa);
+            border-bottom: 1px solid var(--border-color, #dee2e6);
+        }
+
+        .ide-header h1 {
+            margin: 0 0 10px 0;
+            font-size: 1.5rem;
+        }
+
+        .ide-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        #language-select {
+            min-width: 250px;
+        }
+
+        #run-button {
+            padding: 8px 24px;
+            font-size: 14px;
+            font-weight: bold;
+            background: #28a745;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        #run-button:hover:not(:disabled) {
+            background: #218838;
+        }
+
+        #run-button:disabled {
+            background: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .rate-limit-info {
+            font-size: 13px;
+            color: #6c757d;
+            margin-left: auto;
+        }
+
+        .ide-container {
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .ide-left {
+            flex: 1.5;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .ide-right {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .editor-panel {
+            border: 1px solid var(--border-color, #dee2e6);
+            border-radius: 4px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            background: white;
+        }
+
+        .ide-left .editor-panel {
+            flex: 1;
+        }
+
+        .ide-right .editor-panel {
+            flex: 1;
+        }
+
+        .editor-header {
+            background: var(--header-bg, #f8f9fa);
+            padding: 8px 12px;
+            border-bottom: 1px solid var(--border-color, #dee2e6);
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .editor-content {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+            min-height: 0;
+        }
+
+        #code-editor, #input-editor, #output-display {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Output panel — plain <pre> that renders ansi2html-colored output */
+        #output-display {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 8px;
+            overflow: auto;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+            font-family: Menlo, Consolas, 'Source Code Pro', monospace;
+            font-size: 14px;
+            line-height: 1.4;
+            background: #f8f9fa;
+            color: #212529;
+        }
+
+        #output-display:focus {
+            outline: 2px solid #4a90e2;
+            outline-offset: -2px;
+        }
+
+        /* Dark mode support */
+        @media (prefers-color-scheme: dark) {
+            .ide-header {
+                background: #2d3748;
+                border-bottom-color: #4a5568;
+            }
+
+            .editor-panel {
+                background: #1a202c;
+                border-color: #4a5568;
+            }
+
+            .editor-header {
+                background: #2d3748;
+                border-bottom-color: #4a5568;
+                color: #e2e8f0;
+            }
+
+            .rate-limit-info {
+                color: #a0aec0;
+            }
+
+            #output-display {
+                background: #1d1f21;
+                color: #c5c8c6;
+            }
+        }
+
+        /* Responsive design */
+        @media (max-width: 768px) {
+            .ide-container {
+                flex-direction: column;
+            }
+
+            .ide-left, .ide-right {
+                flex: none;
+            }
+
+            .ide-controls {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            #language-select {
+                width: 100%;
+            }
+
+            .rate-limit-info {
+                margin-left: 0;
+            }
+        }
+    </style>
+{% endblock %}
+
+{% block body %}
+    <div class="ide-app">
+    <div class="ide-header">
+        <h1>{{ _('IDE') }}</h1>
+        <div class="ide-controls">
+            <select id="language-select">
+                {% for lang in languages %}
+                    <option value="{{ lang.id }}" data-ace="{{ lang.ace }}" data-monaco="{{ lang.ace }}"
+                            {% if default_lang and lang.id == default_lang.id %}selected{% endif %}>
+                        {{ lang.name }}
+                    </option>
+                {% endfor %}
+            </select>
+
+            <button id="run-button" class="button">{{ _('Run Code') }}</button>
+
+        </div>
+    </div>
+
+    <div class="ide-container">
+        <div class="ide-left">
+            <div class="editor-panel">
+                <div class="editor-header">{{ _('Code Editor') }}</div>
+                <div class="editor-content">
+                    <div id="code-editor"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="ide-right">
+            <div class="editor-panel">
+                <div class="editor-header">{{ _('Input') }}</div>
+                <div class="editor-content">
+                    <div id="input-editor"></div>
+                </div>
+            </div>
+
+            <div class="editor-panel">
+                <div class="editor-header">{{ _('Output') }}</div>
+                <div class="editor-content">
+                    <pre id="output-display" tabindex="0"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+    </div>
+{% endblock %}

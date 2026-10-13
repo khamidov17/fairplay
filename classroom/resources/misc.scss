@@ -1,0 +1,111 @@
+@use "vars" as *;
+
+#judge-versions {
+    .version {
+        font-family: $monospace-fonts;
+    }
+
+    .version-blank {
+        background: $color_primary10;
+    }
+
+    .version-latest {
+        background: #af3c;
+        color: black;
+    }
+
+    .version-outdated {
+        background: #f00c;
+        color: white;
+    }
+
+    tr:first-child {
+        position: sticky;
+        top: 43px;
+    }
+}
+
+.django-as-table {
+    text-align: left;
+
+    th {
+        vertical-align: top;
+        padding-top: 4px;
+    }
+}
+
+.centered-form {
+    max-width: 800px;
+    margin: auto;
+
+    .submit-bar {
+        float: right;
+    }
+}
+
+@media (min-width: 700px) {
+    .xs-br {
+        display: none;
+    }
+}
+
+.auth-flow-form {
+    display: flex;
+    flex-flow: column wrap;
+    justify-content: center;
+    align-content: center;
+    padding-top: 5%;
+}
+
+.grayed {
+    color: $color_primary75;
+}
+
+/* ── Reusable toast (window.showToast) ─────────────────────────────────── */
+.dku-toast-container {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    z-index: 9999;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+    pointer-events: none;
+}
+.dku-toast {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    min-width: 12rem;
+    max-width: 22rem;
+    padding: .6rem .9rem;
+    border-radius: 6px;
+    background: #fff;
+    color: #222;
+    border: 1px solid #e0e0e0;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, .18);
+    font-size: 13px;
+    line-height: 1.4;
+    animation: dku-toast-in .18s ease;
+    transition: opacity .2s ease, transform .2s ease;
+}
+.dku-toast-icon {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+}
+.dku-toast-success .dku-toast-icon { background: #2e7d32; }
+.dku-toast-error .dku-toast-icon { background: #c0392b; }
+.dku-toast-info .dku-toast-icon { background: #1565c0; }
+.dku-toast-leave { opacity: 0; transform: translateY(-6px); }
+@keyframes dku-toast-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to { opacity: 1; transform: none; }
+}

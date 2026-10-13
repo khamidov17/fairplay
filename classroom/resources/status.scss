@@ -1,0 +1,44 @@
+.AB {
+    background-color: var(--oj-judge-pending);
+    color: var(--oj-text);
+}
+
+.AC {
+    background-color: var(--oj-judge-pass);
+    color: var(--oj-accepted);
+}
+
+._AC {
+    background-color: var(--oj-judge-sc);
+    color: var(--oj-accepted);
+}
+
+.WA {
+    background-color: var(--oj-judge-pending);
+    color: var(--oj-judge-fail);
+}
+
+.TLE, .MLE {
+    background-color: var(--oj-judge-pending);
+    color: var(--oj-text);
+}
+
+.OLE, .IR, .RTE, .OTH {
+    background-color: var(--oj-judge-judging);
+    color: var(--oj-text);
+}
+
+.CE {
+    background-color: var(--oj-judge-pending);
+    color: var(--oj-text);
+}
+
+.IE {
+    background-color: var(--oj-rejected);
+    color: var(--oj-text);
+}
+
+.QU, .G {
+    background: var(--oj-surface);
+    color: var(--oj-text);
+}

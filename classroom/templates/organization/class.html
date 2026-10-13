@@ -1,0 +1,453 @@
+{% extends "base.html" %}
+
+{% block js_media %}
+<script type="text/javascript">
+$(function () {
+    $('#instructor-verification-btn, #class-instructor-verification-btn').on('click', function () {
+        $('#instructor-verification-modal').prop('hidden', false);
+    });
+    $('#instructor-verification-modal .js-close-modal').on('click', function () {
+        $('#instructor-verification-modal').prop('hidden', true);
+    });
+    $('.js-delete-class').on('click', function () {
+        return confirm({{ _('Delete this class? This cannot be undone.')|htmltojs }});
+    });
+
+    function showTab(name) {
+        $('.class-mini-tab').removeClass('active');
+        $('.class-mini-tab[data-tab="' + name + '"]').addClass('active');
+        $('.class-tab-panel').prop('hidden', true);
+        $('#class-tab-' + name).prop('hidden', false);
+        try {
+            if (history.replaceState) {
+                var url = new URL(window.location.href);
+                url.searchParams.set('tab', name);
+                history.replaceState(null, '', url.pathname + url.search);
+            }
+        } catch (e) {}
+    }
+
+    $('.class-mini-tab').on('click', function () {
+        showTab($(this).data('tab'));
+    });
+
+    var initial = new URLSearchParams(window.location.search).get('tab') || 'info';
+    if (!$('.class-mini-tab[data-tab="' + initial + '"]').length) initial = 'info';
+    showTab(initial);
+
+    $('#f-assign-q, #f-assign-tag, #f-assign-status, #f-assign-sort').on('input change', function () {
+        var q = ($('#f-assign-q').val() || '').toLowerCase();
+        var tag = $('#f-assign-tag').val() || '';
+        var status = $('#f-assign-status').val() || '';
+        var sort = $('#f-assign-sort').val() || 'due';
+        var $rows = $('.js-assign-row').get();
+        $rows.sort(function (a, b) {
+            var da = a.getAttribute('data-sort-due') || '';
+            var db = b.getAttribute('data-sort-due') || '';
+            var na = (a.getAttribute('data-name') || '');
+            var nb = (b.getAttribute('data-name') || '');
+            var ta = (a.getAttribute('data-type') || '');
+            var tb = (b.getAttribute('data-type') || '');
+            if (sort === 'name') return na.localeCompare(nb);
+            if (sort === 'type') return ta.localeCompare(tb) || na.localeCompare(nb);
+            return db.localeCompare(da) || na.localeCompare(nb);
+        });
+        var $list = $('#assign-list');
+        $list.empty();
+        var visible = 0;
+        $rows.forEach(function (el) {
+            var show = true;
+            if (q && (el.getAttribute('data-name') || '').indexOf(q) < 0 &&
+                (el.getAttribute('data-summary') || '').indexOf(q) < 0) show = false;
+            if (tag && (el.getAttribute('data-tags') || '').indexOf('|' + tag + '|') < 0) show = false;
+            if (status && el.getAttribute('data-status') !== status) show = false;
+            $(el).toggle(show);
+            if (show) {
+                $list.append(el);
+                visible++;
+            }
+        });
+        $('#assign-empty').prop('hidden', visible > 0);
+    });
+
+    $('#f-student-q').on('input', function () {
+        var q = ($(this).val() || '').toLowerCase();
+        var visible = 0;
+        $('.js-student-row').each(function () {
+            var show = !q || (this.getAttribute('data-name') || '').indexOf(q) >= 0;
+            $(this).toggle(show);
+            if (show) visible++;
+        });
+        $('#student-empty').prop('hidden', visible > 0 || !$('.js-student-row').length);
+    });
+
+    $('#f-material-q').on('input', function () {
+        var q = ($(this).val() || '').toLowerCase();
+        var visible = 0;
+        $('.js-material-row').each(function () {
+            var show = !q || (this.getAttribute('data-name') || '').indexOf(q) >= 0;
+            $(this).toggle(show);
+            if (show) visible++;
+        });
+        $('#material-empty').prop('hidden', visible > 0 || !$('.js-material-row').length);
+    });
+    $('#btn-new-folder').on('click', function () {
+        var name = window.prompt({{ _('Folder name')|htmltojs }});
+        if (!name || !name.trim()) return;
+        $('#mkdir-name').val(name.trim());
+        $('#mkdir-form').trigger('submit');
+    });
+});
+</script>
+{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'course' %}
+    {% set title = _('Course') %}
+    {% set title_url = url('organization_list') %}
+    {% set title_crumbs = [
+        {'label': organization.short_name or organization.name, 'url': organization.get_absolute_url()},
+        {'label': object.name, 'url': None},
+    ] %}
+    {% include "organization/course-tabs.html" %}
+{% endblock %}
+
+{% block body %}
+<div class="course-redesign course-detail class-detail oj-ui">
+    {% include "messages.html" %}
+
+    <div class="hero">
+        <div class="hero-main">
+            <h1>{{ object.name }}</h1>
+            {% if hero_subtitle %}
+                <div class="hero-code">{{ hero_subtitle }}</div>
+            {% endif %}
+        </div>
+        <aside class="action-panel">
+            <h2>{{ _('Action') }}</h2>
+            <div class="action-body">
+                {% if can_edit %}
+                    <div class="manage-links">
+                        <a class="action-link" href="{{ url('class_edit', organization.id, organization.slug, object.id, object.slug) }}">
+                            <i class="fa fa-pencil"></i> {{ _('Edit class') }}
+                        </a>
+                        <form method="post" action="{{ url('class_delete', organization.id, organization.slug, object.id, object.slug) }}">
+                            {% csrf_token %}
+                            <button type="submit" class="action-link danger js-delete-class">
+                                <i class="fa fa-trash"></i> {{ _('Delete class') }}
+                            </button>
+                        </form>
+                    </div>
+                {% elif request.user.is_authenticated %}
+                    {% if class_joined %}
+                        <p class="muted">{{ _('You are a member of this class.') }}</p>
+                    {% elif class_pending %}
+                        <button type="button" class="button disabled" disabled>{{ _('Pending class join') }}</button>
+                    {% elif in_organization and not is_site_teacher %}
+                        <a class="button" href="{{ url('class_join', organization.id, organization.slug, object.id, object.slug) }}">{{ _('Request to join') }}</a>
+                    {% elif in_organization and is_site_teacher %}
+                        <p class="muted">{{ _('You can view this class as a course teacher (read-only). Apply as class instructor to edit.') }}</p>
+                    {% elif organization.is_open %}
+                        <form method="post" action="{{ url('join_organization', organization.id, organization.slug) }}">
+                            {% csrf_token %}
+                            <button type="submit" class="button">{{ _('Join course first') }}</button>
+                        </form>
+                    {% else %}
+                        <a class="button" href="{{ url('request_organization', organization.id, organization.slug) }}">{{ _('Join course first') }}</a>
+                    {% endif %}
+                    {% if can_apply_class_instructor %}
+                        <button type="button" class="button secondary" id="class-instructor-verification-btn" style="margin-top:0.5rem">
+                            {{ _('Apply as class instructor') }}
+                        </button>
+                    {% elif pending_class_instructor %}
+                        <button type="button" class="button disabled" disabled style="margin-top:0.5rem">{{ _('Instructor application pending') }}</button>
+                    {% endif %}
+                {% endif %}
+            </div>
+        </aside>
+    </div>
+
+    <div class="class-panel">
+        <div class="class-mini-tabs" role="tablist" aria-label="{{ _('Class sections') }}">
+            <button type="button" class="class-mini-tab active" data-tab="info" role="tab">{{ _('Class Info') }}</button>
+            <button type="button" class="class-mini-tab" data-tab="assignments" role="tab">{{ _('Assignments') }}</button>
+            <button type="button" class="class-mini-tab" data-tab="materials" role="tab">{{ _('Materials') }}</button>
+            <button type="button" class="class-mini-tab" data-tab="students" role="tab">{{ _('Students') }}</button>
+        </div>
+
+        <div id="class-tab-info" class="class-tab-panel" role="tabpanel">
+            <dl class="class-info-list">
+                <div class="row">
+                    <dt>{{ _('Instructors') }}</dt>
+                    <dd>{{ instructor_names }}</dd>
+                </div>
+                <div class="row">
+                    <dt>{{ _('Teaching assistants') }}</dt>
+                    <dd>{{ ta_names }}</dd>
+                </div>
+                <div class="row">
+                    <dt>{{ _('Academic offering') }}</dt>
+                    <dd>{{ offering_label }}</dd>
+                </div>
+                <div class="row">
+                    <dt>{{ _('Credits') }}</dt>
+                    <dd>{{ credits_line or not_set }}</dd>
+                </div>
+                <div class="row">
+                    <dt>{{ _('Class dates') }}</dt>
+                    <dd>{{ dates_line or not_set }}</dd>
+                </div>
+                <div class="row">
+                    <dt>{{ _('Location or Canvas link') }}</dt>
+                    <dd>
+                        {% if not can_view_content %}
+                            {{ _('Join this class to view location details.') }}
+                        {% elif location_line %}
+                            {% if location_line.startswith('http://') or location_line.startswith('https://') %}
+                                <a href="{{ location_line }}" rel="noopener noreferrer" target="_blank">{{ location_line }}</a>
+                            {% else %}
+                                {{ location_line }}
+                            {% endif %}
+                        {% else %}
+                            {{ not_set }}
+                        {% endif %}
+                    </dd>
+                </div>
+                <div class="row">
+                    <dt>{{ _('Members') }}</dt>
+                    <dd>{% if can_view_content %}{{ member_count }}{% else %}{{ _('Join this class to view members.') }}{% endif %}</dd>
+                </div>
+            </dl>
+            {% if can_view_content and description_body %}
+                <div class="class-about content-description">
+                    {{ description_body|markdown('organization-about', MATH_ENGINE)|reference|str|safe }}
+                </div>
+            {% elif class_pending %}
+                <p class="muted">{{ _('Your join request is pending. Full class details become available after approval.') }}</p>
+            {% endif %}
+        </div>
+
+        <div id="class-tab-assignments" class="class-tab-panel" role="tabpanel" hidden>
+            {% if not can_view_content %}
+                <div class="empty">{{ _('Join this class to view assignments.') }}</div>
+            {% else %}
+            <div class="assignments-toolbar">
+                <div class="class-filters assignments-toolbar-filters">
+                    <div>
+                        <label for="f-assign-q">{{ _('Search assignment') }}</label>
+                        <input id="f-assign-q" type="text" placeholder="{{ _('Homework / Quiz / Midterm') }}" autocomplete="off">
+                    </div>
+                    <div>
+                        <label for="f-assign-tag">{{ _('Tags') }}</label>
+                        <select id="f-assign-tag" class="oj-select">
+                            <option value="">{{ _('All tags') }}</option>
+                            {% for t in assignment_tags %}
+                                <option value="{{ t }}">{{ t }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label for="f-assign-status">{{ _('Status') }}</label>
+                        <select id="f-assign-status" class="oj-select">
+                            <option value="">{{ _('All statuses') }}</option>
+                            <option value="open">{{ _('Open') }}</option>
+                            <option value="released">{{ _('Released') }}</option>
+                            <option value="scheduled">{{ _('Scheduled') }}</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="f-assign-sort">{{ _('Sort') }}</label>
+                        <select id="f-assign-sort" class="oj-select">
+                            <option value="due">{{ _('Due date') }}</option>
+                            <option value="name">{{ _('Title') }}</option>
+                            <option value="type">{{ _('Type') }}</option>
+                        </select>
+                    </div>
+                </div>
+                {% if can_edit and add_assignment_url %}
+                    <div class="assignments-toolbar-actions">
+                        <a class="oj-btn oj-btn-primary" href="{{ add_assignment_url }}">
+                            <i class="fa fa-plus"></i> {{ _('Add Assignment') }}
+                        </a>
+                    </div>
+                {% endif %}
+            </div>
+
+            <div id="assign-list" class="assign-list">
+                {% for row in assignments %}
+                    <a class="assign-row js-assign-row"
+                       href="{{ row.contest.get_absolute_url() }}"
+                       data-name="{{ row.contest.name|lower }}"
+                       data-summary="{{ row.summary|lower }}"
+                       data-status="{{ row.status_key }}"
+                       data-type="{{ row.format_name|lower }}"
+                       data-tags="|{{ row.tag_names|join('|') }}|"
+                       data-sort-due="{{ row.contest.end_time.isoformat() }}">
+                        <div class="assign-main">
+                            <div class="assign-title">{{ row.contest.name }}</div>
+                            <div class="assign-badges">
+                                <span class="assign-status assign-status-{{ row.status_key }}">{{ row.status_label }}</span>
+                                <span class="assign-format">{{ row.format_name }}</span>
+                                {% for t in row.tag_names %}
+                                    <span class="assign-tag">{{ t }}</span>
+                                {% endfor %}
+                            </div>
+                            {% if row.summary %}
+                                <div class="assign-summary">{{ row.summary }}</div>
+                            {% endif %}
+                        </div>
+                        <div class="assign-timing">{{ row.timing_label }}</div>
+                    </a>
+                {% endfor %}
+            </div>
+            <div id="assign-empty" class="empty" {% if assignments %}hidden{% endif %}>
+                {{ _('No assignments match your filters.') }}
+            </div>
+            {% endif %}
+        </div>
+
+        <div id="class-tab-materials" class="class-tab-panel" role="tabpanel" hidden>
+            {% if not can_view_content %}
+                <div class="empty">{{ _('Join this class to view materials.') }}</div>
+            {% else %}
+            <div class="file-toolbar materials-toolbar">
+                <input id="f-material-q" class="file-search" type="search"
+                       placeholder="{{ _('Search files and folders') }}" autocomplete="off">
+                <div class="file-actions materials-actions">
+                    {% if can_edit %}
+                        <form method="post" action="{{ material_upload_url }}" enctype="multipart/form-data" class="material-inline-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="upload">
+                            {% if current_folder %}<input type="hidden" name="folder" value="{{ current_folder.id }}">{% endif %}
+                            <label class="oj-btn oj-btn-primary material-upload-label">
+                                <i class="fa fa-upload"></i> {{ _('Upload') }}
+                                <input type="file" name="files" multiple class="visually-hidden" onchange="this.form.submit()">
+                            </label>
+                        </form>
+                        <form method="post" action="{{ material_upload_url }}" class="material-inline-form" id="mkdir-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="action" value="mkdir">
+                            {% if current_folder %}<input type="hidden" name="folder" value="{{ current_folder.id }}">{% endif %}
+                            <input type="hidden" name="name" id="mkdir-name" value="">
+                            <button type="button" class="oj-btn oj-btn-outline" id="btn-new-folder">
+                                <i class="fa fa-folder-o"></i> {{ _('New folder') }}
+                            </button>
+                        </form>
+                    {% endif %}
+                    <span class="materials-count">{{ material_count }} {{ _('items') }}</span>
+                </div>
+            </div>
+            <div class="folder-path">
+                {% if current_folder %}
+                    <a href="{{ object.get_absolute_url() }}?tab=materials">{{ _('All files') }}</a>
+                    / {{ current_folder.name }}
+                {% else %}
+                    <span>{{ _('All files') }}</span>
+                {% endif %}
+            </div>
+
+            {% if material_rows %}
+                <form method="post" action="{{ material_upload_url }}" id="material-bulk-form">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="delete">
+                    {% if current_folder %}<input type="hidden" name="folder" value="{{ current_folder.id }}">{% endif %}
+                    {% if can_edit %}
+                        <div class="bulk-actions">
+                            <button type="submit" class="button danger">{{ _('Delete selected') }}</button>
+                        </div>
+                    {% endif %}
+                    <div class="materials-table-wrap">
+                        <table class="materials-table file-table">
+                            <thead>
+                                <tr>
+                                    {% if can_edit %}<th></th>{% endif %}
+                                    <th>{{ _('Name') }}</th>
+                                    <th>{{ _('Created') }}</th>
+                                    <th>{{ _('Last modified') }}</th>
+                                    <th>{{ _('Modified by') }}</th>
+                                    <th>{{ _('Size') }}</th>
+                                    <th>{{ _('Actions') }}</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in material_rows %}
+                                    <tr class="js-material-row" data-name="{{ item.name|lower }}">
+                                        {% if can_edit %}
+                                            <td><input type="checkbox" name="material_ids" value="{{ item.id }}"></td>
+                                        {% endif %}
+                                        <td>
+                                            {% if item.is_folder %}
+                                                <i class="fa fa-folder"></i>
+                                                <a href="{{ object.get_absolute_url() }}?tab=materials&folder={{ item.id }}">{{ item.name }}</a>
+                                            {% elif item.file %}
+                                                <i class="fa fa-file-o"></i>
+                                                <a href="{{ url('class_material_download', organization.id, organization.slug, object.id, object.slug, item.id) }}">{{ item.name }}</a>
+                                            {% elif item.external_url %}
+                                                <i class="fa fa-external-link"></i>
+                                                <a href="{{ item.external_url }}" rel="noopener noreferrer" target="_blank">{{ item.name }}</a>
+                                            {% else %}
+                                                <i class="fa fa-file-o"></i> {{ item.name }}
+                                            {% endif %}
+                                        </td>
+                                        <td class="muted">{{ item.created|date(_("N j, Y, H:i")) }}</td>
+                                        <td class="muted">{{ item.modified|date(_("N j, Y, H:i")) }}</td>
+                                        <td class="muted">{% if item.uploaded_by %}{{ item.uploaded_by.username }}{% else %}—{% endif %}</td>
+                                        <td class="muted">{{ item.size_label }}</td>
+                                        <td>
+                                            {% if item.file %}
+                                                <a class="button" href="{{ url('class_material_download', organization.id, organization.slug, object.id, object.slug, item.id) }}">{{ _('Download') }}</a>
+                                            {% elif item.is_folder %}
+                                                <a class="button" href="{{ object.get_absolute_url() }}?tab=materials&folder={{ item.id }}">{{ _('Open') }}</a>
+                                            {% elif item.external_url %}
+                                                <a class="button" href="{{ item.external_url }}" rel="noopener noreferrer" target="_blank">{{ _('Open') }}</a>
+                                            {% else %}—{% endif %}
+                                        </td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </form>
+            {% endif %}
+            <div id="material-empty" class="empty" {% if material_rows %}hidden{% endif %}>
+                {{ _('No files in this folder yet.') }}
+                {% if can_edit %}{{ _('Use Upload to add materials here.') }}{% endif %}
+            </div>
+            {% endif %}
+        </div>
+
+        <div id="class-tab-students" class="class-tab-panel" role="tabpanel" hidden>
+            {% if not can_view_content %}
+                <div class="empty">{{ _('Join this class to view the student list.') }}</div>
+            {% else %}
+            <div class="class-filters class-filters-single">
+                <div>
+                    <label for="f-student-q">{{ _('Search student') }}</label>
+                    <input id="f-student-q" type="text" placeholder="{{ _('Search student') }}" autocomplete="off">
+                </div>
+            </div>
+            <div class="student-list">
+                {% for rank, user in users %}
+                    <a class="student-row js-student-row" href="{{ url('user_page', user.user.username) }}"
+                       data-name="{{ (user.user.username ~ ' ' ~ (user.username_display_override or '') ~ ' ' ~ (user.user.first_name or '') ~ ' ' ~ (user.user.last_name or ''))|lower }}">
+                        <span class="student-name">{{ user.username_display_override or user.user.get_full_name() or user.user.username }} ({{ user.user.username }})</span>
+                        <span class="student-meta">{{ _('Rank #%(rank)d', rank=rank) }}</span>
+                        <span class="student-meta">
+                            {% if user.rating %}{{ _('Rating %(rating)d', rating=user.rating) }}{% else %}{{ _('Unrated') }}{% endif %}
+                        </span>
+                        <span class="student-meta">{{ _('Solved %(count)d', count=user.problem_count) }}</span>
+                    </a>
+                {% endfor %}
+            </div>
+            <div id="student-empty" class="empty" {% if users %}hidden{% endif %}>
+                {{ _('No members yet.') }}
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+{% include "organization/instructor-verification-modal.html" %}
+{% endblock %}

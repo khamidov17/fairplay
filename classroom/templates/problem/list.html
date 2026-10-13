@@ -1,0 +1,945 @@
+{% extends "common-content.html" %}
+
+{% block media %}
+    {% if request.in_contest %}
+        <style>
+            #problem-table th {
+                padding: 0;
+            }
+        </style>
+    {% endif %}
+    <style>
+        .problem-table th.col-select, .problem-table td.col-select { width: 32px; text-align: center; }
+        .problem-table th.col-actions, .problem-table td.col-actions { white-space: nowrap; }
+        .problem-table td.col-actions .row-action {
+            display: inline-block; margin-left: 12px; font-size: 15px; cursor: pointer;
+            background: none; border: none; padding: 0; color: var(--oj-link) !important;
+        }
+        .problem-table td.col-actions .row-action:hover { opacity: 0.75; }
+        .problem-table td.col-actions .row-action.row-action-danger { color: var(--oj-danger) !important; }
+        .toolbar .bulk-delete-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .toolbar .bulk-delete-btn:not(:disabled):hover { border-color: var(--oj-danger); color: var(--oj-danger) !important; }
+        .toolbar .bulk-delete-btn .fa { color: inherit; }
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0, 0, 0, 0.45);
+            display: flex; align-items: center; justify-content: center; z-index: 1000;
+        }
+        .modal-overlay[hidden] { display: none; }
+        .modal-box {
+            background: var(--oj-surface, #fff); width: 460px; max-width: 92vw;
+            border: 1px solid var(--oj-border, #ccc);
+            border-radius: var(--oj-radius-lg, 8px);
+            padding: 1.25rem 1.5rem; box-shadow: var(--oj-shadow-modal);
+        }
+        .modal-title { margin: 0 0 0.5rem; font-size: 1.1rem; }
+        .modal-desc { margin: 0 0 0.75rem; color: var(--oj-text-muted, #555); font-size: 13px; }
+        .modal-list {
+            margin: 0 0 1rem; padding-left: 1.1rem; max-height: 220px; overflow: auto; font-size: 13px;
+        }
+        .modal-list li { margin: 2px 0; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+        /* Modal sits outside the filter form; keep danger button styles. */
+        .modal-overlay .btn-danger {
+            color: var(--oj-btn-text, #fff) !important;
+            background: var(--oj-danger, #c0392b);
+            border: 1px solid var(--oj-danger, #c0392b);
+            border-radius: var(--oj-radius, 4px);
+            padding: 6px 12px;
+            cursor: pointer;
+        }
+        /* Hide native <select>s until Select2 replaces them. Without this, a
+           filter submit flashes every option stacked in the filter row. */
+        #filter-format, #filter-difficulty, #filter-course, #filter-author, #filter-knowledge, #status-filter {
+            visibility: hidden;
+            height: 34px;
+            max-height: 34px;
+            overflow: hidden;
+            box-sizing: border-box;
+            vertical-align: middle;
+        }
+        #filter-format { width: 100%; }
+        #filter-difficulty { width: 100%; }
+        #filter-course { width: 100%; }
+        #filter-author { width: 100%; }
+        #filter-knowledge { width: clamp(280px, 48%, 560px); max-width: 100%; }
+        #status-filter { width: 100%; }
+    </style>
+    {% include "problem/add-problem-menu-assets.html" %}
+    <style>
+        .excel-import-modal {
+            align-items: center; background: rgba(0, 0, 0, 0.45); display: none;
+            inset: 0; justify-content: center; padding: 1.25rem; position: fixed; z-index: 3000;
+        }
+        .excel-import-modal[aria-hidden="false"] { display: flex; }
+        .excel-import-dialog {
+            background: var(--oj-surface, #fff); border: 1px solid var(--oj-border, #ccc);
+            border-radius: var(--oj-radius-lg, 8px); box-shadow: var(--oj-shadow-modal);
+            max-width: 38rem; padding: 1.5rem 1.75rem; position: relative; width: 100%;
+        }
+        .excel-import-kicker {
+            color: var(--oj-text-muted, #666); font-size: 0.75rem; font-weight: bold;
+            letter-spacing: 0.08em; margin-bottom: 0.5rem; text-transform: uppercase;
+        }
+        .excel-import-dialog h3 { color: var(--oj-text, #222); font-size: 1.25rem; margin: 0 2.5rem 0.5rem 0; }
+        .excel-import-intro { color: var(--oj-text-muted, #555); line-height: 1.55; margin: 0 0 1.1rem; }
+        .excel-import-dropzone {
+            align-items: center; background: var(--oj-bg, #fafafa); border: 1px dashed var(--oj-border, #ccc);
+            border-radius: var(--oj-radius, 4px); cursor: pointer; display: flex; flex-direction: column;
+            padding: 1.35rem 1.15rem; text-align: center;
+        }
+        .excel-import-dropzone:hover { border-color: var(--oj-link, #2980b9); }
+        .excel-import-dropzone > .fa { color: var(--oj-link, #2980b9); font-size: 2rem; margin-bottom: 0.55rem; }
+        .excel-import-file-title { color: var(--oj-text, #222); font-weight: bold; }
+        .excel-import-file-help {
+            color: var(--oj-text-muted, #666); font-size: 0.87rem; line-height: 1.45;
+            margin-top: 0.4rem; max-width: 28rem;
+        }
+        .excel-import-dropzone input[type="file"] { font-size: 0.85rem; margin-top: 0.85rem; max-width: 100%; }
+        .excel-import-template {
+            align-items: flex-start; background: var(--oj-bg, #f5f5f5); border-radius: var(--oj-radius, 4px);
+            color: var(--oj-text-muted, #555); display: flex; font-size: 0.9rem; gap: 0.55rem;
+            line-height: 1.45; margin-top: 1rem; padding: 0.75rem 0.85rem;
+        }
+        .excel-import-template .fa { color: var(--oj-link, #2980b9); margin-top: 0.1rem; }
+        .excel-import-template a { font-weight: bold; }
+        .excel-import-actions {
+            border-top: 1px solid var(--oj-border, #e0e0e0); display: flex; gap: 0.6rem;
+            justify-content: flex-end; margin-top: 1.25rem; padding-top: 1rem;
+        }
+        .excel-import-close {
+            background: transparent; border: 0; color: var(--oj-text-muted, #777); cursor: pointer;
+            font-size: 1.7rem; line-height: 1; padding: 0.2rem; position: absolute; right: 0.9rem; top: 0.75rem;
+        }
+        .excel-import-actions .excel-import-close { font-size: inherit; position: static; }
+        .excel-import-status { color: var(--oj-danger, #c0392b); display: block; font-size: 0.9rem; margin-top: 0.75rem; min-height: 1.25em; }
+        @media (max-width: 520px) {
+            .excel-import-dialog { padding: 1.25rem; }
+            .excel-import-actions { align-items: stretch; flex-direction: column-reverse; }
+            .excel-import-actions .button { text-align: center; }
+        }
+        .modal-overlay .btn-danger:hover {
+            background: var(--oj-danger-hover, #a93226);
+            border-color: var(--oj-danger-hover, #a93226);
+        }
+    </style>
+{% endblock %}
+
+{% block js_media %}
+    {% compress js %}
+        <script type="text/javascript">
+            $(function () {
+                if (new URLSearchParams(window.location.search).get('import') === 'excel') {
+                    var importModal = document.getElementById('excel-import-modal');
+                    if (importModal) {
+                        importModal.setAttribute('aria-hidden', 'false');
+                    }
+                }
+
+                var $form = $('#filter-form');
+                if (!$form.length) return;
+
+                function disableEmpties() {
+                    $form.find('input[type=text], input[type=number], input[type=search], select').each(function () {
+                        var $el = $(this);
+                        var val = $el.val();
+                        if (val === '' || val == null || ($.isArray(val) && !val.length)) {
+                            $el.prop('disabled', true);
+                        }
+                    });
+                }
+
+                $form.on('submit', disableEmpties);
+
+                function go() {
+                    $form.trigger('submit');
+                }
+
+                // Gate live submits until Select2 finish initializing.
+                var filtersReady = false;
+
+                function escapeRegExp(string) {
+                    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                }
+
+                function idAndTextMatcher(params, data) {
+                    if ($.trim(params.term) === '')
+                        return data;
+                    var regex = new RegExp(escapeRegExp(params.term), 'i');
+                    return data.text.search(regex) >= 0 || String(data.id).search(regex) >= 0 ? data : null;
+                }
+
+                // Original OJ local multi-select (same pattern as submission list).
+                // Width 100% fills equal grid cells so every filter on the row is the same size.
+                var select2Opts = {
+                    theme: '{{ DMOJ_SELECT2_THEME }}',
+                    multiple: true,
+                    width: '100%',
+                    matcher: idAndTextMatcher,
+                };
+                var $filterSelects = $('#filter-format, #filter-difficulty, #filter-course, #filter-author, #filter-knowledge');
+                $('#filter-format').select2($.extend({}, select2Opts, {
+                    placeholder: {{ _('All types')|htmltojs }},
+                })).css({visibility: 'visible'});
+                $('#filter-difficulty').select2($.extend({}, select2Opts, {
+                    placeholder: {{ _('All difficulties')|htmltojs }},
+                    width: '100%',
+                })).css({visibility: 'visible'});
+                $('#filter-course').select2($.extend({}, select2Opts, {
+                    placeholder: {{ _('All courses')|htmltojs }},
+                    width: '100%',
+                })).css({visibility: 'visible'});
+                {% if can_see_problem_authors %}
+                $('#filter-author').select2($.extend({}, select2Opts, {
+                    placeholder: {{ _('All authors')|htmltojs }},
+                    width: '100%',
+                    templateSelection: function (data) {
+                        return data.text || data.id;
+                    },
+                    ajax: {
+                        url: '{{ url('author_filter_select2') }}',
+                        dataType: 'json',
+                        delay: 250,
+                        data: function (params) {
+                            return { term: params.term || '' };
+                        },
+                        processResults: function (data) {
+                            return { results: data.results || [], pagination: { more: !!data.more } };
+                        },
+                    },
+                })).css({visibility: 'visible'});
+                {% endif %}
+                $('#filter-knowledge').select2($.extend({}, select2Opts, {
+                    placeholder: {{ _('All tags')|htmltojs }},
+                })).css({visibility: 'visible'});
+                var $knowledgeSelect2 = $('#filter-knowledge').data('select2');
+                if ($knowledgeSelect2 && $knowledgeSelect2.$container) {
+                    $knowledgeSelect2.$container.css('width', '');
+                }
+                // Status: Select2 single (same theme as other filters; avoid native OS menu).
+                $('#status-filter').select2({
+                    theme: '{{ DMOJ_SELECT2_THEME }}',
+                    minimumResultsForSearch: Infinity,
+                    width: '100%',
+                }).css({visibility: 'visible'});
+
+                var kpExpanded = false;
+
+                function selectedKnowledgeIds() {
+                    var cur = $('#filter-knowledge').val() || [];
+                    if (!$.isArray(cur)) cur = [cur];
+                    return cur.map(String);
+                }
+
+                function applyKnowledgeVisibility() {
+                    var selected = selectedKnowledgeIds();
+                    $('#knowledge-picker-body .knowledge-tag').each(function () {
+                        var $tag = $(this);
+                        $tag.toggleClass('active', selected.indexOf(String($tag.data('id'))) !== -1);
+                    });
+                    $('#knowledge-picker').toggleClass('is-expanded', kpExpanded);
+                    var $more = $('#knowledge-show-more');
+                    if ($more.length) {
+                        $more.text(kpExpanded ? $more.data('less') : $more.data('more'));
+                        $more.attr('aria-expanded', kpExpanded ? 'true' : 'false');
+                    }
+                }
+
+                function toggleKnowledgeId(id) {
+                    id = String(id);
+                    var cur = selectedKnowledgeIds();
+                    var next = cur.indexOf(id) === -1
+                        ? cur.concat([id])
+                        : cur.filter(function (v) { return v !== id; });
+                    $('#filter-knowledge').val(next).trigger('change');
+                }
+
+                $('#knowledge-show-more').click(function (e) {
+                    e.preventDefault();
+                    kpExpanded = !kpExpanded;
+                    applyKnowledgeVisibility();
+                });
+                $('#knowledge-picker-body').on('click', '.knowledge-tag', function (e) {
+                    e.preventDefault();
+                    toggleKnowledgeId($(this).data('id'));
+                });
+                $('#filter-knowledge').on('change', applyKnowledgeVisibility);
+
+                setTimeout(function () {
+                    filtersReady = true;
+                    $filterSelects.add('#status-filter').on('change', function () {
+                        if (filtersReady) go();
+                    });
+                    $form.find('input[name=full_text], input[name=search_full]').change(function () {
+                        if (filtersReady) go();
+                    });
+                    $form.find('input[name=ac_min], input[name=ac_max]').on('change', function () {
+                        if (filtersReady) go();
+                    });
+                }, 0);
+
+                // Sort dropdown.
+                $('#sort-trigger').click(function (e) {
+                    e.stopPropagation();
+                    var $m = $('#sort-dropdown .dropdown-menu');
+                    $m.prop('hidden', !$m.prop('hidden'));
+                });
+
+                $(document).click(function (e) {
+                    if (!$(e.target).closest('.dropdown').length) $('.dropdown-menu').prop('hidden', true);
+                });
+
+                function removeSelectValue($sel, value) {
+                    var cur = $sel.val() || [];
+                    if (!$.isArray(cur)) cur = [cur];
+                    $sel.val(cur.filter(function (v) { return String(v) !== String(value); })).trigger('change');
+                }
+
+                // Active filter chips removal.
+                $('#active-chips').on('click', 'button[data-field]', function () {
+                    var field = $(this).data('field');
+                    var value = $(this).data('value');
+                    if (field === 'type') {
+                        removeSelectValue($('#filter-difficulty'), value);
+                        removeSelectValue($('#filter-knowledge'), value);
+                    } else if (field === 'format') removeSelectValue($('#filter-format'), value);
+                    else if (field === 'course' || field === 'organization') removeSelectValue($('#filter-course'), value);
+                    else if (field === 'author') removeSelectValue($('#filter-author'), value);
+                    else if (field === 'status') { $('#status-filter').val('').trigger('change'); return; }
+                    else if (field === 'ac') { $('input[name=ac_min]').val(''); $('input[name=ac_max]').val(''); go(); }
+                    else if (field === 'search') {
+                        var term = String($(this).attr('data-value'));
+                        $form.find('input[name=search]').filter(function () {
+                            return String(this.value) === term;
+                        }).first().remove();
+                        go();
+                    }
+                    else if (field === 'full_text') { $('input[name=full_text]').prop('checked', false); go(); }
+                    else if (field === 'search_full') { $('input[name=search_full]').prop('checked', false); go(); }
+                });
+
+                applyKnowledgeVisibility();
+
+                // Enter commits one keyword; the form is not submitted while typing.
+                var $searchInput = $('#search');
+                function goFromSearch() {
+                    try { sessionStorage.setItem('dkuoj-focus-search', '1'); } catch (err) {}
+                    go();
+                }
+                function addSearchTerm(term) {
+                    var exists = $form.find('input[name=search]').filter(function () {
+                        return this.value === term;
+                    }).length;
+                    if (exists) return;
+                    $('<input>', {type: 'hidden', name: 'search', value: term}).appendTo($form);
+                    goFromSearch();
+                }
+                dkuojBindKeywordEnter($searchInput[0], addSearchTerm);
+                $form.find('input[name=ac_min], input[name=ac_max]').keypress(function (e) {
+                    if (e.which === 13) {
+                        e.preventDefault();
+                        go();
+                    }
+                });
+                try {
+                    if (sessionStorage.getItem('dkuoj-focus-search')) {
+                        sessionStorage.removeItem('dkuoj-focus-search');
+                        var searchEl = $searchInput[0];
+                        if (searchEl) searchEl.focus();
+                    }
+                } catch (err) {}
+
+                // Toggle the tags column.
+                $('#toggle-tags').click(function () {
+                    var hidden = $('.table-card').toggleClass('tags-hidden').hasClass('tags-hidden');
+                    $(this).text(hidden ? {{ _('Show tags')|htmltojs }} : {{ _('Hide tags')|htmltojs }});
+                });
+
+                // Random problem opens in a new tab.
+                $('#random').click(function (e) {
+                    e.preventDefault();
+                    var action = $form.attr('action');
+                    $form.attr('action', "{{ url('problem_random') }}").attr('target', '_blank').submit();
+                    $form.attr('action', action).attr('target', '');
+                });
+            });
+
+            // Problem management: per-row + bulk delete with a confirmation modal.
+            $(function () {
+                var $delForm = $('#problem-delete-form');
+                if (!$delForm.length) return;
+                var $codes = $('#problem-delete-codes');
+                var $modal = $('#delete-modal');
+                var $list = $('#delete-modal-list');
+                var pending = [];
+
+                function openModal(items) {
+                    if (!items.length) return;
+                    pending = items;
+                    $list.empty();
+                    items.forEach(function (it) {
+                        $list.append($('<li>').text(it.code + (it.name ? '  ·  ' + it.name : '')));
+                    });
+                    $modal.prop('hidden', false);
+                }
+                function closeModal() { $modal.prop('hidden', true); pending = []; }
+
+                function refreshBulk() {
+                    var total = $('.problem-select').length;
+                    var n = $('.problem-select:checked').length;
+                    $('#bulk-count').text(n);
+                    $('#bulk-delete-btn').prop('disabled', n === 0);
+                    $('#select-all-problems').prop('checked', total > 0 && n === total);
+                }
+
+                $('.js-del-one').click(function () {
+                    openModal([{ code: $(this).data('code'), name: '' + $(this).data('name') }]);
+                });
+
+                $('.problem-select').change(refreshBulk);
+                $('#select-all-problems').change(function () {
+                    $('.problem-select').prop('checked', $(this).prop('checked'));
+                    refreshBulk();
+                });
+                $('#bulk-delete-btn').click(function () {
+                    openModal($('.problem-select:checked').map(function () {
+                        return { code: $(this).data('code'), name: '' + $(this).data('name') };
+                    }).get());
+                });
+
+                $('#delete-cancel').click(closeModal);
+                $modal.click(function (e) { if (e.target === this) closeModal(); });
+                $(document).keydown(function (e) { if (e.key === 'Escape' && !$modal.prop('hidden')) closeModal(); });
+                $('#delete-confirm').click(function () {
+                    if (!pending.length) return closeModal();
+                    $codes.empty();
+                    pending.forEach(function (it) {
+                        $('<input>', { type: 'hidden', name: 'codes', value: it.code }).appendTo($codes);
+                    });
+                    $delForm.trigger('submit');
+                });
+
+                refreshBulk();
+            });
+        </script>
+    {% endcompress %}
+    {% if request.in_contest %}
+        {% compress js %}
+            <script src="{{ static('libs/tablesorter.js') }}" type="text/javascript"></script>
+            <script type="text/javascript">
+                $(function () {
+                    $.tablesorter.addParser({
+                        id: 'solvedsort',
+                        is: function (s) {
+                            return false;
+                        },
+                        format: function (s, table, cell, cellIndex) {
+                            return $(cell).attr('solved');
+                        },
+                        type: 'numeric'
+                    });
+
+                    $('#problem-table').tablesorter({
+                        headers: {
+                            0: {
+                                sorter: false
+                            }
+                        },
+                        textExtraction: function (node) {
+                            node = $(node);
+                            var text = node.text().replace(/^\s+|\s+$/g, '');
+                            if (node.hasClass('p')) {
+                                return text.replace(/p$/, '');
+                            }
+                            if (node.hasClass('ac-rate')) {
+                                return text.replace(/%$/, '');
+                            }
+                            return text;
+                        }
+                    });
+                });
+            </script>
+        {% endcompress %}
+    {% endif %}
+    {% if request.in_contest %}
+        {% include "contest/media-js.html" %}
+    {% endif %}
+{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'list' %}
+    {% include "problem/problem-list-tabs.html" %}
+    {% if can_import_excel_problems %}
+        <div class="excel-import-modal" id="excel-import-modal" aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="excel-import-title"
+             onclick="if (event.target === this) this.setAttribute('aria-hidden', 'true');">
+            <form class="excel-import-dialog" id="excel-import-form" action="{{ url('problem_import_upload') }}" method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                <button type="button" class="excel-import-close" aria-label="{{ _('Close') }}"
+                        onclick="document.getElementById('excel-import-modal').setAttribute('aria-hidden', 'true');">&times;</button>
+                <div class="excel-import-kicker"><i class="fa fa-table"></i> {{ _('Question import') }}</div>
+                <h3 id="excel-import-title">{{ _('Build questions from an Excel workbook') }}</h3>
+                <p class="excel-import-intro">{{ _('Upload one workbook, review every question, then use AI formatting only where it is useful.') }}</p>
+                <label class="excel-import-dropzone" for="excel-import-file">
+                    <i class="fa fa-file-excel-o"></i>
+                    <span class="excel-import-file-title">{{ _('Choose an .xlsx file') }}</span>
+                    <span class="excel-import-file-help">{{ _('Include name and question_type. Description may be text or an embedded DOCX/Markdown file; DOCX figures are imported into the description. Embed a ZIP object in a code-problem row for test data.') }}</span>
+                    <input id="excel-import-file" name="excel_file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" required>
+                </label>
+                <div class="excel-import-template">
+                    <i class="fa fa-lightbulb-o"></i>
+                    <span>{{ _('First time importing?') }} <a href="{{ url('admin:judge_problem_download_excel_template') }}">{{ _('Download the Excel template') }}</a></span>
+                </div>
+                <div class="excel-import-actions">
+                    <button type="button" class="button excel-import-close"
+                            onclick="document.getElementById('excel-import-modal').setAttribute('aria-hidden', 'true');">{{ _('Cancel') }}</button>
+                    <button type="submit" class="button"><i class="fa fa-arrow-right"></i> {{ _('Upload and preview') }}</button>
+                </div>
+                <span class="excel-import-status" aria-live="polite"></span>
+            </form>
+        </div>
+    {% endif %}
+{% endblock %}
+
+{% block body %}
+    {% macro sortth(label, link, order) %}
+        <a href="{{ link }}" class="sort-link{% if order %} is-sorted{% endif %}">
+            <span>{{ label }}</span>
+            <i class="fa sort-icon {% if '▴' in order %}fa-sort-up{% elif '▾' in order %}fa-sort-down{% else %}fa-sort{% endif %}"></i>
+        </a>
+    {% endmacro %}
+    {% if request.in_contest %}
+        {# Contest problem list keeps the classic layout. #}
+        {% if page_obj.has_other_pages() %}
+            <div class="top-pagination-bar">{% include "list-pages.html" %}</div>
+        {% endif %}
+        <div id="common-content">
+            <div id="content-left" class="problems h-scrollable-table">
+                <table id="problem-table" class="table striped">
+                    <thead>
+                    <tr>
+                        {% if request.user.is_authenticated %}
+                            <th class="score">{{ _('Score') }}</th>
+                        {% endif %}
+                        <th class="problem">{{ _('Problem') }}</th>
+                        <th class="points">{{ _('Points') }}</th>
+                        <th class="users">{{ _('Users') }}</th>
+                        <th class="ac-rate">{{ _('AC Rate') }}</th>
+                    </tr>
+                    </thead>
+                    <tbody>
+                    {% for problem in problems %}
+                        <tr>
+                            {% if request.user.is_authenticated %}
+                                {{ problem.user_problem_cell }}
+                            {% endif %}
+                            <td class="problem">
+                                <a href="{{ url('problem_detail', problem.code) }}">{{ problem.effective_name or problem.i18n_name or problem.name }}</a>
+                            </td>
+                            <td class="p">{{ problem.points|floatformat }}{% if problem.partial %}p{% endif %}</td>
+                            <td class="users">
+                                {% if not hide_contest_scoreboard %}
+                                    <a href="{{ url('contest_ranked_submissions', request.participation.contest.key, problem.code) }}">
+                                        {{ problem.user_count }}
+                                    </a>
+                                {% else %}
+                                    ???
+                                {% endif %}
+                            </td>
+                            <td class="ac-rate">
+                                {% if not hide_contest_scoreboard %}
+                                    {{ problem.ac_rate|floatformat(1) }}%
+                                {% else %}
+                                    ???
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% if page_obj.has_other_pages() %}
+            <div class="bottom-pagination-bar">{% include "list-pages.html" %}</div>
+        {% endif %}
+    {% else %}
+        {# Redesigned problem list. #}
+        <form id="filter-form" name="form" action="" method="get" class="problem-list-redesign oj-ui">
+            {# Marker that the form was actually submitted, so checkbox defaults (e.g. search_full) can be applied only on first visit. #}
+            <input type="hidden" name="filtered" value="1">
+            {% set difficulty_labels = {'easy': _('Easy'), 'medium': _('Medium'), 'hard': _('Hard')} %}
+            {% set knowledge_hot_count = knowledge_hot_count|default(12) %}
+
+            <section class="card filter-card">
+                <div class="filter-row filter-row-conditions">
+                    <label class="filter-label">{{ _('Filters') }}</label>
+                    <div class="filter-controls">
+                        <div class="filter-group">
+                            <span class="filter-group-label">{{ _('Problem type') }}</span>
+                            <select id="filter-format" name="format" multiple>
+                                {% for f in format_types %}
+                                    <option value="{{ f.code }}" {% if f.code in selected_formats %}selected{% endif %}>{{ f.label }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <span class="filter-group-label">{{ _('Difficulty') }}</span>
+                            <select id="filter-difficulty" name="type" multiple>
+                                {% for type in difficulty_types %}
+                                    <option value="{{ type.id }}" {% if type.id in selected_difficulty_types %}selected{% endif %}>
+                                        {{ difficulty_labels.get(type.name|lower, type.full_name) }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div class="filter-group">
+                            <span class="filter-group-label">{{ _('Course') }}</span>
+                            <select id="filter-course" name="course" multiple>
+                                {% for org in organizations %}
+                                    <option value="{{ org.id }}" {% if org.id in selected_organizations %}selected{% endif %}>{{ org.name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        {% if can_see_problem_authors %}
+                            <div class="filter-group filter-group-author">
+                                <span class="filter-group-label">{{ _('Author') }}</span>
+                                <select id="filter-author" name="author" multiple data-placeholder="{{ _('All authors') }}">
+                                    {% for profile in selected_author_profiles %}
+                                        <option value="{{ profile.id }}" selected>{{ profile_choice_label(profile) }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        {% endif %}
+
+                        {% if request.user.is_authenticated %}
+                            <div class="filter-group">
+                                <span class="filter-group-label">{{ _('Status') }}</span>
+                                <select id="status-filter" name="status" class="select">
+                                    <option value="" {% if not problem_status %}selected{% endif %}>{{ _('All') }}</option>
+                                    <option value="solved" {% if problem_status == 'solved' %}selected{% endif %}>{{ _('Solved') }}</option>
+                                    <option value="unsolved" {% if problem_status == 'unsolved' %}selected{% endif %}>{{ _('Unsolved') }}</option>
+                                </select>
+                            </div>
+                        {% endif %}
+
+                        <div class="filter-group">
+                            <span class="filter-group-label">{{ _('AC %%') }}</span>
+                            <div class="ac-range">
+                                <input type="number" name="ac_min" class="input input-num" placeholder="{{ _('Min') }}"
+                                       min="0" max="100" step="0.1" value="{{ ac_min }}">
+                                <span class="ac-range-sep">~</span>
+                                <input type="number" name="ac_max" class="input input-num" placeholder="{{ _('Max') }}"
+                                       min="0" max="100" step="0.1" value="{{ ac_max }}">
+                                <span class="ac-range-unit">%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-row knowledge-row">
+                    <label class="filter-label">{{ _('Tags') }}</label>
+                    <div class="knowledge-filter">
+                        <select id="filter-knowledge" name="type" multiple>
+                            {% for type in knowledge_types %}
+                                <option value="{{ type.id }}" {% if type.id in selected_knowledge_types %}selected{% endif %}>
+                                    {{ user_trans(type.full_name) }}
+                                </option>
+                            {% endfor %}
+                        </select>
+                        <div class="knowledge-picker" id="knowledge-picker">
+                            <div class="knowledge-picker-body" id="knowledge-picker-body">
+                                {% for type in knowledge_types %}
+                                    <button type="button"
+                                            class="knowledge-tag{% if type.id in selected_knowledge_types %} active{% endif %}{% if loop.index <= knowledge_hot_count %} is-hot{% endif %}"
+                                            data-id="{{ type.id }}">
+                                        <span class="knowledge-tag-name">{{ user_trans(type.full_name) }}</span><span class="badge">{{ type_counts.get(type.id, 0) }}</span>
+                                    </button>
+                                {% else %}
+                                    <p class="knowledge-empty">{{ _('No tags yet.') }}</p>
+                                {% endfor %}
+                            </div>
+                            {% if knowledge_types|length > knowledge_hot_count %}
+                                <button type="button" class="btn-text knowledge-show-more" id="knowledge-show-more"
+                                        data-more="{{ _('Show more') }}" data-less="{{ _('Show less') }}"
+                                        aria-expanded="false">{{ _('Show more') }}</button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="filter-row">
+                    <label class="filter-label">{{ _('Keyword') }}</label>
+                    <input type="text" id="search" class="input input-wide" value="" autocomplete="off"
+                           placeholder="{{ _('Type a keyword, then press Enter') }}">
+                    {% for term in search_terms %}
+                        <input type="hidden" name="search" value="{{ term }}">
+                    {% endfor %}
+                    {% if has_fts %}
+                        <label class="checkbox-inline">
+                            <input type="checkbox" name="full_text" value="1" {% if full_text %}checked{% endif %}>
+                            <span>{{ _('Full text search') }}</span>
+                        </label>
+                    {% endif %}
+                    <label class="checkbox-inline">
+                        <input type="checkbox" name="search_full" value="1" {% if search_full %}checked{% endif %}>
+                        <span>{{ _('Search statements') }}</span>
+                    </label>
+                </div>
+
+                <div class="filter-row selected-row">
+                    <span class="filter-label">{{ _('Selected') }}</span>
+                    <div class="chip-list" id="active-chips">
+                        {% set has_chip = selected_types or selected_formats or selected_organizations or selected_authors or problem_status or (ac_min != '') or (ac_max != '') or search_terms or full_text %}
+                        {% for f in format_types %}{% if f.code in selected_formats %}
+                            <span class="chip">{{ f.label }}<button type="button" data-field="format" data-value="{{ f.code }}" aria-label="{{ _('Remove') }}">&times;</button></span>
+                        {% endif %}{% endfor %}
+                        {% for type in difficulty_types %}{% if type.id in selected_difficulty_types %}
+                            <span class="chip">{{ difficulty_labels.get(type.name|lower, type.full_name) }}<button type="button" data-field="type" data-value="{{ type.id }}" aria-label="{{ _('Remove') }}">&times;</button></span>
+                        {% endif %}{% endfor %}
+                        {% for org in organizations %}{% if org.id in selected_organizations %}
+                            <span class="chip">{{ org.name }}<button type="button" data-field="course" data-value="{{ org.id }}" aria-label="{{ _('Remove') }}">&times;</button></span>
+                        {% endif %}{% endfor %}
+                        {% for profile in selected_author_profiles %}
+                            <span class="chip">{{ profile_choice_label(profile) }}<button type="button" data-field="author" data-value="{{ profile.id }}" aria-label="{{ _('Remove') }}">&times;</button></span>
+                        {% endfor %}
+                        {% for type in knowledge_types %}{% if type.id in selected_knowledge_types %}
+                            <span class="chip">{{ user_trans(type.full_name) }}<button type="button" data-field="type" data-value="{{ type.id }}" aria-label="{{ _('Remove') }}">&times;</button></span>
+                        {% endif %}{% endfor %}
+                        {% if problem_status == 'solved' %}
+                            <span class="chip">{{ _('Solved') }}<button type="button" data-field="status" aria-label="{{ _('Remove') }}">&times;</button></span>
+                        {% elif problem_status == 'unsolved' %}
+                            <span class="chip">{{ _('Unsolved') }}<button type="button" data-field="status" aria-label="{{ _('Remove') }}">&times;</button></span>
+                        {% endif %}
+                        {% if ac_min != '' or ac_max != '' %}
+                            <span class="chip">{{ _('AC %%') }} {{ ac_min or '0' }}~{{ ac_max or '100' }}%<button type="button" data-field="ac" aria-label="{{ _('Remove') }}">&times;</button></span>
+                        {% endif %}
+                        {% for term in search_terms %}
+                            <span class="chip">{{ term }}<button type="button" data-field="search" data-value="{{ term }}" aria-label="{{ _('Remove') }}">&times;</button></span>
+                        {% endfor %}
+                        {% if full_text %}
+                            <span class="chip">{{ _('Full text search') }}<button type="button" data-field="full_text" aria-label="{{ _('Remove') }}">&times;</button></span>
+                        {% endif %}
+                        {% if not has_chip %}
+                            <span class="chip-placeholder">{{ _('No filters applied') }}</span>
+                        {% endif %}
+                    </div>
+                    <a class="btn-text" href="{{ request.path }}">{{ _('Clear filters') }}</a>
+                </div>
+
+                <div class="filter-footer">
+                    <span class="result-count">{{ page_obj.paginator.count }} {{ _('results') }}</span>
+                </div>
+            </section>
+
+            <section class="toolbar">
+                <div class="toolbar-left">
+                    <div class="dropdown" id="sort-dropdown">
+                        <button type="button" class="sort-btn" id="sort-trigger" aria-haspopup="true">
+                            <i class="fa fa-sort"></i>
+                            <span class="sort-btn-label">{{ _('Sort') }}{% if current_sort_label %}: {{ current_sort_label }}{% endif %}</span>
+                            <span class="sort-btn-dir">{% if current_sort_desc %}&#9662;{% else %}&#9652;{% endif %}</span>
+                        </button>
+                        <div class="dropdown-menu" hidden>
+                            <div class="dropdown-title">{{ _('Sort by') }}</div>
+                            <ul>
+                                <li>{{ sortth(_('Problem code'), sort_links.code, sort_order.code) }}</li>
+                                <li>{{ sortth(_('Problem'), sort_links.name, sort_order.name) }}</li>
+                                <li>{{ sortth(_('Problem type'), sort_links.type, sort_order.type) }}</li>
+                                <li>{{ sortth(_('AC %%'), sort_links.ac_rate, sort_order.ac_rate) }}</li>
+                                <li>{{ sortth(_('Points'), sort_links.points, sort_order.points) }}</li>
+                                <li>{{ sortth(_('Date added'), sort_links.date, sort_order.date) }}</li>
+                            </ul>
+                        </div>
+                    </div>
+                    {% if can_manage_problems %}
+                        <button type="button" class="sort-btn bulk-delete-btn" id="bulk-delete-btn" disabled>
+                            <i class="fa fa-trash"></i> {{ _('Delete selected') }} (<span id="bulk-count">0</span>)
+                        </button>
+                    {% endif %}
+                </div>
+                <div class="toolbar-right">
+                    {% if request.user.is_authenticated %}
+                        <span class="progress-label">{{ _('Solved') }}: {{ progress_solved }}/{{ progress_total }}</span>
+                    {% endif %}
+                    <button type="button" class="icon-btn" id="random" title="{{ _('Random problem') }}">
+                        <i class="fa fa-random"></i>
+                    </button>
+                </div>
+            </section>
+
+            <section class="card table-card">
+                <div class="table-wrap">
+                    <table class="problem-table">
+                        <thead>
+                        <tr>
+                            {% if can_manage_problems %}
+                                <th class="col-select"><input type="checkbox" id="select-all-problems" title="{{ _('Select all') }}"></th>
+                            {% endif %}
+                            {% if request.user.is_authenticated %}
+                                <th class="col-status solved">{{ sortth('<i class="fa fa-check"></i>'|safe, sort_links.solved, sort_order.solved) }}</th>
+                            {% endif %}
+                            <th class="col-name">{{ sortth(_('Problem'), sort_links.name, sort_order.name) }}</th>
+                            <th class="col-type">{{ sortth(_('Problem type'), sort_links.type, sort_order.type) }}</th>
+                            {% if can_see_problem_authors %}
+                                <th class="col-author">{{ _('Author') }}</th>
+                            {% endif %}
+                            <th class="col-tags">
+                                <button type="button" class="btn-text btn-sm" id="toggle-tags">{{ _('Hide tags') }}</button>
+                            </th>
+                            <th class="col-diff">{{ _('Difficulty') }}</th>
+                            <th class="col-ac">{{ sortth(_('AC %%'), sort_links.ac_rate, sort_order.ac_rate) }}</th>
+                            <th class="col-date">{{ sortth(_('Date added'), sort_links.date, sort_order.date) }}</th>
+                            <th class="col-points">{{ sortth(_('Points'), sort_links.points, sort_order.points) }}</th>
+                            {% if can_manage_problems or can_clone_problems %}
+                                <th class="col-actions">{{ _('Actions') }}</th>
+                            {% endif %}
+                        </tr>
+                        </thead>
+                        <tbody>
+                        {% if not problems %}
+                            <tr class="empty-row">
+                                <td colspan="12">{{ _('No problems match your filters.') }}</td>
+                            </tr>
+                        {% endif %}
+                        {% for problem in problems %}
+                            <tr>
+                                {% if can_manage_problems %}
+                                    <td class="col-select">
+                                        {% if problem.id in editable_problem_ids %}
+                                            <input type="checkbox" class="problem-select" data-code="{{ problem.code }}"
+                                                   data-name="{{ problem.i18n_name or problem.name }}">
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
+                                {% if request.user.is_authenticated %}
+                                    {% if problem.id in completed_problem_ids %}
+                                        <td class="col-status" solved="1">
+                                            <a href="{{ url('user_submissions', problem.code, request.user.username) }}">
+                                                {% if problem.is_public %}
+                                                    <i class="solved-problem-color fa fa-check-circle" title="{{ _('Solved') }}"></i>
+                                                {% else %}
+                                                    <i class="solved-problem-color fa fa-lock" title="{{ _('Solved (private)') }}"></i>
+                                                {% endif %}
+                                            </a>
+                                        </td>
+                                    {% elif problem.id in attempted_problems %}
+                                        <td class="col-status" solved="0">
+                                            <a href="{{ url('user_submissions', problem.code, request.user.username) }}">
+                                                {% if problem.is_public %}
+                                                    <i class="attempted-problem-color fa fa-minus-circle" title="{{ _('Attempted') }}"></i>
+                                                {% else %}
+                                                    <i class="attempted-problem-color fa fa-lock" title="{{ _('Attempted (private)') }}"></i>
+                                                {% endif %}
+                                            </a>
+                                        </td>
+                                    {% else %}
+                                        <td class="col-status" solved="-1">
+                                            {% if problem.is_public %}
+                                                <i class="unsolved-problem-color fa fa-minus-circle" title="{{ _('Unsolved') }}"></i>
+                                            {% else %}
+                                                <i class="unsolved-problem-color fa fa-lock" title="{{ _('Unsolved (private)') }}"></i>
+                                            {% endif %}
+                                        </td>
+                                    {% endif %}
+                                {% endif %}
+                                <td class="col-name">
+                                    <a href="{{ url('problem_detail', problem.code) }}">{{ problem.i18n_name or problem.name }}</a>
+                                </td>
+                                <td class="col-type">
+                                    {% for type in problem.format_types_list %}
+                                        <span class="type-tag">{{ type }}</span>
+                                    {% else %}
+                                        <span class="tag-placeholder">&mdash;</span>
+                                    {% endfor %}
+                                </td>
+                                {% if can_see_problem_authors %}
+                                    <td class="col-author">
+                                        {% if problem.authors.all() %}
+                                            {{ link_users(problem.authors.all(), named=True) }}
+                                        {% else %}
+                                            —
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
+                                <td class="col-tags">
+                                    {% for type in problem.knowledge_types_list %}
+                                        <span class="tag-badge">{{ type }}</span>
+                                    {% else %}
+                                        <span class="tag-placeholder">&mdash;</span>
+                                    {% endfor %}
+                                </td>
+                                <td class="col-diff">
+                                    {% if problem.difficulty %}
+                                        <span class="difficulty-badge diff-{{ problem.difficulty }}">{{ problem.difficulty_label }}</span>
+                                    {% else %}
+                                        <span class="diff-placeholder">&mdash;</span>
+                                    {% endif %}
+                                </td>
+                                <td class="col-ac">
+                                    <div class="ac-cell">
+                                        <div class="ac-bar">
+                                            <div class="ac-bar-fill" style="width: {{ problem.ac_rate|floatformat(1) }}%"></div>
+                                        </div>
+                                        <span class="ac-text">{{ problem.ac_rate|floatformat(1) }}%</span>
+                                    </div>
+                                </td>
+                                <td class="col-date">{{ problem.date.strftime('%Y-%m-%d') if problem.date else '—' }}</td>
+                                <td class="col-points p">{{ problem.points|floatformat }}{% if problem.partial %}p{% endif %}</td>
+                                {% if can_manage_problems or can_clone_problems %}
+                                    <td class="col-actions">
+                                        {% if can_manage_problems and problem.id in editable_problem_ids %}
+                                            <a class="row-action" href="{{ url('problem_edit_v2', problem.code) }}"
+                                               title="{{ _('Edit') }}" aria-label="{{ _('Edit') }}"><i class="fa fa-pencil"></i></a>
+                                            <button type="button" class="row-action row-action-danger js-del-one"
+                                                    data-code="{{ problem.code }}"
+                                                    data-name="{{ problem.i18n_name or problem.name }}"
+                                                    title="{{ _('Delete') }}" aria-label="{{ _('Delete') }}"><i class="fa fa-trash"></i></button>
+                                        {% endif %}
+                                        {% if can_clone_problems %}
+                                            <a class="row-action" href="{{ url('problem_clone', problem.code) }}"
+                                               title="{{ _('Clone') }}" aria-label="{{ _('Clone') }}"><i class="fa fa-copy"></i></a>
+                                        {% elif not (can_manage_problems and problem.id in editable_problem_ids) %}
+                                            <span class="tag-placeholder">&mdash;</span>
+                                        {% endif %}
+                                    </td>
+                                {% endif %}
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <footer class="table-footer">
+                    <span class="page-info">
+                        {{ _('Showing %(start)s-%(end)s of %(total)s', start=page_obj.start_index(), end=page_obj.end_index(), total=page_obj.paginator.count) }}
+                    </span>
+                    {% if page_obj.has_other_pages() %}
+                        {% include "list-pages.html" %}
+                    {% endif %}
+                </footer>
+            </section>
+        </form>
+
+        {% if can_manage_problems %}
+            <form id="problem-delete-form" method="post" action="{{ url('problem_bulk_delete') }}" style="display:none;">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path() }}">
+                <span id="problem-delete-codes"></span>
+            </form>
+
+            <div class="modal-overlay" id="delete-modal" hidden>
+                <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+                    <h3 class="modal-title" id="delete-modal-title">{{ _('Delete problem(s)?') }}</h3>
+                    <p class="modal-desc">{{ _('This permanently deletes the following problem(s) and all related data (submissions, test data). This cannot be undone.') }}</p>
+                    <ul class="modal-list" id="delete-modal-list"></ul>
+                    <div class="modal-actions">
+                        <button type="button" class="btn btn-outline" id="delete-cancel">{{ _('Cancel') }}</button>
+                        <button type="button" class="btn btn-danger" id="delete-confirm">{{ _('Delete') }}</button>
+                    </div>
+                </div>
+            </div>
+        {% endif %}
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,38 @@
+[flake8]
+max-line-length = 120
+application-import-names = dmoj,judge,django_ace,martor
+import-order-style = pycharm
+enable-extensions = G
+ignore =
+    # line break occurred after/before a binary operator
+    W504,W503
+    # allow only generator_stop and annotations future imports
+    FI10,FI11,FI12,FI13,FI14,FI15,FI16,FI17,FI18,FI55,FI58,
+    # missing trailing comma in Python 2 only
+    C814,
+per-file-ignores =
+    # F401: unused imports, ignore in all __init__.py
+    # F403: import *
+    ./*/__init__.py:F401,F403
+    # F405: name comes from import *
+    ./judge/management/commands/runmoss.py:F403,F405
+    # E501: line too long, ignore in migrations
+    # I100: Import wrong order
+    ./judge/migrations/*.py:E501,I100
+    # E265 block comment should start with '# '
+    # E117 over-indented (comment)
+    ./judge/views/contests.py:E265,E117
+    # Q000 Double quotes found but single quotes preferred
+    # C812 missing trailing comma
+    ./judge/management/commands/import_users_csv_old.py:Q000,C812
+    ./judge/management/commands/export_contest_submissions_old.py:Q000,C812
+exclude =
+    # belongs to the user
+    ./dmoj/local_settings.py,
+    # is actually a fragment to be included by settings.py
+    ./.ci.settings.py,
+    ./judge/management/commands/migrate_organizations.py,
+    # local virtualenv (CI never has one, so this only affects local runs)
+    .venv,
+    # local gitlab-ci-local build artifacts
+    .gitlab-ci-local,

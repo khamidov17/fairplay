@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block body %}
+<div class="course-redesign oj-ui">
+    <div class="course-form-wrap course-import">
+        <h2>{{ _('Import Users to') }} {{ organization.name }}</h2>
+        <div class="helptext" style="margin:0 0 1rem">
+            <p style="margin:0 0 0.5rem">
+                {{ _('The CSV must include a header row. Required columns (Canvas roster exports work as-is):') }}
+            </p>
+            <ul style="margin:0 0 0.5rem;padding-left:1.25rem">
+                <li><code>NetID</code> {{ _('or') }} <code>username</code> — {{ _('used as the login username') }}</li>
+                <li><code>First name</code> {{ _('or') }} <code>first_name</code></li>
+                <li><code>Last Name</code> {{ _('or') }} <code>last_name</code></li>
+                <li><code>Email</code> {{ _('or') }} <code>email</code> ({{ _('Canvas') }} <code>netid@duke.edu</code> {{ _('is accepted if Email is missing') }})</li>
+            </ul>
+            <p style="margin:0">
+                {{ _('Extra Canvas columns (Display Name, Duke Unique ID, Section(s), …) are ignored. New accounts are pre-registered with username=NetID and no local password — students sign in with Duke NetID SSO. Existing accounts are added to this course/class; optionally refresh their names/emails below.') }}
+            </p>
+        </div>
+
+        <form enctype="multipart/form-data" method="post" class="course-form">
+            {% csrf_token %}
+            {% if form.non_field_errors() %}
+                <div class="form-errors">{{ form.non_field_errors() }}</div>
+            {% endif %}
+
+            <div class="form-group{% if form.csv_file.errors %} error{% endif %}">
+                <label for="{{ form.csv_file.id_for_label }}">{{ form.csv_file.label }}</label>
+                {{ form.csv_file }}
+                {% if form.csv_file.errors %}
+                    <span class="help-inline">{{ form.csv_file.errors[0] }}</span>
+                {% endif %}
+            </div>
+
+            <div class="form-group{% if form.target_class.errors %} error{% endif %}">
+                <label for="{{ form.target_class.id_for_label }}">{{ form.target_class.label }}</label>
+                {{ form.target_class }}
+                <div class="helptext">
+                    {{ _('Optionally add users to a specific class within this organization.') }}
+                </div>
+                {% if form.target_class.errors %}
+                    <span class="help-inline">{{ form.target_class.errors[0] }}</span>
+                {% endif %}
+            </div>
+
+            <div class="form-group checkbox-row">
+                <label class="checkbox">
+                    {{ form.update_existing }}
+                    {{ form.update_existing.label }}
+                </label>
+                <div class="helptext indent">
+                    {{ _('Existing usernames are always added to the course/class. Check this to also refresh names and emails from the CSV. Passwords are never changed.') }}
+                </div>
+            </div>
+
+            <div class="form-group checkbox-row">
+                <label class="checkbox">
+                    {{ form.activate }}
+                    {{ form.activate.label }}
+                </label>
+            </div>
+
+            <div class="course-form-actions">
+                <button type="submit" class="button">{{ _('Import Users') }}</button>
+                <a href="{{ organization.get_absolute_url() }}" class="button">{{ _('Cancel') }}</a>
+            </div>
+        </form>
+
+        {% if result %}
+            <hr>
+            <h3>{{ _('Import Result') }}</h3>
+            <ul class="unstyled">
+                <li><i class="fa fa-plus-circle"></i> {{ _('Created:') }} <strong>{{ result.created }}</strong></li>
+                <li><i class="fa fa-pencil"></i> {{ _('Updated:') }} <strong>{{ result.updated }}</strong></li>
+                <li><i class="fa fa-minus-circle"></i> {{ _('Skipped:') }} <strong>{{ result.skipped }}</strong></li>
+                <li><i class="fa fa-link"></i> {{ _('Organization Linked:') }} <strong>{{ result.org_linked }}</strong></li>
+                <li><i class="fa fa-users"></i> {{ _('Class Linked:') }} <strong>{{ result.class_linked }}</strong></li>
+            </ul>
+            {% if result.errors %}
+                <div class="form-errors">
+                    <strong>{{ _('Errors encountered:') }}</strong>
+                    <ul class="import-errors">
+                    {% for error in result.errors %}
+                        <li>{{ error }}</li>
+                    {% endfor %}
+                    </ul>
+                </div>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

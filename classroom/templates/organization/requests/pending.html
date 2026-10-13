@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block body %}
+    <div class="course-redesign oj-ui">
+        {% include "messages.html" %}
+        {% include "organization/requests/tabs.html" %}
+        <p>
+            <a href="{{ url('organization_join_requests') }}?course={{ object.id }}&amp;status=P">
+                {{ _('Open multi-select inbox for this course') }}
+            </a>
+        </p>
+
+        {% if formset.forms %}
+            <form action="" method="post">
+                {% csrf_token %}
+                {{ formset.management_form }}
+                <table class="join-requests-table">
+                    <tr>
+                        <th>{{ _('User') }}</th>
+                        <th>{{ _('Class') }}</th>
+                        <th>{{ _('Time') }}</th>
+                        <th>{{ _('State') }}</th>
+                        <th>{{ _('Reason') }}</th>
+                        {% if formset.can_delete %}
+                            <th>{{ _('Delete?') }}</th>
+                        {% endif %}
+                    </tr>
+                    {% for form in formset %}
+                        <tr id="request-{{ form.instance.id }}">
+                            <td>{{ form.id }}{{ link_user(form.instance.user) }}</td>
+                            <td>
+                                {% if form.instance.request_class %}
+                                    {{ form.instance.request_class.name }}
+                                {% else %}
+                                    {{ _('Course') }}
+                                {% endif %}
+                            </td>
+                            <td><a href="{{ url('request_organization_detail', object.id, object.slug, form.instance.id) }}">
+                                {{ form.instance.time|date(_("N j, Y, H:i")) }}
+                            </a></td>
+                            <td>{{ form.state }}</td>
+                            <td>{{ form.instance.reason|truncatechars(50) }}</td>
+                            {% if formset.can_delete %}
+                                <td>{{ form.DELETE }}</td>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                </table>
+                <div class="bulk-actions">
+                    <button type="submit" class="oj-btn oj-btn-primary">{{ _('Update') }}</button>
+                </div>
+            </form>
+        {% else %}
+            <p>{{ _('There are no requests to approve.') }}</p>
+        {% endif %}
+    </div>
+{% endblock %}

@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+
+{% block media %}
+    {{ form.media.css }}
+    <link rel="stylesheet" href="{{ static('vendor/katex.min.css') }}">
+    <link rel="stylesheet" href="{{ static('rich_editor.css') }}">
+    <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="(prefers-color-scheme: dark)">
+    <style>
+        .course-redesign .course-form .rich-editor {
+            height: 360px;
+            max-height: 360px;
+        }
+    </style>
+{% endblock %}
+
+{% block js_media %}
+    {{ form.media.js }}
+    <script src="{{ static('rich_editor.js') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}"></script>
+    <script type="text/javascript">
+        $(function () {
+            $('#instructor-verification-btn').on('click', function () {
+                $('#instructor-verification-modal').prop('hidden', false);
+            });
+            $('#instructor-verification-modal .js-close-modal').on('click', function () {
+                $('#instructor-verification-modal').prop('hidden', true);
+            });
+            if (typeof RichEditor === 'undefined') return;
+            var csrf = document.querySelector('[name=csrfmiddlewaretoken]');
+            RichEditor.configure({
+                fileUploadUrl: '{{ url("editor_file_uploader") }}',
+                csrfToken: csrf ? csrf.value : '',
+            });
+            function syncRichEditorSources() {
+                document.querySelectorAll('textarea[data-rich-editor]').forEach(function (ta) {
+                    var name = ta.getAttribute('data-rich-editor');
+                    try { ta.value = RichEditor.getMarkdown(name) || ''; } catch (e) {}
+                });
+            }
+            document.querySelectorAll('textarea[data-rich-editor]').forEach(function (ta) {
+                var name = ta.getAttribute('data-rich-editor');
+                var mount = document.createElement('div');
+                mount.setAttribute('data-rich-mount', name);
+                mount.setAttribute('data-compact', '');
+                ta.parentNode.insertBefore(mount, ta);
+                RichEditor.mount(ta.parentNode);
+                ta.setAttribute('aria-hidden', 'true');
+                ta.removeAttribute('required');
+                ta.tabIndex = -1;
+                ta.classList.add('rich-editor-source');
+                if (ta.value) {
+                    try { RichEditor.setMarkdown(name, ta.value); } catch (e) {}
+                }
+            });
+            // Native constraint validation runs before the submit event; sync on
+            // the submit control click so the hidden textarea is filled in time.
+            $('form.course-form').on('click', '[type=submit]', syncRichEditorSources);
+            $('form.course-form').on('submit', syncRichEditorSources);
+        });
+    </script>
+{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'course' %}
+    {% set title = _('Course') %}
+    {% set title_url = url('organization_list') %}
+    {% if object %}
+        {% set title_crumb = (object.short_name or object.name) ~ ' / ' ~ _('Edit') %}
+    {% else %}
+        {% set title_crumb = _('Add Course') %}
+    {% endif %}
+    {% include "organization/course-tabs.html" %}
+{% endblock %}
+
+{% block body %}
+<div class="course-redesign oj-ui">
+    <div class="course-form-wrap class-form-demo">
+        {% include "messages.html" %}
+        <form action="" method="post" class="course-form">
+            {% csrf_token %}
+            {% if form.non_field_errors() %}
+                <div class="form-errors">{{ form.non_field_errors() }}</div>
+            {% endif %}
+
+            <section class="class-form-module">
+                <h2>{{ _('Course identity') }}</h2>
+                <div class="class-form-grid">
+                    <div class="class-form-field">
+                        <label for="{{ form.short_name.id_for_label }}">{{ form.short_name.label }} <span aria-hidden="true">*</span></label>
+                        {{ form.short_name }}
+                        {{ form.short_name.errors }}
+                    </div>
+                    <div class="class-form-field">
+                        <label for="{{ form.name.id_for_label }}">{{ form.name.label }} <span aria-hidden="true">*</span></label>
+                        {{ form.name }}
+                        {{ form.name.errors }}
+                    </div>
+                    <div class="class-form-field full">
+                        <label for="{{ form.about.id_for_label }}">{{ form.about.label }}</label>
+                        {{ form.about }}
+                        {{ form.about.errors }}
+                    </div>
+                </div>
+            </section>
+
+            <section class="class-form-module">
+                <h2>{{ _('Enrollment') }}</h2>
+                <div class="class-form-grid">
+                    <div class="class-form-field full checkbox-row">
+                        <label class="checkbox">
+                            {{ form.is_open }}
+                            <strong>{{ form.is_open.label }}</strong>
+                        </label>
+                        {% if form.is_open.help_text %}<div class="helptext">{{ form.is_open.help_text }}</div>{% endif %}
+                        {{ form.is_open.errors }}
+                    </div>
+                    <div class="class-form-field full checkbox-row">
+                        <label class="checkbox">
+                            {{ form.class_required }}
+                            <strong>{{ form.class_required.label }}</strong>
+                        </label>
+                        {% if form.class_required.help_text %}<div class="helptext">{{ form.class_required.help_text }}</div>{% endif %}
+                        {{ form.class_required.errors }}
+                    </div>
+                    <div class="class-form-field">
+                        <label for="{{ form.slots.id_for_label }}">{{ form.slots.label }}</label>
+                        {{ form.slots }}
+                        {% if form.slots.help_text %}<div class="helptext">{{ form.slots.help_text }}</div>{% endif %}
+                        {{ form.slots.errors }}
+                    </div>
+                </div>
+            </section>
+
+            <section class="class-form-module">
+                <h2>{{ _('Administration') }}</h2>
+                <div class="class-form-grid">
+                    <div class="class-form-field full">
+                        <label for="{{ form.admins.id_for_label }}">{{ form.admins.label }}</label>
+                        {{ form.admins }}
+                        {% if form.admins.help_text %}<div class="helptext">{{ form.admins.help_text }}</div>{% endif %}
+                        {{ form.admins.errors }}
+                    </div>
+                    <div class="class-form-field full">
+                        <label for="{{ form.instructors.id_for_label }}">{{ form.instructors.label }}</label>
+                        {{ form.instructors }}
+                        {% if form.instructors.help_text %}<div class="helptext">{{ form.instructors.help_text }}</div>{% endif %}
+                        {{ form.instructors.errors }}
+                    </div>
+                    <div class="class-form-field full">
+                        <label for="{{ form.logo_override_image.id_for_label }}">{{ form.logo_override_image.label }}</label>
+                        {{ form.logo_override_image }}
+                        {{ form.logo_override_image.errors }}
+                    </div>
+                    {% if object and object.creation_date %}
+                        <div class="class-form-field">
+                            <label>{{ _('Creation date') }}</label>
+                            <input type="text" readonly value="{{ object.creation_date|date(_("Y-m-d H:i")) }}">
+                        </div>
+                    {% endif %}
+                </div>
+            </section>
+
+            <div class="course-form-actions">
+                <button type="submit" class="button">
+                    <i class="fa fa-save"></i> {{ _('Save course') }}
+                </button>
+                <a class="button" href="{% if object %}{{ object.get_absolute_url() }}{% else %}{{ url('organization_list') }}{% endif %}">{{ _('Cancel') }}</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% include "organization/instructor-verification-modal.html" %}
+{% endblock %}

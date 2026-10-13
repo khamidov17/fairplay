@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block body_class %}problem-import-preview{% endblock %}
+
+{% block title_row %}{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block media %}
+    <style>
+        html, body.problem-import-preview { height: 100%; overflow: hidden; }
+        body.problem-import-preview #page-container {
+            box-sizing: border-box; height: 100dvh; margin: 0; min-height: 0;
+            overflow: hidden; padding-top: var(--nav-height, 52px);
+        }
+        body.problem-import-preview #page-container > br,
+        body.problem-import-preview #page-container > footer,
+        body.problem-import-preview #page-container > #announcement { display: none; }
+        body.problem-import-preview #content {
+            display: flex; flex: 1 1 auto; flex-direction: column; margin: 0;
+            max-width: none; min-height: 0; overflow: hidden; padding: 0; width: 100%;
+        }
+        body.problem-import-preview #content-body {
+            display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0;
+        }
+        body.problem-import-preview #content-body > .content-body {
+            box-sizing: border-box; display: flex; flex: 1 1 auto; flex-direction: column;
+            min-height: 0; overflow: hidden; padding: 0.75em 1em 1em;
+        }
+        .import-preview-layout { display: grid; flex: 1 1 auto; gap: 1.25em; grid-template-columns: minmax(13rem, 22rem) minmax(0, 1fr); min-height: 0; }
+        .import-problem-list { align-self: stretch; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+        .import-problem-list-header { align-items: center; display: flex; gap: 0.65em; justify-content: space-between; }
+        .import-problem-list h2 { margin: 0; }
+        .import-problem-list-header .button { flex: 0 0 auto; white-space: nowrap; }
+        .import-problem-nav {
+            display: grid; flex: 1 1 auto; gap: 0.2em; margin: 0.8em 0; min-height: 0;
+            overflow-y: auto; padding-right: 0.2em; scrollbar-gutter: stable;
+        }
+        .import-problem-nav a {
+            align-items: center; border-left: 3px solid transparent; box-sizing: border-box;
+            color: var(--oj-text, inherit); display: flex; gap: 0.5em; min-width: 0;
+            padding: 0.55em 0.4em; text-decoration: none; width: 100%;
+        }
+        .import-problem-nav a:hover { background: var(--oj-surface-muted, rgba(0, 0, 0, 0.05)); }
+        .import-problem-nav a.is-active {
+            background: var(--oj-surface-muted, rgba(0, 0, 0, 0.05));
+            border-left-color: var(--oj-link, currentColor); font-weight: 700;
+        }
+        .import-problem-state {
+            display: inline-flex; flex: 0 0 1.25em; height: 1.25em; width: 1.25em;
+        }
+        .import-problem-state svg { display: block; height: 100%; width: 100%; }
+        .import-problem-type { flex: 0 0 auto; font-size: 0.78em; }
+        .import-problem-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .import-problem-entry { min-width: 0; }
+        .import-problem-nav a.has-error { font-weight: 700; }
+        .import-preview-panel { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; }
+        .import-editor-frame {
+            border: 0; box-sizing: border-box; display: block; flex: 1 1 auto;
+            height: auto; min-height: 0; width: 100%;
+        }
+        .import-created-panel { margin: 0; }
+        .import-created-panel .tag-type { margin-right: 0.45em; }
+        #create-all-problems { background: var(--oj-link, #2980b9); color: var(--oj-btn-text, #fff); }
+        .import-preview-status { display: block; margin-top: 0.65em; min-height: 1.2em; }
+        @media (max-width: 760px) {
+            html, body.problem-import-preview { overflow: auto; }
+            body.problem-import-preview #page-container { height: auto; overflow: visible; }
+            body.problem-import-preview #content { display: block; overflow: visible; }
+            body.problem-import-preview #content-body,
+            body.problem-import-preview #content-body > .content-body { display: block; overflow: visible; }
+            .import-preview-layout { display: block; }
+            .import-problem-list { height: auto; max-height: 45vh; margin-bottom: 1em; }
+            .import-editor-frame { height: 75vh; }
+        }
+    </style>
+{% endblock %}
+
+{% block js_media %}
+    <script>
+        $(function () {
+            var activeItemId = null;
+            var isSwitchingItem = false;
+            var frame = $('#import-editor-frame');
+            var status = $('#import-editor-status');
+
+            function csrfToken() { return $('input[name="csrfmiddlewaretoken"]').first().val() || ''; }
+            function navButton(itemId) { return $('.import-problem-nav a[data-item-id="' + itemId + '"]'); }
+            function needsReview(item) {
+                return item.name_needs_review || item.type_needs_review || item.data_needs_review ||
+                    item.config_needs_review || item.formatting_error;
+            }
+            function stateIcon(needsReview) {
+                if (needsReview) {
+                    return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#DE2121"/><path d="M5 5l6 6m0-6l-6 6" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="2"/></svg>';
+                }
+                return '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#44AD41"/><path d="M4.1 8.2l2.3 2.3 5.4-5.4" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>';
+            }
+            function updateReviewState(itemId, item) {
+                var button = navButton(itemId);
+                var hasReviewIssue = needsReview(item);
+                button.toggleClass('has-error error', hasReviewIssue);
+                button.find('.import-problem-state')
+                    .toggleClass('is-ready', !hasReviewIssue)
+                    .toggleClass('needs-review', hasReviewIssue)
+                    .html(stateIcon(hasReviewIssue));
+            }
+            function refreshLeftItem(itemId, item) {
+                var button = navButton(itemId);
+                if (item.name) {
+                    button.find('.import-problem-name').text(item.name);
+                    button.data('name', item.name);
+                }
+                if (item.preview_type_label) {
+                    button.find('.import-problem-type')
+                        .text(item.preview_type_label)
+                        .toggleClass('programming', item.preview_type_class === 'programming')
+                        .toggleClass('regular', item.preview_type_class !== 'programming');
+                }
+                button.attr('title', item.formatting_error || '');
+                updateReviewState(itemId, item);
+            }
+            function setStatus(message, error) {
+                status.text(message || '').toggleClass('error', !!error).toggleClass('success', !!message && !error);
+            }
+            function selectItem(itemId, editorUrl, name, createdUrl) {
+                if (!frame.length) {
+                    window.location.href = window.location.pathname + '?item=' + encodeURIComponent(itemId);
+                    return;
+                }
+                activeItemId = String(itemId);
+                $('.import-problem-nav a').removeClass('is-active');
+                navButton(activeItemId).addClass('is-active');
+                $('#import-editor-name').text(name);
+                setStatus('', false);
+                if (createdUrl) {
+                    window.location.href = window.location.pathname + '?item=' + encodeURIComponent(itemId);
+                    return;
+                }
+                frame.show().attr('src', editorUrl);
+            }
+            function saveActiveEditor() {
+                return new Promise(function (resolve, reject) {
+                    if (!activeItemId || frame.is(':hidden')) { resolve(); return; }
+                    var timeout = window.setTimeout(function () { reject(new Error('{{ _("Draft save timed out.")|escapejs }}')); }, 15000);
+                    function receive(event) {
+                        if (event.origin !== window.location.origin || !event.data) return;
+                        if (event.data.kind === 'problem-import-save-error') {
+                            window.removeEventListener('message', receive);
+                            window.clearTimeout(timeout);
+                            reject(new Error(event.data.message || '{{ _("Draft could not be saved.")|escapejs }}'));
+                            return;
+                        }
+                        if (event.data.kind !== 'problem-import-saved') return;
+                        window.removeEventListener('message', receive);
+                        window.clearTimeout(timeout);
+                        var item = event.data.item || {};
+                        refreshLeftItem(activeItemId, item);
+                        resolve(item);
+                    }
+                    window.addEventListener('message', receive);
+                    frame.get(0).contentWindow.postMessage({kind: 'problem-import-save'}, window.location.origin);
+                });
+            }
+            $('.import-problem-nav a').on('click', async function (event) {
+                event.preventDefault();
+                var button = $(this);
+                var nextItemId = String(button.data('item-id'));
+                if (isSwitchingItem || nextItemId === activeItemId) return;
+                isSwitchingItem = true;
+                try {
+                    if (activeItemId && !frame.is(':hidden')) {
+                        setStatus('{{ _("Saving current draft...")|escapejs }}', false);
+                        await saveActiveEditor();
+                    }
+                    selectItem(nextItemId, button.data('editor-url'), button.data('name'), button.data('created-url'));
+                } catch (error) {
+                    setStatus(error.message || '{{ _("Draft could not be saved.")|escapejs }}', true);
+                } finally {
+                    isSwitchingItem = false;
+                }
+            });
+            $('#create-all-problems').on('click', async function (event) {
+                event.preventDefault();
+                var button = $(this), allStatus = $('#create-all-status');
+                button.prop('disabled', true); allStatus.removeClass('error').text('{{ _("Saving active draft...")|escapejs }}');
+                try {
+                    await saveActiveEditor();
+                    allStatus.text('{{ _("Creating problems...")|escapejs }}');
+                    var response = await fetch(button.data('url'), {
+                        method: 'POST',
+                        headers: {'X-CSRFToken': csrfToken(), 'X-Requested-With': 'XMLHttpRequest'},
+                    });
+                    var payload = await response.json();
+                    if (!response.ok || !payload.ok) {
+                        (payload.errors || []).forEach(function (error) { navButton(error.item_id).addClass('has-error error'); });
+                        allStatus.text(payload.message || '{{ _("Request failed.")|escapejs }}').addClass('error');
+                        return;
+                    }
+                    window.location.href = payload.redirect_url || '{{ url("problem_list") }}';
+                } catch (error) {
+                    allStatus.text(error.message || '{{ _("Request failed.")|escapejs }}').addClass('error');
+                } finally { button.prop('disabled', false); }
+            });
+            window.addEventListener('message', function (event) {
+                if (event.origin !== window.location.origin || !event.data) return;
+                if (event.data.kind !== 'problem-import-saved') return;
+                var item = event.data.item || {};
+                refreshLeftItem(activeItemId, item);
+                setStatus('{{ _("Draft saved.")|escapejs }}', false);
+            });
+            if (frame.length) {
+                var initialButton = $('.import-problem-nav a.is-active').first();
+                if (!initialButton.length) initialButton = $('.import-problem-nav a').first();
+                initialButton.trigger('click');
+            }
+        });
+    </script>
+{% endblock %}
+
+{% block body %}
+    <div class="content-body">
+        <p>{{ _('Select an uploaded problem on the left. Its configuration uses the same unified editor as Add problem, and Save draft keeps every setting for Create problem or Create all.') }}</p>
+        {% if feedback %}<p class="import-preview-status{% if feedback_error %} error{% else %} success{% endif %}">{{ feedback }}</p>{% endif %}
+        <div class="import-preview-layout">
+            <aside class="import-problem-list module">
+                <div class="import-problem-list-header">
+                    <h2>{{ _('Uploaded problems') }}</h2>
+                    <form method="post" action="{{ url('problem_import_create_all', draft.pk) }}">
+                        {% csrf_token %}
+                        <button id="create-all-problems" type="submit" class="button" data-url="{{ url('problem_import_create_all', draft.pk) }}">{{ _('Create all') }}</button>
+                    </form>
+                </div>
+                <span id="create-all-status" class="import-preview-status"></span>
+                <div class="import-problem-nav">
+                    {% for item in items %}
+                    <div class="import-problem-entry">
+                        <a class="import-problem-row{% if item.pk == selected_item.pk %} is-active{% endif %}{% if item.formatting_error or item.type_needs_review or item.name_needs_review or item.data_needs_review or item.config_needs_review %} has-error error{% endif %}" href="?item={{ item.pk }}" data-item-id="{{ item.pk }}" data-name="{{ item.name }}" data-editor-url="{{ url('problem_import_item_editor', draft.pk, item.pk) }}"{% if item.created_problem %} data-created-url="{{ url('problem_detail', item.created_problem.code) }}"{% endif %}{% if item.formatting_error %} title="{{ item.formatting_error }}"{% endif %}>
+                            {% if item.formatting_error or item.type_needs_review or item.name_needs_review or item.data_needs_review or item.config_needs_review %}
+                            <span class="import-problem-state needs-review" title="{{ _('Needs review') }}">{{ '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#DE2121"/><path d="M5 5l6 6m0-6l-6 6" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="2"/></svg>'|safe }}</span>
+                            {% else %}
+                            <span class="import-problem-state is-ready" title="{{ _('Ready') }}">{{ '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="8" fill="#44AD41"/><path d="M4.1 8.2l2.3 2.3 5.4-5.4" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"/></svg>'|safe }}</span>
+                            {% endif %}
+                            <span class="tag-type import-problem-type {{ item.preview_type_class }}">{{ item.preview_type_label }}</span>
+                            <span class="import-problem-name">{{ item.name }}</span>
+                        </a>
+                    </div>
+                    {% endfor %}
+                </div>
+            </aside>
+            <section class="import-preview-panel">
+                {% if selected_item %}
+                {% if selected_item.created_problem %}
+                <div class="module import-created-panel">
+                    <h2><span class="tag-type regular">{{ _('Created') }}</span>{{ selected_item.name }}</h2>
+                    <div class="form-content">
+                        <p>{{ _('This problem has already been created and can no longer be edited in this import draft.') }}</p>
+                        <a class="button" href="{{ url('problem_detail', selected_item.created_problem.code) }}">{{ _('View problem') }}</a>
+                    </div>
+                </div>
+                {% else %}
+                <iframe id="import-editor-frame" class="import-editor-frame" title="{{ _('Problem configuration') }}" src="{{ url('problem_import_item_editor', draft.pk, selected_item.pk) }}"></iframe>
+                {% endif %}
+                {% else %}
+                <p>{{ _('No problems were found in this draft.') }}</p>
+                {% endif %}
+                <span id="import-editor-status" class="import-preview-status"></span>
+            </section>
+        </div>
+    </div>
+{% endblock %}

@@ -1,0 +1,373 @@
+{% if submission.contest_or_none %}
+    {% set prefix_length = submission.contest_or_none.problem.output_prefix_override %}
+{% else %}
+    {% set prefix_length = None %}
+{% endif %}
+{% set is_pretest = submission.is_pretested %}
+
+{% if not submission.results_visible_to(request.user) %}
+    <h3>{{ _('Results hidden') }}</h3>
+    <p>{{ _('Your submission has been received. Results for this problem are hidden until the contest is finalized.') }}</p>
+{% elif ai_batch_pending %}
+    <h3>{{ _('Awaiting AI Feedback') }}</h3>
+    <p>{{ _('This assignment uses batch AI Feedback. Scores use your latest submission per problem and will appear after the teacher runs AI Feedback (or automatically after the contest ends).') }}</p>
+{% elif ai_awaiting_manual %}
+    <h3>{{ _('Answer saved') }}</h3>
+    <p>{{ _('Your answer has been saved. Press "View AI Feedback" to score this submission.') }}</p>
+{# Short answer with no problem-level AI: only hide the case table while still IR.
+   After assignment-level / on-demand Feedback runs, result is AC/WA and rows must show. #}
+{% elif submission.problem.submission_type == 'S' and not problem_has_ai_grading and submission.result == 'IR' %}
+    <h3>{{ _('Answer saved') }}</h3>
+    <p>{{ _('Your answer has been saved.') }}</p>
+{% elif submission.problem.submission_type in ('F', 'M') %}
+    {# File uploads wait for a human grader. MCQ uses the summary (Result + Score), not fake test cases. #}
+{% elif submission.status != 'IE' %}
+    {% if submission.status == 'QU' %}
+        <div class="ai-grading-loading">
+            <div class="ai-grading-spinner"></div>
+            <h4>{% if submission.problem.submission_type in ('B', 'S') %}
+                {{ _('AI is thinking...') }}
+            {% else %}
+                {{ _('We are waiting for a suitable judge to process your submission...') }}
+            {% endif %}</h4>
+        </div>
+    {% elif submission.status == 'P' %}
+        <h4>{{ _('Your submission is being processed...') }}</h4>
+    {% elif submission.status == 'AB' %}
+        <h3>{{ _('Aborted') }}</h3>
+        <p>{{ _('Judging timed out before a judge picked up this submission. Please resubmit.') }}</p>
+    {% elif submission.status == 'CE' %}
+        <h3>{{ _('Compilation Error') }}</h3>
+        <pre>{{ submission.error|ansi2html }}</pre>
+    {% else %}
+        {% if submission.error %}
+            <h3>{{ _('Compilation Warnings') }}</h3>
+            <pre>{{ submission.error|ansi2html }}</pre>
+            <hr class="half-hr"><br>
+        {% endif %}
+        {# Code: same partition layout as contest/grade.html (summary + Test results + AI Feedback). #}
+        {% if submission.problem.submission_type not in ('B', 'S') %}
+        <div class="gd-result-summary">
+            <div>
+                <div class="rs-label">{{ _('Result') }}</div>
+                <div class="rs-value"><span class="case-{{ submission.result_class or submission.result or 'QU' }}">{{ submission.result or '—' }}</span></div>
+            </div>
+            <div>
+                <div class="rs-label">{{ _('Points') }}</div>
+                <div class="rs-value">
+                    {% with points=submission.display_points|floatformat(-1), total=submission.display_points_total|floatformat(-1) %}
+                        {{ points }}/{{ total }}
+                    {% endwith %}
+                </div>
+            </div>
+            {% if submission.language %}
+            <div>
+                <div class="rs-label">{{ _('Language') }}</div>
+                <div class="rs-value">{{ submission.language.common_name or submission.language.name }}</div>
+            </div>
+            {% endif %}
+            <div>
+                <div class="rs-label">{{ _('Time') }}</div>
+                <div class="rs-value">{% if submission.time is not none %}{{ submission.time|floatformat(2) }}s{% else %}—{% endif %}</div>
+            </div>
+            <div>
+                <div class="rs-label">{{ _('Memory') }}</div>
+                <div class="rs-value">{% if submission.memory is not none %}{{ submission.memory|kbdetailformat }}{% else %}—{% endif %}</div>
+            </div>
+        </div>
+        {% if is_pretest %}
+            <div class="gd-section-title">{{ _('Pretest results') }}</div>
+        {% else %}
+            <div class="gd-section-title">{{ _('Test results') }}</div>
+        {% endif %}
+        {% endif %}
+        {% set test_case_id = counter() %}
+
+        {% set show_ai_scores = is_teacher %}
+        {% if submission.problem.submission_type in ('B', 'S') and submission.test_cases.exists() %}
+            <div class="gd-section-title">{{ _('AI Feedback') }}</div>
+            <div class="gd-cases-scroll">
+            <table class="gd-ai-grading">
+              <thead>
+                <tr>
+                  <th>{{ _('Sub-question') }}</th>
+                  {% if show_ai_scores %}<th class="ac">{{ _('Score') }}</th>{% endif %}
+                  <th class="ac">{{ _('Status') }}</th>
+                  <th>{{ _('Feedback') }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for tc in submission.test_cases.all() %}
+                {% set fb = tc.extended_feedback or (tc.feedback if tc.status == 'IR' else '') %}
+                <tr class="gd-ai-row{% if fb %} has-detail toggle closed{% endif %}"
+                    {% if tc.id %}id="{{ tc.id }}"{% endif %}>
+                  <td>
+                    {% if fb %}<i class="fa fa-chevron-right fa-fw gd-ai-chevron"></i>{% endif %}
+                    {% if tc.status == 'IR' and not tc.extended_feedback and tc.feedback %}{{ _('Sub-question') }}{% else %}{{ (tc.feedback or _('Sub-question'))|replace('[AI] ', '') }}{% endif %}
+                  </td>
+                  {% if show_ai_scores %}
+                  <td class="ac">{{ tc.points|floatformat(1) }} / {{ tc.total|floatformat(1) }}</td>
+                  {% endif %}
+                  <td class="ac">
+                    <span class="case-{{ tc.status }}">
+                      {% if tc.status == 'AC' %}{{ _('Correct') }}
+                      {% elif tc.status == 'IR' %}{{ _('Awaiting AI') }}
+                      {% else %}{{ _('Partial') }}{% endif %}
+                    </span>
+                  </td>
+                  <td class="gd-ai-preview">{{ (fb or '')[:120] }}{% if fb and fb|length > 120 %}&hellip;{% endif %}</td>
+                </tr>
+                {% if fb %}
+                <tr style="display:none" class="gd-ai-detail toggled">
+                  <td colspan="{% if show_ai_scores %}4{% else %}3{% endif %}">
+                    <div class="gd-ai-feedback-box">
+                      <strong>{{ _('Detailed Feedback') }}</strong>
+                      <p class="math-feedback">{{ fb|linebreaksbr }}</p>
+                    </div>
+                  </td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+              </tbody>
+              {% if show_ai_scores %}
+              <tfoot>
+                <tr class="gd-ai-total">
+                  <td><strong>{{ _('Total') }}</strong></td>
+                  <td class="ac"><strong>{{ submission.case_points|floatformat(1) }} / {{ submission.case_total|floatformat(1) }}</strong></td>
+                  <td class="ac">
+                    {% if submission.result == 'AC' %}{{ _('All correct') }}
+                    {% elif submission.result == 'IR' %}{{ _('Awaiting AI') }}
+                    {% else %}{{ _('Partial credit') }}{% endif %}
+                  </td>
+                  <td></td>
+                </tr>
+              </tfoot>
+              {% endif %}
+            </table>
+            </div>
+            {% if not submission.is_graded %}
+            <div class="ai-grading-loading">
+                <div class="ai-grading-spinner"></div>
+                <h4>{{ _('AI is thinking...') }}</h4>
+            </div>
+            {% endif %}
+        {% elif submission.problem.submission_type not in ('B', 'S') %}
+        {% for batch in batches %}
+            {% if batch.id %}
+                <b>{{ _('Batch #%(id)d', id=test_case_id()) }}</b>
+                ({{ _('%(points)s/%(total)s points', points=batch.points|floatformat(0), total=batch.total|floatformat(0)) }})
+            {% endif %}
+            <div class="gd-cases-scroll">
+            <table class="gd-testcases">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>{{ _('Result') }}</th>
+                  <th>{{ _('Time') }}</th>
+                  <th>{{ _('Memory') }}</th>
+                  {% if not batch.id %}<th>{{ _('Points') }}</th>{% endif %}
+                </tr>
+              </thead>
+              <tbody>
+            {% for case in batch.cases %}
+            {% set is_ide_submission = submission.problem.code == 'idepractice' %}
+            {% set print_case_output = (is_ide_submission or case.status != 'AC') and case.output and (prefix_length is none or prefix_length > 0) %}
+            {% set case_num = loop.index if batch.id else test_case_id() %}
+            <tr id="{{ case.id }}" class="case-row{% if print_case_output or case.extended_feedback or case.feedback %} toggle closed{% endif %}">
+                <td>
+                    {%- if print_case_output or case.extended_feedback or case.feedback -%}
+                        <i class="fa fa-chevron-right fa-fw"></i>
+                    {%- endif -%}
+                    {{ case_num }}
+                </td>
+                <td>
+                    <span title="{{ case.long_status }}" class="case-{{ case.result_class }}">
+                        {%- if case.status == 'SC' %}&mdash;{% else %}{{ case.status }}{% endif -%}
+                    </span>
+                </td>
+                <td>
+                    {%- if case.status != 'SC' -%}
+                        {%- if case.status == 'TLE' -%}&gt;{{ time_limit|floatformat(2) }}s
+                        {%- else -%}<span title="{{ case.time }}s">{{ case.time|floatformat(2) }}s</span>
+                        {%- endif -%}
+                    {%- else -%}—{% endif -%}
+                </td>
+                <td>{% if case.status != 'SC' %}{{ case.memory|kbdetailformat }}{% else %}—{% endif %}</td>
+                {% if not batch.id %}
+                    <td>{{ case.points|floatformat(0) }}</td>
+                {% endif %}
+            </tr>
+            {% if print_case_output or case.extended_feedback or case.feedback %}
+                <tr id="{{ case.id }}-output" style="display:none" class="case-feedback toggled">
+                    <td colspan="{% if not batch.id %}5{% else %}4{% endif %}">
+                        {% if case.feedback %}
+                            <div class="case-info"><strong>{{ _('Judge feedback') }}</strong>
+                                <pre class="case-output">{{ case.feedback }}</pre></div>
+                        {% endif %}
+                        {% if print_case_output %}
+                            <div class="case-info">
+                                <strong>{{ _('Your output (clipped)') }}</strong>
+                                {% if prefix_length is none %}
+                                    <pre class="case-output">{{ case.output|linebreaksbr }}</pre>
+                                {% else %}
+                                    <pre class="case-output">{{ case.output[:prefix_length]|linebreaksbr }}</pre>
+                                {% endif %}
+                            </div>
+                        {% endif %}
+                        {% if case.extended_feedback %}
+                            <div class="case-info">
+                                <strong>{{ _('Judge feedback') }}</strong>
+                                <pre class="case-output">{{ case.extended_feedback|linebreaksbr }}</pre>
+                            </div>
+                        {% endif %}
+                        {% if submission.problem.view_test_cases and first_failed_case_id == case.case %}
+                            <div style="margin-top:0.35rem">
+                                <a href="{{ url('submission_test_case_download', submission.id, case.case, 'in') }}" onclick="event.stopPropagation()"><i class="fa fa-download" style="transform:none"></i> In</a>
+                                &nbsp;
+                                <a href="{{ url('submission_test_case_download', submission.id, case.case, 'out') }}" onclick="event.stopPropagation()"><i class="fa fa-download" style="transform:none"></i> Out</a>
+                            </div>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endif %}
+            {% endfor %}
+              </tbody>
+            </table>
+            </div>
+        {% endfor %}
+            {% if not submission.is_graded %}
+                <span class="fa fa-spinner fa-pulse"></span>
+            {% endif %}
+            <span id="submission-result" data-result="{{ submission.result }}" style="display:none"></span>
+        {% endif %}
+    {% endif %}
+{% else %}
+    {% include "submission/internal-error-message.html" %}
+{% endif %}
+
+{% if ai_rubric_cases %}
+    {% set show_ai_scores = is_teacher %}
+    <div class="gd-ai-section">
+    {% if show_ai_scores and submission.ai_points is not none %}
+    <p class="gd-section-hint">
+        <b>{{ _('AI score:') }}</b>
+        {{ submission.ai_points|floatformat(1) }}/{{ submission.problem.points|floatformat(-1) }}
+        ({{ _('weighted into the final score above') }})
+    </p>
+    {% endif %}
+    <div class="gd-section-title">{{ _('AI Feedback') }}</div>
+    <p class="gd-section-hint">{{ _('Based on this submission. Separate from the test-case score above.') }}</p>
+    <div class="gd-cases-scroll">
+    <table class="gd-ai-grading">
+      <thead>
+        <tr>
+          <th>{{ _('Sub-question') }}</th>
+          {% if show_ai_scores %}<th class="ac">{{ _('Score') }}</th>{% endif %}
+          <th class="ac">{{ _('Status') }}</th>
+          <th>{{ _('Feedback') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tc in ai_rubric_cases %}
+        {% set detail = tc.extended_feedback or '' %}
+        <tr class="gd-ai-row{% if detail %} has-detail toggle closed{% endif %}">
+          <td>
+            {% if detail %}<i class="fa fa-chevron-right fa-fw gd-ai-chevron"></i>{% endif %}
+            {{ (tc.feedback or _('Sub-question'))|replace('[AI] ', '') }}
+          </td>
+          {% if show_ai_scores %}
+          <td class="ac">
+            <span class="case-{{ tc.status }}">{{ tc.points|floatformat(1) }}</span> / {{ tc.total|floatformat(1) }}
+          </td>
+          {% endif %}
+          <td class="ac">
+            <span class="case-{{ tc.status }}">
+              {% if tc.status == 'AC' %}{{ _('Correct') }}
+              {% elif tc.status == 'IR' %}{{ _('Awaiting AI') }}
+              {% else %}{{ _('Partial') }}{% endif %}
+            </span>
+          </td>
+          <td class="gd-ai-preview">
+            {{ detail[:120] }}{% if detail and detail|length > 120 %}&hellip;{% endif %}
+          </td>
+        </tr>
+        {% if detail %}
+        <tr style="display:none" class="gd-ai-detail toggled">
+          <td colspan="{% if show_ai_scores %}4{% else %}3{% endif %}">
+            <div class="gd-ai-feedback-box">
+              <strong>{{ _('Detailed Feedback') }}</strong>
+              <p class="math-feedback">{{ detail|linebreaksbr }}</p>
+            </div>
+          </td>
+        </tr>
+        {% endif %}
+        {% endfor %}
+      </tbody>
+    </table>
+    </div>
+    </div>
+{% endif %}
+
+
+{% if review_note_html %}
+<div class="ws-review-note">
+    <div class="ws-review-note-label">{{ _('Teacher feedback') }}</div>
+    <div class="ws-review-note-body">{{ review_note_html|safe }}</div>
+</div>
+{% endif %}
+
+{# --- MathJax typesetting for expanded AI feedback rows --- #}
+{% if submission.problem.submission_type in ('B', 'S') %}
+<script>
+(function() {
+    // DMOJ register_all_toggles handles .toggle elements automatically.
+    // We only need to set up MathJax typesetting when feedback rows expand.
+
+    // Typeset MathJax when feedback rows become visible.
+    function typesetMath(el) {
+        if (window.MathJax) {
+            if (MathJax.typesetPromise) MathJax.typesetPromise([el]).catch(function(){});
+            else if (MathJax.typeset) MathJax.typeset([el]);
+            else if (MathJax.Hub) MathJax.Hub.Queue(["Typeset", MathJax.Hub, el]);
+        }
+    }
+    var observer = new MutationObserver(function(mutations) {
+        mutations.forEach(function(m) {
+            if (m.target.style.display !== 'none' && m.oldDisplay === 'none') {
+                var math = m.target.querySelector('.math-feedback');
+                if (math) typesetMath(math);
+            }
+        });
+    });
+    document.querySelectorAll('.gd-ai-detail, .ai-grading-feedback').forEach(function(row) {
+        observer.observe(row, { attributes: true, attributeFilter: ['style'],
+            attributeOldValue: true });
+    });
+})();
+</script>
+{% endif %}
+
+{# --- QU status polling fallback (in case WebSocket doesn't fire) --- #}
+{# Workspace embeds poll via workspace.js; avoid full-page reload there. #}
+{% if submission.status == 'QU' and not workspace_embed and submission.problem.submission_type != 'F' %}
+<script>
+(function() {
+    var pollCount = 0;
+    var maxPolls = 12;  // 12 × 5s = 60s max
+    var interval = setInterval(function() {
+        pollCount++;
+        fetch(location.href, { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+            .then(function(r) { return r.text(); })
+            .then(function(html) {
+                // Check if the response still shows QU status
+                if (html.indexOf('ai-grading-loading') === -1) {
+                    clearInterval(interval);
+                    location.reload();
+                }
+            })
+            .catch(function() { /* network error, will retry */ });
+        if (pollCount >= maxPolls) clearInterval(interval);
+    }, 5000);
+})();
+</script>
+{% endif %}

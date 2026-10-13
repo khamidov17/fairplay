@@ -1,0 +1,2014 @@
+@use "vars" as *;
+@use "sass:color";
+
+/* =============================================================================
+   Contest List V2 + Create V2
+   Uses --oj-* tokens from tokens.scss and leverages .problem-list-redesign
+   component styles (filter-card, multi-select, toolbar, dropdown, badges).
+   ============================================================================= */
+
+/* ── Tabbar (replaces tabs-base.html .tabs) ─────────────────────────────── */
+
+
+/* ── Contest list: layout switch, sections, rows ───────────────────────────── */
+
+.contest-list-redesign {
+    /* Inherit the problem-list-redesign local aliases via nesting */
+    --surface: var(--oj-surface);
+    --bg: var(--oj-bg);
+    --border: var(--oj-border);
+    --text: var(--oj-text);
+    --text-muted: var(--oj-text-muted);
+    --radius: var(--oj-radius-md);
+    --radius-sm: var(--oj-radius);
+
+    max-width: none;
+
+    /* Filter dropdowns share one equal-width row (see problem-list-redesign). */
+    .filter-row-conditions {
+        flex-wrap: nowrap;
+    }
+
+    .filter-controls {
+        min-width: 0;
+    }
+
+    .filter-group {
+        min-width: 0;
+        max-width: 100%;
+        width: 100%;
+    }
+
+    .filter-group .multi-select,
+    .filter-group select.select,
+    .filter-group .select2-container {
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100%;
+        flex: 1 1 0;
+    }
+
+    #filter-author {
+        visibility: hidden;
+        height: var(--oj-control-height);
+        max-height: var(--oj-control-height);
+        overflow: hidden;
+        box-sizing: border-box;
+        width: 100%;
+    }
+
+    .filter-group-author {
+        min-width: 0;
+    }
+
+    .filter-group-author .select2-container {
+        width: 100% !important;
+        max-width: 100%;
+        min-width: 0 !important;
+        flex: 1 1 0;
+    }
+
+    .filter-group .multi-select-trigger {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+
+    /* Sort menu width matches its trigger button */
+    #sort-dropdown .dropdown-menu {
+        width: 100%;
+        min-width: 0;
+        box-sizing: border-box;
+    }
+
+    /* Fix checkbox sizing in filter multi-select dropdowns */
+    .multi-select-option input[type="checkbox"],
+    .multi-select-option input[type="radio"] {
+        flex-shrink: 0;
+        width: 15px;
+        height: 15px;
+        margin: 0;
+        accent-color: var(--oj-accent);
+    }
+
+}
+
+/* Layout switch (inline segmented control) */
+
+/* Section titles (Ongoing, Past, etc.) */
+.cl-section-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin: 1.1rem 0 0.45rem;
+    color: var(--oj-heading);
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+
+    .sec-count {
+        font-size: 12px;
+        font-weight: 400;
+        color: var(--oj-text-muted);
+    }
+}
+
+/* Group header (status / course grouping) — matches the Problem page's dark
+   table-heading style (--oj-heading background + light text). */
+.cl-group-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.45rem 0.6rem;
+    margin: 1rem 0 0.45rem;
+    background: var(--oj-heading);
+    border: 1px solid var(--oj-heading);
+    border-radius: var(--oj-radius);
+    color: var(--oj-heading-text);
+    font-size: 13px;
+    font-weight: 600;
+
+    i {
+        color: var(--oj-heading-text);
+        opacity: 0.8;
+        margin-right: 0.35rem;
+    }
+
+    small {
+        color: var(--oj-heading-text);
+        opacity: 0.75;
+        font-weight: 400;
+        font-size: 12px;
+    }
+}
+
+/* Org-grouped header */
+.cl-org-head {
+    font-size: 14px;
+    font-weight: 600;
+    margin: 1rem 0 0.4rem;
+    padding: 0.35rem 0.5rem;
+    background: var(--oj-bg);
+    border-radius: var(--oj-radius);
+    color: var(--oj-text);
+    border: 1px solid var(--oj-border);
+
+    i {
+        color: var(--oj-text-muted);
+        margin-right: 0.35rem;
+    }
+}
+
+/* Empty state */
+.cl-empty {
+    text-align: center;
+    padding: 2.5rem 1rem;
+    color: var(--oj-text-muted);
+    border: 1px dashed var(--oj-border);
+    border-radius: var(--oj-radius-md);
+    background: var(--oj-surface);
+}
+
+/* Contest row */
+.cl-row {
+    display: grid;
+    /* Title grows; Users + actions share one auto column so short Past
+       buttons do not leave a 20rem hole between the name and Join. */
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.75rem 1rem;
+    align-items: center;
+    padding: 0.8rem 0.95rem;
+    border: 1px solid var(--oj-border);
+    border-bottom: none;
+    background: var(--oj-surface);
+
+    &:hover {
+        background: var(--oj-hover-overlay);
+    }
+}
+
+.cl-row--with-author {
+    grid-template-columns: minmax(0, 1fr) minmax(6.5rem, 11rem) auto;
+}
+
+
+/* Border radius on first/last rows within a section */
+.cl-list > .cl-row:first-child {
+    border-radius: var(--oj-radius-md) var(--oj-radius-md) 0 0;
+}
+
+.cl-list > .cl-row:last-child,
+.cl-section .cl-row:last-of-type {
+    border-bottom: 1px solid var(--oj-border);
+    border-radius: 0 0 var(--oj-radius-md) var(--oj-radius-md);
+}
+
+.cl-section .cl-row:first-of-type {
+    border-radius: var(--oj-radius-md) var(--oj-radius-md) 0 0;
+}
+
+/* Row inner elements */
+.cl-primary-line {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: baseline;
+}
+
+.cl-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--oj-link);
+
+    &:hover {
+        color: var(--oj-accent-hover);
+        text-decoration: none;
+    }
+}
+
+.cl-course-line {
+    margin-top: 0.3rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+}
+
+.cl-meta {
+    margin-top: 0.3rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+    align-items: center;
+}
+
+.cl-time {
+    margin-top: 0.35rem;
+    font-size: 13px;
+    color: var(--oj-text-muted);
+    line-height: 1.45;
+
+    .emph {
+        color: var(--oj-emph-ongoing);
+        font-weight: 500;
+    }
+
+    .emph.warn {
+        color: var(--oj-emph-upcoming);
+    }
+
+    .emph.muted {
+        color: var(--oj-text-muted);
+        font-weight: 400;
+    }
+}
+
+.cl-trailing {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    white-space: nowrap;
+    min-width: 0;
+}
+
+.cl-authors {
+    min-width: 0;
+    text-align: left;
+    font-size: 13px;
+    color: var(--oj-text);
+    white-space: normal;
+    word-break: break-word;
+    line-height: 1.35;
+
+    .lbl {
+        display: block;
+        margin-top: 0.15rem;
+        font-size: 10px;
+        color: var(--oj-dim-label);
+        font-weight: 400;
+    }
+}
+
+.cl-users {
+    text-align: center;
+    min-width: 64px;
+    flex-shrink: 0;
+    font-size: 13px;
+    color: var(--oj-text-muted);
+
+    a {
+        color: var(--oj-link);
+        font-weight: 600;
+
+        &:hover {
+            text-decoration: none;
+        }
+    }
+
+    .lbl {
+        display: block;
+        font-size: 10px;
+        color: var(--oj-dim-label);
+        font-weight: 400;
+    }
+}
+
+.cl-actions {
+    min-width: 0;
+    width: auto;
+    flex-shrink: 0;
+    text-align: right;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    min-height: 2.15rem;
+    box-sizing: border-box;
+
+    .cl-join-actions,
+    .cl-manage-actions {
+        display: flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.35rem;
+        min-height: 2.15rem;
+    }
+
+    form {
+        display: inline-flex;
+        margin: 0;
+    }
+
+    .row-action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 1.5rem;
+        height: 1.5rem;
+        font-size: 15px;
+        cursor: pointer;
+        background: none;
+        border: none;
+        padding: 0;
+        color: var(--oj-link) !important;
+        text-decoration: none;
+        line-height: 1;
+
+        &:hover { opacity: 0.75; }
+        &.row-action-danger { color: var(--oj-danger) !important; }
+    }
+
+    .button {
+        display: inline-block;
+        padding: 0.35rem 0.85rem;
+        border: 1px solid var(--oj-btn-border);
+        border-radius: var(--oj-radius);
+        background: linear-gradient(to bottom, var(--oj-btn-from) 0, var(--oj-btn-to) 100%) repeat-x;
+        font-size: 13px;
+        cursor: pointer;
+        color: var(--oj-btn-text);
+        text-decoration: none;
+
+        &:hover {
+            background: var(--oj-btn-hover);
+            color: var(--oj-btn-text);
+            text-decoration: none;
+        }
+
+        &:active,
+        &:focus-visible {
+            outline: 2px solid var(--oj-accent);
+            outline-offset: 1px;
+        }
+
+        &:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        &.primary {
+            /* Emphasis marker matching the list-v2 mockup's primary action.
+               The base .button already uses the blue gradient, so this only
+               tightens the border to signal the primary affordance. */
+            border-color: var(--oj-accent);
+        }
+
+        &.ghost {
+            background: var(--oj-surface);
+            border-color: var(--oj-border);
+            color: var(--oj-text-muted);
+
+            &:hover {
+                border-color: var(--oj-accent);
+                color: var(--oj-accent);
+                background: var(--oj-surface);
+            }
+        }
+
+        /* Slim teacher actions (Grade / Edit) — matches the reference small boxes */
+        &.slim {
+            padding: 0.28rem 0.6rem;
+            font-size: 12px;
+            background: var(--oj-surface);
+            border-color: var(--oj-border);
+            color: var(--oj-text);
+
+            &:hover {
+                border-color: var(--oj-accent);
+                color: var(--oj-accent);
+                background: var(--oj-surface);
+            }
+        }
+    }
+}
+
+.cl-progress {
+    font-size: 11px;
+    color: var(--oj-text-muted);
+    margin-left: 0.25rem;
+}
+
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modal-overlay[hidden] {
+    display: none;
+}
+
+.modal-box {
+    background: var(--oj-surface, #fff);
+    width: 460px;
+    max-width: 92vw;
+    border: 1px solid var(--oj-border, #ccc);
+    border-radius: var(--oj-radius-lg, 8px);
+    padding: 1.25rem 1.5rem;
+    box-shadow: var(--oj-shadow-modal);
+}
+
+.modal-title {
+    margin: 0 0 0.5rem;
+    font-size: 1.1rem;
+}
+
+.modal-desc {
+    margin: 0 0 0.75rem;
+    color: var(--oj-text-muted, #555);
+    font-size: 13px;
+}
+
+.modal-count {
+    margin: 0 0 0.5rem;
+    font-size: 13px;
+    color: var(--oj-text-muted, #555);
+}
+
+.modal-list {
+    margin: 0 0 1rem;
+    padding-left: 1.25rem;
+    font-size: 13px;
+    font-weight: 600;
+    max-height: 12rem;
+    overflow-y: auto;
+}
+
+.modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+#assignment-delete-confirm {
+    color: var(--oj-btn-text, #fff) !important;
+    background: var(--oj-danger, #c0392b);
+    border-color: var(--oj-danger, #c0392b);
+}
+
+/* ── Badges ────────────────────────────────────────────────────────────────── */
+
+.badge {
+    display: inline-block;
+    font-size: 11px;
+    padding: 0.1rem 0.4rem;
+    border-radius: 3px;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.badge-st-ongoing {
+    background: var(--oj-badge-ongoing-bg);
+    color: var(--oj-badge-ongoing-text);
+}
+
+.badge-st-upcoming {
+    background: var(--oj-badge-upcoming-bg);
+    color: var(--oj-badge-upcoming-text);
+}
+
+.badge-st-past {
+    background: var(--oj-badge-past-bg);
+    color: var(--oj-badge-past-text);
+}
+
+.badge-st-mine {
+    background: var(--oj-badge-mine-bg);
+    color: var(--oj-badge-mine-text);
+}
+
+.badge-kind-homework {
+    background: var(--oj-badge-upcoming-bg);
+    color: var(--oj-badge-upcoming-text);
+}
+
+.badge-kind-exam {
+    background: var(--oj-danger-soft);
+    color: var(--oj-danger-soft-text);
+}
+
+.badge-kind-list {
+    background: var(--oj-badge-mine-bg);
+    color: var(--oj-badge-mine-text);
+}
+
+.badge-org {
+    background: var(--oj-badge-org-bg);
+    color: var(--oj-badge-org-text);
+}
+
+.badge-class {
+    background: var(--oj-badge-class-bg);
+    color: var(--oj-badge-class-text);
+}
+
+.badge-rated {
+    background: var(--oj-badge-rated-bg);
+    color: var(--oj-badge-rated-text);
+}
+
+.badge-tag {
+    color: #fff;
+}
+
+/* Time-limited assignments (per-student duration window). Rendered in the
+   same soft-colour status-badge family as Ongoing/Upcoming/Past, but red so
+   it stays visually distinct from the other badges and custom tag pills. */
+.badge-duration {
+    background: var(--oj-danger-soft);
+    color: var(--oj-danger-soft-text);
+}
+
+/* Explanatory note for time-limited assignments (student detail page +
+   editor warning when the timer would run past the assignment deadline) */
+.dur-note {
+    margin-top: 0.6em;
+    padding: 0.45em 0.75em;
+    background: var(--oj-warning-soft, #fde68a);
+    border: 1px solid var(--oj-warning-border, #ffe082);
+    border-radius: 4px;
+    font-size: 13px;
+    color: var(--oj-warning-text, #8a5a00);
+}
+
+/* Tag swatch in multi-select */
+.multi-select-option .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    display: inline-block;
+    flex-shrink: 0;
+}
+
+/* Pagination */
+.cl-pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1rem;
+    padding: 1rem;
+
+    .page-info {
+        font-size: var(--oj-font-size);
+        color: var(--oj-text-muted);
+    }
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+    .cl-row,
+    .cl-row--with-author {
+        grid-template-columns: 1fr;
+    }
+
+    .cl-trailing {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        white-space: normal;
+    }
+
+    .cl-authors,
+    .cl-users,
+    .cl-actions {
+        text-align: left;
+        justify-content: flex-start;
+        width: auto;
+        max-width: none;
+    }
+}
+
+/* =============================================================================
+   Contest Create V2 — split layout (left form / right preview)
+   ============================================================================= */
+
+/* Top bar */
+.sp-top {
+    flex-shrink: 0;
+    padding: 0.55rem 1.25rem 0.65rem;
+    border-bottom: 1px solid var(--oj-border);
+    background: var(--oj-surface);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    /* Full-width breakout from #content { width: 90% } */
+    margin-left: calc(50% - 50vw);
+    margin-right: calc(50% - 50vw);
+    padding-left: calc(50vw - 50% + 1.25rem);
+    padding-right: calc(50vw - 50% + 1.25rem);
+
+    .crumb {
+        font-size: 12px;
+        color: var(--oj-text-muted);
+        width: 100%;
+
+        a {
+            color: var(--oj-link);
+            text-decoration: none;
+
+            &:hover {
+                text-decoration: underline;
+            }
+        }
+    }
+
+    h1 {
+        margin: 0;
+        font-size: 1.25rem;
+        font-weight: 400;
+        color: var(--oj-heading);
+    }
+
+    .actions {
+        margin-left: auto;
+        display: flex;
+        gap: 0.5rem;
+    }
+}
+
+/* Layout switch for create page */
+.sp-layout-switch {
+    display: inline-flex;
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+    overflow: hidden;
+    margin-right: 0.5rem;
+
+    button {
+        border: none;
+        background: var(--oj-surface);
+        padding: 0.3rem 0.65rem;
+        font-size: 12px;
+        cursor: pointer;
+        color: var(--oj-text-muted);
+        border-right: 1px solid var(--oj-border);
+
+        &:last-child {
+            border-right: none;
+        }
+
+        &.active {
+            background: var(--oj-accent);
+            color: #fff;
+        }
+    }
+}
+
+/* Split layout */
+.sp-split {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+
+    &.layout-lr {
+        flex-direction: row;
+    }
+
+    &.layout-tb {
+        flex-direction: column;
+
+        .sp-left {
+            flex: 1;
+            border-right: none;
+            border-bottom: 1px solid var(--oj-border);
+        }
+
+        .sp-right {
+            flex: 1;
+            display: flex;
+        }
+    }
+}
+
+.sp-left {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 1rem 1.25rem 2.5rem;
+    border-right: 1px solid var(--oj-border);
+    min-width: 0;
+}
+
+.sp-right {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0;
+    background: var(--oj-bg);
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+
+    .pv-head {
+        position: sticky;
+        top: 0;
+        z-index: 2;
+        background: var(--oj-bg);
+        padding: 0.85rem 1.25rem 0.55rem;
+        border-bottom: 1px solid var(--oj-border);
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--oj-text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .pv-body {
+        padding: 1rem 1.25rem 2rem;
+        flex: 1;
+    }
+}
+
+/* ── Form cards (create page) ─────────────────────────────────────────────── */
+
+.ac-card {
+    background: var(--oj-surface);
+    border: 1px solid var(--oj-border);
+    border-radius: 6px;
+    padding: 1rem 1.15rem;
+    margin-bottom: 0.85rem;
+}
+
+.ac-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 0.85rem;
+
+    &:last-child {
+        margin-bottom: 0;
+    }
+}
+
+.ac-label {
+    width: 100px;
+    flex-shrink: 0;
+    padding-top: 0.4rem;
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--oj-heading);
+
+    .req {
+        color: var(--oj-danger);
+    }
+}
+
+.ac-field {
+    flex: 1;
+    min-width: 0;
+
+    input[type="text"],
+    input[type="number"],
+    input[type="datetime-local"],
+    input[type="time"],
+    select,
+    textarea {
+        width: 100%;
+        max-width: 100%;
+        padding: 0.4rem 0.55rem;
+        border: 1px solid var(--oj-border);
+        border-radius: var(--oj-radius);
+        font-size: 13px;
+        box-sizing: border-box;
+        background: var(--oj-surface);
+        color: var(--oj-text);
+    }
+
+    textarea {
+        min-height: 64px;
+        resize: vertical;
+        font-family: ui-monospace, Menlo, monospace;
+        font-size: 12px;
+    }
+
+    select[multiple] {
+        height: auto;
+        min-height: 100px;
+    }
+
+    /* Fix checkbox stretching inside multi-select */
+    .multi-select-option input[type="checkbox"] {
+        flex-shrink: 0;
+        width: 15px;
+        height: 15px;
+        margin: 0;
+        accent-color: var(--oj-accent);
+    }
+}
+
+/* Contest-create-v2 full-height layout inside #content-body */
+.contest-create-v2 {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - 52px);
+    margin: -52px 0 0;
+    padding-top: 52px;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.ac-help {
+    font-size: 11px;
+    color: var(--oj-text-muted);
+    margin-top: 0.25rem;
+}
+
+.ac-inline {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+
+    input[type="number"] {
+        width: 64px;
+    }
+
+    .unit {
+        color: var(--oj-text-muted);
+        font-size: 12px;
+    }
+}
+
+.ac-link {
+    color: var(--oj-accent);
+    font-size: 12px;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+
+    &:hover {
+        text-decoration: underline;
+    }
+}
+
+/* Validity compact */
+.validity-compact {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+
+    .ac-inline {
+        /* Allow the two datetime-local boxes to wrap onto their own line when the
+           form column narrows, instead of overflowing the field (each box has a
+           min-width of 9.5rem, so a nowrap row needs ~330px to fit). */
+        flex-wrap: wrap;
+    }
+
+    input[type="datetime-local"] {
+        width: auto;
+        max-width: 10.75rem;
+        flex: 0 1 auto;
+        font-size: 12px;
+        padding: 0.3rem 0.35rem;
+    }
+}
+
+/* Segmented control (radio group) */
+.seg {
+    display: inline-flex;
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+    overflow: hidden;
+    background: var(--oj-surface);
+
+    label {
+        margin: 0;
+        cursor: pointer;
+    }
+
+    input {
+        display: none;
+    }
+
+    span {
+        display: block;
+        padding: 0.35rem 0.7rem;
+        border-right: 1px solid var(--oj-border);
+        font-size: 12px;
+        color: var(--oj-text-muted);
+    }
+
+    label:last-child span {
+        border-right: none;
+    }
+
+    input:checked + span {
+        background: var(--oj-accent);
+        color: #fff;
+    }
+}
+
+/* Tag pills (create page) */
+.tag-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.45rem;
+    flex-wrap: wrap;
+}
+
+.tag-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+    flex: 1;
+    min-width: 0;
+}
+
+.tag-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 14px;
+    font-size: 11px;
+    border: 1px solid var(--oj-badge-tag-bg);
+    background: var(--oj-badge-tag-bg);
+    color: var(--oj-badge-tag-text);
+
+    .x {
+        cursor: pointer;
+        border: none;
+        background: none;
+        color: inherit;
+        opacity: 0.6;
+    }
+}
+
+.tag-add-wrap {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.tag-add {
+    border: 1px dashed var(--oj-accent);
+    background: var(--oj-surface);
+    color: var(--oj-accent);
+    border-radius: 14px;
+    padding: 0.15rem 0.5rem;
+    font-size: 11px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.tag-suggest {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 100%;
+    z-index: 20;
+    background: var(--oj-surface);
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+    box-shadow: var(--oj-shadow-dropdown);
+    min-width: 140px;
+    margin-top: 0.2rem;
+
+    &.open {
+        display: block;
+    }
+
+    button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        border: none;
+        background: none;
+        padding: 0.4rem 0.65rem;
+        font-size: 12px;
+        cursor: pointer;
+        color: var(--oj-text);
+
+        &:hover {
+            background: var(--oj-bg);
+        }
+    }
+}
+
+/* Dropdown wrapper (create page) */
+.dd-wrap {
+    position: relative;
+    max-width: 100%;
+}
+
+.dd-trigger {
+    width: 100%;
+    text-align: left;
+    padding: 0.4rem 0.55rem;
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+    font-size: 13px;
+    background: var(--oj-surface);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    color: var(--oj-text);
+    min-height: 32px;
+    box-sizing: border-box;
+
+    &:disabled {
+        background: var(--oj-bg);
+        color: var(--oj-text-muted);
+        cursor: not-allowed;
+    }
+
+    .ph {
+        color: var(--oj-text-muted);
+    }
+}
+
+.dd-menu {
+    display: none;
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    z-index: 25;
+    background: var(--oj-surface);
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+    box-shadow: var(--oj-shadow-dropdown);
+    max-height: 180px;
+    overflow-y: auto;
+    margin-top: 2px;
+
+    &.open {
+        display: block;
+    }
+
+    label {
+        display: flex;
+        align-items: center;
+        gap: 0.45rem;
+        padding: 0.4rem 0.65rem;
+        font-weight: normal;
+        font-size: 12px;
+        cursor: pointer;
+        margin: 0;
+
+        &:hover {
+            background: var(--oj-bg);
+        }
+    }
+
+    .dd-empty {
+        padding: 0.55rem 0.65rem;
+        color: var(--oj-text-muted);
+        font-size: 12px;
+    }
+}
+
+/* ── Collapsible sections (create page) ───────────────────────────────────── */
+
+.ac-fold {
+    background: var(--oj-surface);
+    border: 1px solid var(--oj-border);
+    border-radius: 6px;
+    margin-bottom: 0.85rem;
+    overflow: hidden;
+
+    > summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 0.7rem 1rem;
+        font-weight: 600;
+        font-size: 13px;
+        display: flex;
+        justify-content: space-between;
+        background: var(--oj-bg);
+
+        &::-webkit-details-marker {
+            display: none;
+        }
+    }
+
+    &[open] > summary {
+        border-bottom: 1px solid var(--oj-border);
+    }
+
+    > summary .chev::before {
+        content: '\f078';
+        font-family: FontAwesome;
+        font-size: 11px;
+        color: var(--oj-text-muted);
+    }
+
+    &[open] > summary .chev::before {
+        content: '\f077';
+    }
+
+    .fold-body {
+        padding: 0.85rem 1rem;
+    }
+}
+
+/* ── Problem list (create page) ───────────────────────────────────────────── */
+
+.cp-toolbar {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.65rem;
+    align-items: center;
+
+    .spacer {
+        flex: 1;
+    }
+
+    .count {
+        font-size: 11px;
+        color: var(--oj-text-muted);
+    }
+
+    .cp-ai-hint {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        margin-left: 0.25rem;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--oj-text);
+        cursor: pointer;
+        user-select: none;
+
+        input {
+            margin: 0;
+            accent-color: var(--oj-accent);
+        }
+    }
+}
+
+.cp-empty {
+    text-align: center;
+    padding: 1.5rem;
+    color: var(--oj-text-muted);
+    border: 1px dashed var(--oj-border);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.cp-list {
+    border: 1px solid var(--oj-border);
+    border-radius: 6px;
+    overflow: visible;
+}
+
+.cp-row {
+    display: grid;
+    grid-template-columns: 24px 28px minmax(0, 1fr) 52px 68px 108px;
+    gap: 0.25rem;
+    align-items: center;
+    padding: 0.45rem 0.5rem;
+    border-bottom: 1px solid var(--oj-border);
+    font-size: 12px;
+    background: var(--oj-surface);
+
+    .drag {
+        color: var(--oj-text-muted);
+        cursor: grab;
+        text-align: center;
+    }
+
+    .label-letter {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        border-radius: 50%;
+        background: var(--oj-accent);
+        color: #fff;
+        font-weight: 700;
+        font-size: 11px;
+    }
+
+    .pname {
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        display: block;
+    }
+
+    input.cp-display-name {
+        font-weight: 600;
+        font-size: inherit;
+        font-family: inherit;
+        color: inherit;
+        width: 100%;
+        min-width: 0;
+        border: 1px solid transparent;
+        background: transparent;
+        padding: 0.15rem 0.3rem;
+        margin: 0;
+        border-radius: var(--oj-radius);
+        cursor: text;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        box-sizing: border-box;
+
+        &:hover {
+            border-color: var(--oj-border);
+            background: var(--oj-surface-muted);
+        }
+
+        &:focus {
+            outline: none;
+            border-color: var(--oj-accent);
+            background: var(--oj-surface);
+            text-overflow: clip;
+        }
+
+        &::placeholder {
+            color: var(--oj-text-muted);
+            font-weight: 600;
+        }
+    }
+
+    .pcode {
+        color: var(--oj-text-muted);
+        font-size: 11px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    input[type="number"] {
+        width: 48px;
+        max-width: 100%;
+        padding: 0.2rem 0.25rem;
+        border: 1px solid var(--oj-border);
+        border-radius: 3px;
+        font-size: 12px;
+        box-sizing: border-box;
+    }
+}
+
+.cp-actions {
+    display: flex;
+    gap: 0.2rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+/* Icon button (shared) */
+.btn-icon {
+    border: 1px solid var(--oj-border);
+    background: var(--oj-surface);
+    border-radius: 3px;
+    width: 24px;
+    height: 24px;
+    cursor: pointer;
+    font-size: 11px;
+    color: var(--oj-text-muted);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+
+    &:hover {
+        border-color: var(--oj-accent);
+        color: var(--oj-accent);
+    }
+
+    &.danger:hover {
+        border-color: var(--oj-danger);
+        color: var(--oj-danger);
+    }
+}
+
+/* Insert line between problem rows */
+.cp-insert {
+    position: relative;
+    height: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover::before {
+        content: '';
+        position: absolute;
+        left: 0.75rem;
+        right: 0.75rem;
+        height: 1px;
+        background: var(--oj-accent);
+    }
+}
+
+.cp-insert-btn {
+    position: relative;
+    z-index: 2;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    border: 1px solid var(--oj-border);
+    background: var(--oj-surface);
+    color: var(--oj-text-muted);
+    cursor: pointer;
+    font-size: 12px;
+    opacity: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.cp-insert:hover .cp-insert-btn {
+    opacity: 1;
+    border-color: var(--oj-accent);
+    color: var(--oj-accent);
+}
+
+.cp-insert-menu {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    background: var(--oj-surface);
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+    box-shadow: var(--oj-shadow-dropdown);
+    min-width: 140px;
+    padding: 0.2rem 0;
+}
+
+.cp-insert.open .cp-insert-menu {
+    display: block;
+}
+
+.cp-insert-menu button {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: none;
+    background: none;
+    padding: 0.4rem 0.75rem;
+    font-size: 12px;
+    cursor: pointer;
+
+    &:hover {
+        background: var(--oj-bg);
+    }
+}
+
+/* ── Anti-cheat grid ───────────────────────────────────────────────────────── */
+
+.cheat-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.65rem;
+    background: var(--oj-bg);
+    border-radius: var(--oj-radius);
+    padding: 0.7rem;
+    margin-top: 0.55rem;
+}
+
+.cheat-item {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    font-size: 12px;
+    gap: 0.75rem;
+
+    .cheat-meta {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .cheat-title {
+        font-weight: 600;
+        color: var(--oj-heading);
+    }
+
+    .cheat-sub {
+        margin-top: 0.2rem;
+        font-size: 11px;
+        color: var(--oj-text-muted);
+        line-height: 1.4;
+    }
+}
+
+.cheat-detail {
+    display: none;
+    margin-top: 0.45rem;
+    padding: 0.55rem 0.65rem;
+    background: var(--oj-surface);
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+
+    &.open {
+        display: block;
+    }
+
+    .ac-inline input[type="text"] {
+        width: 160px;
+        max-width: 100%;
+    }
+}
+
+/* Toggle switch */
+.sw {
+    position: relative;
+    width: 32px;
+    height: 18px;
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+
+    input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    .slider {
+        position: absolute;
+        inset: 0;
+        background: var(--oj-text-muted);
+        border-radius: 20px;
+        cursor: pointer;
+
+        &::before {
+            content: '';
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            left: 2px;
+            top: 2px;
+            background: #fff;
+            border-radius: 50%;
+            transition: 0.15s;
+        }
+    }
+
+    input:checked + .slider {
+        background: var(--oj-accent);
+    }
+
+    input:checked + .slider::before {
+        transform: translateX(14px);
+    }
+}
+
+/* ── Format config (create page) ──────────────────────────────────────────── */
+
+.fmt-config {
+    display: none;
+    margin-top: 0.45rem;
+    padding: 0.55rem;
+    background: var(--oj-bg);
+    border-radius: var(--oj-radius);
+
+    &.open {
+        display: block;
+    }
+}
+
+/* ── Preview panel (create page) ──────────────────────────────────────────── */
+
+#banner {
+    border-bottom: 1px solid var(--oj-border);
+    padding-bottom: 0.85rem;
+    margin-bottom: 1rem;
+    color: var(--oj-text-muted);
+
+    .date {
+        display: block;
+        text-decoration: none;
+        text-align: center;
+        font-size: 1.35rem;
+        line-height: 1.3;
+        color: var(--oj-link);
+        padding-bottom: 0.2rem;
+    }
+
+    #time {
+        text-align: center;
+        font-size: 13px;
+        color: var(--oj-text-muted);
+    }
+}
+
+.pv-contest-title {
+    font-size: 1.4rem;
+    font-weight: 400;
+    color: var(--oj-heading);
+    margin: 0 0 0.5rem;
+}
+
+.pv-tags {
+    margin: 0.5rem 0 1rem;
+}
+
+.contest-tag {
+    box-shadow: inset 0 -0.1em 0 rgba(0, 0, 0, 0.12);
+    padding: 0.15em 0.35em;
+    border-radius: 0.15em;
+    font-weight: 600;
+    margin-right: 0.4em;
+    font-size: 11px;
+    display: inline-block;
+    background: var(--oj-badge-tag-bg);
+    color: var(--oj-badge-tag-text);
+}
+
+.pv-desc {
+    background: var(--oj-surface);
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+    padding: 0.85rem 1rem;
+    margin-bottom: 1rem;
+    min-height: 60px;
+    line-height: 1.6;
+    font-size: 13px;
+
+    &:empty::before {
+        content: 'No description yet.';
+        color: var(--oj-text-muted);
+        font-style: italic;
+    }
+}
+
+.pv-problems {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    background: var(--oj-surface);
+
+    th,
+    td {
+        border: 1px solid var(--oj-border);
+        padding: 0.45rem 0.65rem;
+        text-align: left;
+    }
+
+    th {
+        background: var(--oj-bg);
+        color: var(--oj-text-muted);
+        font-size: 12px;
+    }
+}
+
+/* ── Problem bank slideover ────────────────────────────────────────────────── */
+
+.slideover {
+    position: fixed;
+    inset: 0;
+    z-index: 250;
+    display: none;
+
+    &.open {
+        display: block;
+    }
+
+    .so-mask {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.35);
+    }
+}
+
+.so-panel {
+    position: absolute;
+    top: 0;
+    right: 0;
+    height: 100%;
+    width: 1040px;
+    max-width: 96vw;
+    background: var(--oj-surface);
+    box-shadow: -8px 0 30px rgba(0, 0, 0, 0.2);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(100%);
+    transition: transform 0.25s ease;
+}
+
+.slideover.open .so-panel {
+    transform: translateX(0);
+}
+
+.so-head {
+    display: flex;
+    align-items: center;
+    padding: 0.85rem 1.1rem;
+    border-bottom: 1px solid var(--oj-border);
+
+    h2 {
+        margin: 0 auto 0 0;
+        font-size: 1rem;
+    }
+
+    .so-close {
+        background: none;
+        border: none;
+        font-size: 1.3rem;
+        cursor: pointer;
+        color: var(--oj-text-muted);
+    }
+}
+
+.so-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.65rem 1rem;
+    border-bottom: 1px solid var(--oj-border);
+    background: var(--oj-bg);
+    position: relative;
+    flex-shrink: 0;
+}
+
+.so-search {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 0;
+    border: 1px solid var(--oj-border);
+    border-radius: 999px;
+    padding: 0.3rem 0.7rem;
+    background: var(--oj-surface);
+
+    i {
+        color: var(--oj-text-muted);
+        font-size: 12px;
+    }
+
+    input {
+        border: none;
+        outline: none;
+        width: 100%;
+        font-size: 13px;
+        background: transparent;
+    }
+}
+
+.so-body {
+    flex: 1;
+    overflow: auto;
+}
+
+.so-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+
+    th {
+        position: sticky;
+        top: 0;
+        background: var(--oj-surface);
+        text-align: left;
+        padding: 0.45rem 0.65rem;
+        border-bottom: 1px solid var(--oj-border);
+        color: var(--oj-text-muted);
+        font-size: 11px;
+    }
+
+    td {
+        padding: 0.45rem 0.65rem;
+        border-bottom: 1px solid var(--oj-bg);
+    }
+
+    tr {
+        cursor: pointer;
+
+        &:hover {
+            background: var(--oj-bg);
+        }
+
+        &.picked {
+            background: var(--oj-accent-soft);
+        }
+    }
+}
+
+.so-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--oj-border);
+    background: var(--oj-bg);
+
+    .spacer {
+        flex: 1;
+    }
+}
+
+#problem-library {
+    .lib-filters {
+        flex-shrink: 0;
+        padding: 0.55rem 0.75rem;
+        border-bottom: 1px solid var(--oj-border);
+        background: var(--oj-bg);
+    }
+
+    .ws-drawer-toolbar {
+        padding: 0;
+        border-bottom: none;
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .ws-filter-panel .select2-container {
+        min-width: 0;
+        max-width: none;
+    }
+
+    .so-table {
+        .col-name {
+            min-width: 140px;
+        }
+
+        .col-course {
+            max-width: 140px;
+        }
+    }
+}
+
+/* ── Score / points helpers ────────────────────────────────────────────────── */
+
+.diff-label {
+    font-size: 11px;
+    font-weight: 600;
+
+    &.easy {
+        color: var(--oj-emph-ongoing);
+    }
+
+    &.medium {
+        color: var(--oj-emph-upcoming);
+    }
+
+    &.hard {
+        color: var(--oj-danger);
+    }
+}
+
+.score-mismatch {
+    color: var(--oj-danger);
+    font-weight: 600;
+}
+
+/* ── Advanced sub-sections ─────────────────────────────────────────────────── */
+
+.adv-sub {
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+    margin-bottom: 0.65rem;
+    overflow: hidden;
+    background: var(--oj-bg);
+
+    > summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 0.5rem 0.75rem;
+        font-size: 12px;
+        font-weight: 600;
+        color: var(--oj-heading);
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: var(--oj-bg);
+
+        &::-webkit-details-marker {
+            display: none;
+        }
+    }
+
+    &[open] > summary {
+        border-bottom: 1px solid var(--oj-border);
+    }
+
+    > summary .chev::before {
+        content: '\f078';
+        font-family: FontAwesome;
+        font-size: 10px;
+        color: var(--oj-text-muted);
+    }
+
+    &[open] > summary .chev::before {
+        content: '\f077';
+    }
+
+    .fold-body {
+        padding: 0.65rem 0.75rem;
+        background: var(--oj-surface);
+    }
+}
+
+.check-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem 0.75rem;
+
+    label {
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-weight: normal;
+        margin: 0;
+        font-size: 12px;
+
+        input[type="checkbox"] {
+            flex-shrink: 0;
+            width: 15px;
+            height: 15px;
+            margin: 0;
+            accent-color: var(--oj-accent);
+        }
+
+        .oj-tip {
+            flex-shrink: 0;
+        }
+    }
+}
+
+/* ── Buttons (create page, aligned with components.scss) ───────────────────── */
+
+.btn {
+    display: inline-block;
+    padding: 0.4rem 0.9rem;
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+    background: var(--oj-surface);
+    color: var(--oj-text);
+    cursor: pointer;
+    font-size: 13px;
+    text-decoration: none;
+
+    &:hover {
+        background: var(--oj-bg);
+        text-decoration: none;
+    }
+}
+
+.btn-primary {
+    background: linear-gradient(to bottom, var(--oj-btn-from) 0, var(--oj-btn-to) 100%) repeat-x;
+    border-color: var(--oj-btn-border);
+    color: var(--oj-btn-text);
+
+    &:hover {
+        background: var(--oj-btn-hover);
+        color: var(--oj-btn-text);
+    }
+}
+
+.btn-soft {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.35rem 0.75rem;
+    border: 1px solid var(--oj-btn-border);
+    border-radius: var(--oj-radius);
+    background: linear-gradient(to bottom, var(--oj-btn-from) 0, var(--oj-btn-to) 100%) repeat-x;
+    color: var(--oj-btn-text);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+    text-decoration: none;
+
+    &:hover {
+        background: var(--oj-btn-hover);
+        text-decoration: none;
+    }
+
+    &.alt {
+        border-color: var(--oj-btn-border);
+        background: linear-gradient(to bottom, var(--oj-btn-from) 0, var(--oj-btn-to) 100%) repeat-x;
+        color: var(--oj-btn-text);
+        font-weight: 400;
+
+        &:hover {
+            background: var(--oj-btn-hover);
+        }
+    }
+}
+
+/* ── Edit rules banner ─────────────────────────────────────────────────────── */
+
+.edit-rules {
+    flex-shrink: 0;
+    background: var(--oj-accent-soft);
+    border-bottom: 1px solid var(--oj-border);
+    color: var(--oj-accent);
+    font-size: 12px;
+    padding: 0.45rem 1.25rem;
+    line-height: 1.5;
+}
+
+/* ── Toast ─────────────────────────────────────────────────────────────────── */
+/* Solid fill + --oj-btn-text (always light). Do not use --oj-surface /
+   --oj-heading-text as the label colour — those tokens are white in the
+   light theme and read as a blank white chip. Keep hex fallbacks in case
+   --oj-* tokens are missing from a stale stylesheet. */
+
+#toast {
+    display: none;
+    position: fixed;
+    left: 50%;
+    bottom: 1.5rem;
+    transform: translateX(-50%);
+    background: var(--oj-accent, #278bc2);
+    background-color: var(--oj-accent, #278bc2);
+    color: var(--oj-btn-text, #fff);
+    border: 1px solid var(--oj-accent, #278bc2);
+    padding: 0.55rem 1.1rem;
+    border-radius: var(--oj-radius);
+    z-index: 400;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: var(--oj-shadow-modal, 0 6px 20px rgba(0, 0, 0, 0.2));
+
+    &.err {
+        background: var(--oj-danger, #d64545);
+        background-color: var(--oj-danger, #d64545);
+        color: var(--oj-btn-text, #fff);
+        border-color: var(--oj-danger, #d64545);
+    }
+
+    &.warn {
+        background: var(--oj-warning, #f57f17);
+        background-color: var(--oj-warning, #f57f17);
+        color: var(--oj-btn-text, #fff);
+        border-color: var(--oj-warning, #f57f17);
+    }
+}
+
+/* ── Responsive ────────────────────────────────────────────────────────────── */
+
+@media (max-width: 900px) {
+    .sp-split.layout-lr {
+        flex-direction: column;
+
+        .sp-right {
+            display: none;
+        }
+    }
+}
+
+@media (prefers-color-scheme: dark) {
+    .sp-left input[type="datetime-local"] {
+        color-scheme: dark;
+    }
+
+    .sp-left input[type="text"]:-webkit-autofill {
+        -webkit-box-shadow: 0 0 0 30px var(--oj-surface) inset !important;
+        -webkit-text-fill-color: var(--oj-text) !important;
+    }
+}

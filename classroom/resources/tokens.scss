@@ -1,0 +1,181 @@
+@use "vars" as *;
+@use "sass:color";
+
+// Modern if() rule syntax (Sass >= 1.79) — the legacy if() function form is
+// deprecated and emits a build warning.
+@function _hover_overlay() {
+    @if $is_light_theme {
+        @return rgba(0, 0, 0, 0.03);
+    }
+
+    @else {
+        @return rgba(255, 255, 255, 0.05);
+    }
+}
+
+// =============================================================================
+// DKUOJ design tokens
+//
+// Single source of truth for colours, radii, and elevation used by new pages.
+// Values follow the classic OJ look (widgets / table / navbar) and track the
+// active Sass theme (light via vars-default, dark via vars-dark).
+//
+// Usage in CSS:  var(--oj-border), var(--oj-btn-from), …
+// Usage in SCSS: prefer these CSS vars for new UI; keep @use "vars" for legacy.
+// To restyle the site later, change this file (and vars-*.scss) first.
+// =============================================================================
+
+// Shared values that stay the same across themes (compile-time constants).
+$oj-rated-bg: #e54c14;
+$oj-rated-text: #fff;
+
+:root {
+    /* Surfaces & text */
+    --oj-surface: #{$color_primary0};
+    --oj-bg: #{$color_primary5};
+    --oj-border: #{$color_primary25};
+    --oj-text: #{$color_primary90};
+    --oj-text-muted: #{$color_primary50};
+    --oj-text-secondary: #{$color_primary66};
+    --oj-heading: #{$color_primary75};
+    --oj-heading-text: #{$color_primary0};
+    --oj-control-border: #{$color_primary33};
+
+    /* Brand accent (nav active, tabs, pagination highlight) */
+    --oj-accent: #{$highlight_blue};
+    --oj-accent-hover: #{color.adjust($highlight_blue, $lightness: -8%)};
+    --oj-accent-soft: #{rgba($highlight_blue, 0.12)};
+    --oj-link: #{$color_link75};
+
+    /* Primary action button — classic Bootstrap-blue gradient */
+    --oj-btn-from: #{$btn_primary_from};
+    --oj-btn-to: #{$btn_primary_to};
+    --oj-btn-border: #{$btn_primary_border};
+    --oj-btn-hover: #{$btn_primary_hover};
+    --oj-btn-text: #fff;
+
+    /* Danger / success / info / warning */
+    --oj-danger: #{$btn_danger};
+    --oj-danger-hover: #{$btn_danger_hover};
+    --oj-danger-soft: #{$color_danger25};
+    --oj-danger-soft-text: #{$color_danger100};
+    --oj-success: #2d7a2d;
+    --oj-success-soft: #e8f5e9;
+    --oj-info: #{$highlight_blue};
+    --oj-info-soft: #e3f2fd;
+    --oj-info-text: #{$color_link75};
+    --oj-warning: #f57f17;
+    --oj-warning-soft: #fde68a;
+    --oj-warning-border: #ffe082;
+    --oj-surface-soft: #{$color_primary10};
+    --oj-surface-muted: #{$color_primary25};
+
+    /* Course card header accents — soft pastel palette (15). */
+    --oj-course-tint-1: #FCE8E0;
+    --oj-course-tint-2: #FCE4E4;
+    --oj-course-tint-3: #F9E0F0;
+    --oj-course-tint-4: #EDE8F5;
+    --oj-course-tint-5: #F3E5F5;
+    --oj-course-tint-6: #E3EAF4;
+    --oj-course-tint-7: #E0F0F8;
+    --oj-course-tint-8: #E3EDF9;
+    --oj-course-tint-9: #E0F4F5;
+    --oj-course-tint-10: #E0F3EC;
+    --oj-course-tint-11: #E0F4E8;
+    --oj-course-tint-12: #F5F0E0;
+    --oj-course-tint-13: #F8EBE0;
+    --oj-course-tint-14: #FCE9E0;
+    --oj-course-tint-15: #F7E5F0;
+    /* Dark text on light pastel headers (both themes). */
+    --oj-course-tint-text: #2c3340;
+    --oj-course-tint-text-muted: rgba(44, 51, 64, 0.72);
+    --oj-course-label: #{$color_link75};
+
+    /* Difficulty badges (problem list & sidebar) */
+    --oj-diff-easy-bg: #dcfce7;
+    --oj-diff-easy-text: #15803d;
+    --oj-diff-medium-bg: #ffedd5;
+    --oj-diff-medium-text: #c2410c;
+    --oj-diff-hard-bg: #f3e8ff;
+    --oj-diff-hard-text: #7e22ce;
+
+    /* Problem submission / ticket status */
+    --oj-accepted: #44AD41;
+    --oj-rejected: #DE2121;
+    --oj-pending: #BBCC00;
+
+    /* Judge status background colors (status badges) */
+    --oj-judge-pass: #53f23f;
+    --oj-judge-sc: #DFFF00;
+    --oj-judge-fail: #ef1b53;
+    --oj-judge-pending: #CCC;
+    --oj-judge-judging: #FAB623;
+
+    /* Tag / badge background colours */
+    --oj-tag-info-bg: #e3f2fd;
+    --oj-tag-info-text: #{$color_link75};
+    --oj-tag-regular-bg: #f3e5f5;
+    --oj-tag-regular-text: #7b1fa2;
+    --oj-tag-admin-bg: #fff3e0;
+    --oj-tag-admin-text: #e65100;
+
+    /* Focus ring / affirmative green (rich-editor OK buttons, focus rings) */
+    --oj-focus: #2a9d5c;
+    --oj-focus-ring: rgba(42, 157, 92, 0.15);
+
+    /* Shape — classic OJ is modestly rounded */
+    --oj-radius: #{$widget_border_radius};
+    --oj-radius-md: #{$table_header_rounding};
+    --oj-radius-lg: 8px;
+
+    /* Elevation — classic OJ is nearly flat */
+    --oj-shadow: none;
+    --oj-shadow-sm: 0 1px 1px rgba(0, 0, 0, 0.06);
+    --oj-shadow-dropdown: 2px 2px 4px rgba(0, 0, 0, 0.15);
+    --oj-shadow-modal: 0 12px 40px rgba(0, 0, 0, 0.2);
+
+    /* Controls */
+    --oj-control-height: 34px;
+    --oj-font-size: #{$base_font_size};
+    /* Meta / badges only — body text should use --oj-font-size (14px) */
+    --oj-font-size-sm: 12px;
+
+    /* Hover overlay — lightens/darkens depending on theme */
+    --oj-hover-overlay: #{_hover_overlay()};
+
+    /* ── Badge colours (aware of dark/light Sass theme) ──────────────────── */
+    --oj-badge-ongoing-bg: #{$color_success25};
+    --oj-badge-ongoing-text: #{$color_success100};
+    --oj-badge-upcoming-bg: #{$color_warning25};
+    --oj-badge-upcoming-text: #{$color_warning100};
+    --oj-badge-past-bg: #{$color_primary25};
+    --oj-badge-past-text: #{$color_primary75};
+    --oj-badge-mine-bg: #{$color_info25};
+    --oj-badge-mine-text: #{$color_info100};
+    --oj-badge-org-bg: #{$color_primary10};
+    --oj-badge-org-text: #{$color_primary75};
+    --oj-badge-class-bg: #{$color_info25};
+    --oj-badge-class-text: #{$color_info100};
+    --oj-badge-rated-bg: #{$oj-rated-bg};
+    --oj-badge-rated-text: #{$oj-rated-text};
+    --oj-badge-tag-bg: #{rgba($highlight_blue, 0.15)};
+    --oj-badge-tag-text: #{$highlight_blue};
+
+    /* Section-emph (countdown colours inside .cl-time) */
+    --oj-emph-ongoing: #{$color_success100};
+    --oj-emph-upcoming: #{$color_warning100};
+    --oj-emph-muted: #{$color_primary50};
+
+    /* Dim numbers — fine print in user-count labels */
+    --oj-dim-label: #{$color_primary50};
+
+    /* Site chrome — nav link row (~44px) + #nav-shadow (3px) */
+    --nav-height: 47px;
+}
+
+@media (max-width: 760px) {
+    :root {
+        /* #navigation height 36px + #nav-shadow 3px */
+        --nav-height: 39px;
+    }
+}

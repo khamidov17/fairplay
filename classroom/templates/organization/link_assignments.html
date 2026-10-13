@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+
+{% block media %}
+    {{ form.media.css }}
+{% endblock %}
+
+{% block js_media %}
+    {{ form.media.js }}
+{% endblock %}
+
+{% block body %}
+<div class="course-redesign oj-ui">
+    <div class="course-form-wrap">
+        <h2>{{ title }}</h2>
+        <p class="crumb">
+            <a href="{{ url('organization_list') }}">{{ _('Course') }}</a> /
+            <a href="{{ organization.get_absolute_url() }}">{{ organization.name }}</a> /
+            <a href="{{ class.get_absolute_url() }}">{{ class.name }}</a> /
+            {{ _('Assignments') }}
+        </p>
+        {% include "messages.html" %}
+        <p class="empty" style="text-align:left;margin:0 0 0.85rem">
+            {{ _('Link existing contests to this class. Students see them on the Assignments tab. Contest problems and schedules are still edited under Contests.') }}
+        </p>
+        <form action="" method="post" class="course-form">
+            {% csrf_token %}
+            {% if form.non_field_errors() %}
+                <div class="form-errors">{{ form.non_field_errors() }}</div>
+            {% endif %}
+            <table class="course-form-table">
+                {% for field in form %}
+                    <tr>
+                        <th><label for="{{ field.id_for_label }}">{{ field.label }}</label></th>
+                        <td>
+                            {{ field }}
+                            {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
+                            {{ field.errors }}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </table>
+            <div class="course-form-actions">
+                <button type="submit" class="button">{{ _('Save assignments') }}</button>
+                <a class="button" href="{{ class.get_absolute_url() }}?tab=assignments">{{ _('Cancel') }}</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

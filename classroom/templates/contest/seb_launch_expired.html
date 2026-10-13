@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+
+{% block media %}
+    <style>
+        #seb-launch-expired {
+            margin: 80px auto 0;
+            display: block;
+            max-width: 560px;
+            text-align: center;
+        }
+    </style>
+{% endblock %}
+
+{% block body %}
+    <div id="seb-launch-expired">
+        <h2>{{ _('Launch link expired') }}</h2>
+        <p>{{ reason }}</p>
+        <p>{{ _('Go back to your normal browser, reopen the exam page, and click "Launch in SEB" again.') }}</p>
+    </div>
+{% endblock %}

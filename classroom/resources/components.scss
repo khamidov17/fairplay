@@ -1,0 +1,366 @@
+@use "vars" as *;
+
+// =============================================================================
+// DKUOJ shared UI components
+//
+// Prefer `.oj-*` classes on new pages. Inside `.oj-ui`, `.problem-list-redesign`,
+// or `.submission-list-redesign`, short aliases (`.btn`, `.card`, `.input`, `.select`)
+// resolve to the same styles.
+// =============================================================================
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+.oj-btn,
+.oj-ui .btn,
+.problem-list-redesign .btn,
+.submission-list-redesign .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 12px;
+    min-height: var(--oj-control-height);
+    box-sizing: border-box;
+    border: 1px solid transparent;
+    border-radius: var(--oj-radius);
+    font-size: var(--oj-font-size);
+    font-weight: 400;
+    line-height: 1.4;
+    cursor: pointer;
+    text-decoration: none;
+    white-space: nowrap;
+    vertical-align: middle;
+    background: transparent;
+    /* Class selectors naturally outrank the `button` type selector. */
+    color: var(--oj-text);
+
+    &:disabled,
+    &[disabled] {
+        opacity: 0.55;
+        cursor: not-allowed;
+    }
+}
+
+.oj-btn-primary,
+.oj-ui .btn-primary,
+.problem-list-redesign .btn-primary,
+.submission-list-redesign .btn-primary {
+    color: var(--oj-btn-text);
+    background: linear-gradient(to bottom, var(--oj-btn-from) 0, var(--oj-btn-to) 100%) repeat-x;
+    border-color: var(--oj-btn-border);
+
+    &:hover:not(:disabled):not([disabled]) {
+        background: var(--oj-btn-hover);
+        color: var(--oj-btn-text);
+        text-decoration: none;
+    }
+
+    &:active:not(:disabled):not([disabled]) {
+        background: var(--oj-btn-hover);
+        border-color: var(--oj-btn-border);
+    }
+}
+
+.oj-btn-outline,
+.oj-ui .btn-outline,
+.problem-list-redesign .btn-outline,
+.submission-list-redesign .btn-outline {
+    background: var(--oj-surface);
+    border-color: var(--oj-border);
+    color: var(--oj-text);
+
+    &:hover:not(:disabled):not([disabled]) {
+        border-color: var(--oj-accent);
+        color: var(--oj-accent);
+    }
+}
+
+.oj-btn-text,
+.oj-ui .btn-text,
+.problem-list-redesign .btn-text,
+.submission-list-redesign .btn-text {
+    border: none;
+    background: none;
+    color: var(--oj-link);
+    padding: 4px 8px;
+    min-height: 0;
+    font-size: var(--oj-font-size);
+
+    &:hover:not(:disabled):not([disabled]) {
+        text-decoration: underline;
+    }
+}
+
+.oj-btn-danger,
+.oj-ui .btn-danger,
+.problem-list-redesign .btn-danger,
+.submission-list-redesign .btn-danger {
+    color: var(--oj-btn-text);
+    background: var(--oj-danger);
+    border-color: var(--oj-danger);
+
+    &:hover:not(:disabled):not([disabled]) {
+        background: var(--oj-danger-hover);
+        border-color: var(--oj-danger-hover);
+        color: var(--oj-btn-text);
+    }
+}
+
+.oj-btn-sm,
+.oj-ui .btn-sm,
+.problem-list-redesign .btn-sm,
+.submission-list-redesign .btn-sm {
+    padding: 4px 10px;
+    min-height: 28px;
+    font-size: var(--oj-font-size-sm);
+}
+
+/* ── Card / panel ────────────────────────────────────────────────────────── */
+
+.oj-card,
+.oj-ui .card,
+.problem-list-redesign .card,
+.submission-list-redesign .card {
+    background: var(--oj-surface);
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius-md);
+    box-shadow: var(--oj-shadow);
+}
+
+/* ── Form controls ───────────────────────────────────────────────────────── */
+
+.oj-input,
+.oj-select,
+.oj-ui .input,
+.oj-ui .select,
+.problem-list-redesign .input,
+.problem-list-redesign .select,
+.submission-list-redesign .input,
+.submission-list-redesign .select,
+select[data-oj-select] {
+    padding: 6px 10px;
+    min-height: var(--oj-control-height);
+    box-sizing: border-box;
+    border: 1px solid var(--oj-border);
+    border-radius: var(--oj-radius);
+    background: var(--oj-surface);
+    color: var(--oj-text);
+    font-size: var(--oj-font-size);
+    outline: none;
+    box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.06);
+    transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+
+    &:hover {
+        border-color: var(--oj-accent);
+    }
+
+    &:focus {
+        border-color: var(--oj-accent);
+        box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.075),
+                    0 0 6px color-mix(in srgb, var(--oj-accent) 55%, transparent);
+        outline: 0;
+    }
+}
+
+.oj-select,
+.oj-ui .select,
+.problem-list-redesign .select,
+.submission-list-redesign .select,
+select[data-oj-select] {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    padding-right: 34px;
+    background-image:
+        linear-gradient(45deg, transparent 50%, var(--oj-text-muted) 50%),
+        linear-gradient(135deg, var(--oj-text-muted) 50%, transparent 50%);
+    background-position:
+        calc(100% - 18px) calc(50% - 2px),
+        calc(100% - 13px) calc(50% - 2px);
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+    min-width: 140px;
+}
+
+/* Single-select dropdown component: mirrors the multi-select trigger used by
+   the Organization filter while keeping the native select in the form. */
+.oj-single-select {
+    position: relative;
+    width: 100%;
+    min-width: 140px;
+    min-height: var(--oj-control-height);
+    flex: 1 1 auto;
+
+    > select.oj-single-select-native {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    .multi-select-trigger {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        width: 100%;
+        min-width: 140px;
+        min-height: var(--oj-control-height);
+        padding: 6px 10px;
+        box-sizing: border-box;
+        border: 1px solid var(--oj-border);
+        border-radius: var(--oj-radius);
+        background: var(--oj-surface);
+        color: var(--oj-text);
+        font-size: var(--oj-font-size);
+        text-align: left;
+        cursor: pointer;
+        box-shadow: inset 0 1px 1px rgba(0, 0, 0, 0.06);
+
+        &:disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+        }
+    }
+
+    .multi-select-trigger:hover,
+    &.open .multi-select-trigger {
+        border-color: var(--oj-accent);
+    }
+
+    .multi-select-caret {
+        flex-shrink: 0;
+        font-size: 10px;
+        color: var(--oj-text-muted);
+    }
+
+    .multi-select-menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        z-index: 60;
+        min-width: 100%;
+        max-height: 220px;
+        overflow-y: auto;
+        padding: 4px 0;
+        box-sizing: border-box;
+        background: var(--oj-surface);
+        border: 1px solid var(--oj-border);
+        border-radius: var(--oj-radius);
+        box-shadow: var(--oj-shadow-dropdown);
+        animation: oj-menu-fade-in 0.12s ease-out;
+    }
+
+    /* Slightly stronger dropdown "lift" when the menu opens */
+    @keyframes oj-menu-fade-in {
+        from {
+            opacity: 0;
+            transform: translateY(-3px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .multi-select-option {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        padding: 7px 12px;
+        border: 0;
+        background: none;
+        color: var(--oj-text);
+        font-size: var(--oj-font-size);
+        text-align: left;
+        cursor: pointer;
+        transition: background-color 0.12s ease, color 0.12s ease;
+
+        &:hover {
+            /* Accent-tinted highlight (token, not a hardcoded colour) so the
+               active row is clearly visible against the white menu. */
+            background: color-mix(in srgb, var(--oj-accent) 20%, transparent);
+            color: var(--oj-accent);
+        }
+
+        &[aria-selected="true"] {
+            background: var(--oj-surface-muted);
+            font-weight: 600;
+        }
+
+        &[disabled] {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    }
+}
+
+/* ── Classic dark table header helper ────────────────────────────────────── */
+
+.oj-table {
+    width: 100%;
+    border-collapse: collapse;
+    border-spacing: 0;
+
+    th {
+        height: 2em;
+        padding: 6px 10px;
+        color: var(--oj-heading-text);
+        background: var(--oj-heading);
+        border: 1px solid var(--oj-border);
+        border-color: #{$color_primary50};
+        font-weight: 600;
+        font-size: 1.1em;
+        white-space: nowrap;
+        text-align: left;
+        vertical-align: middle;
+
+        a {
+            color: inherit;
+
+            &:hover {
+                color: inherit;
+                text-decoration: underline;
+            }
+        }
+    }
+
+    td {
+        padding: 8px 10px;
+        border: 1px solid var(--oj-border);
+        border-width: 0 1px 1px 0;
+        vertical-align: middle;
+        font-size: var(--oj-font-size);
+    }
+
+    th:first-child,
+    td:first-child {
+        border-left-width: 1px;
+    }
+
+    tr:first-child th {
+        border-top-width: 1px;
+    }
+
+    tr:first-child th:first-child {
+        border-top-left-radius: var(--oj-radius-md);
+    }
+
+    tr:first-child th:last-child {
+        border-top-right-radius: var(--oj-radius-md);
+    }
+
+    tbody tr:nth-child(even) {
+        background: rgba(0, 0, 0, 0.03);
+    }
+
+    tbody tr:hover {
+        background: rgba(0, 0, 0, 0.05);
+    }
+}

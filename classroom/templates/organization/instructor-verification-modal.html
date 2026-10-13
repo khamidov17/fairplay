@@ -1,0 +1,142 @@
+{# Site-wide teacher apply + class-instructor apply (teachers only). #}
+<div id="instructor-verification-modal" class="course-modal" hidden
+     data-mode="teacher"
+     data-preselect-org="{{ instructor_apply_org_id|default('') }}"
+     data-preselect-class="{{ instructor_apply_class_id|default('') }}">
+    <div class="course-modal-backdrop js-close-modal"></div>
+    <div class="course-modal-dialog" role="dialog" aria-labelledby="iv-title">
+        <h2 id="iv-title">{{ _('Apply as teacher') }}</h2>
+        <p id="iv-help">{{ _('Request site-wide teacher access. Site administrators must approve before you can create problems and courses.') }}</p>
+        <form method="post" action="{{ url('organization_instructor_verification') }}" id="instructor-verification-form">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.path }}">
+            <input type="hidden" name="kind" id="iv-kind" value="teacher">
+            <div id="iv-class-fields" hidden>
+                <label for="iv-organization">{{ _('Course') }}</label>
+                <select id="iv-organization" name="organization" class="oj-select">
+                    <option value="">{{ _('Select a course…') }}</option>
+                </select>
+                <label for="iv-class" style="margin-top:0.75rem;display:block">{{ _('Class / session') }}</label>
+                <select id="iv-class" name="request_class" class="oj-select" disabled>
+                    <option value="">{{ _('Select a class…') }}</option>
+                </select>
+            </div>
+            <label for="iv-reason" style="margin-top:0.75rem;display:block">{{ _('Reason') }}</label>
+            <textarea id="iv-reason" name="reason" rows="4" required maxlength="2000"
+                      placeholder="{{ _('e.g. I teach programming courses at DKU.') }}"></textarea>
+            <p style="margin-top: 0.85rem;">
+                <button type="submit" class="oj-btn oj-btn-primary">{{ _('Submit request') }}</button>
+                <button type="button" class="oj-btn oj-btn-outline js-close-modal">{{ _('Close') }}</button>
+            </p>
+        </form>
+    </div>
+</div>
+<script type="application/json" id="instructor-apply-catalog-data">{{ instructor_apply_catalog|default([])|tojson }}</script>
+<script type="text/javascript">
+(function () {
+    var catalogEl = document.getElementById('instructor-apply-catalog-data');
+    var modal = document.getElementById('instructor-verification-modal');
+    if (!catalogEl || !modal) return;
+    var catalog = [];
+    try { catalog = JSON.parse(catalogEl.textContent || '[]'); } catch (e) { catalog = []; }
+    var orgSelect = document.getElementById('iv-organization');
+    var classSelect = document.getElementById('iv-class');
+    var kindInput = document.getElementById('iv-kind');
+    var titleEl = document.getElementById('iv-title');
+    var helpEl = document.getElementById('iv-help');
+    var classFields = document.getElementById('iv-class-fields');
+    var reasonEl = document.getElementById('iv-reason');
+    if (!orgSelect || !classSelect || !kindInput) return;
+
+    var copy = {
+        teacherTitle: {{ _('Apply as teacher')|tojson }},
+        teacherHelp: {{ _('Request site-wide teacher access. Site administrators must approve before you can create problems and courses. After approval, join a course to view its classes (read-only) and create new classes. Apply as class instructor when you need to co-teach and edit a specific class.')|tojson }},
+        teacherPlaceholder: {{ _('e.g. I teach programming courses at DKU.')|tojson }},
+        classTitle: {{ _('Apply as class instructor')|tojson }},
+        classHelp: {{ _('Request to co-teach and edit this class. Course administrators must approve. Until then you can view the class but cannot modify it.')|tojson }},
+        classPlaceholder: {{ _('e.g. I co-teach this session with another instructor.')|tojson }}
+    };
+
+    function fillClasses(orgId, selectedClassId) {
+        classSelect.innerHTML = '';
+        var placeholder = document.createElement('option');
+        placeholder.value = '';
+        placeholder.textContent = {{ _('Select a class…')|tojson }};
+        classSelect.appendChild(placeholder);
+        var org = null;
+        for (var i = 0; i < catalog.length; i++) {
+            if (String(catalog[i].id) === String(orgId)) { org = catalog[i]; break; }
+        }
+        if (!org || !org.classes || !org.classes.length) {
+            classSelect.disabled = true;
+            return;
+        }
+        org.classes.forEach(function (cls) {
+            var opt = document.createElement('option');
+            opt.value = cls.id;
+            opt.textContent = cls.label || cls.name;
+            if (selectedClassId && String(cls.id) === String(selectedClassId)) opt.selected = true;
+            classSelect.appendChild(opt);
+        });
+        classSelect.disabled = false;
+    }
+
+    if (!orgSelect.options.length || orgSelect.options.length === 1) {
+        catalog.forEach(function (org) {
+            var opt = document.createElement('option');
+            opt.value = org.id;
+            opt.textContent = org.short_name + (org.name && org.name !== org.short_name ? ' — ' + org.name : '');
+            orgSelect.appendChild(opt);
+        });
+    }
+
+    orgSelect.addEventListener('change', function () {
+        fillClasses(orgSelect.value, '');
+    });
+
+    function setMode(mode) {
+        mode = mode === 'class_instructor' ? 'class_instructor' : 'teacher';
+        modal.setAttribute('data-mode', mode);
+        kindInput.value = mode;
+        if (mode === 'class_instructor') {
+            titleEl.textContent = copy.classTitle;
+            helpEl.textContent = copy.classHelp;
+            reasonEl.placeholder = copy.classPlaceholder;
+            classFields.hidden = false;
+            orgSelect.required = true;
+            classSelect.required = true;
+        } else {
+            titleEl.textContent = copy.teacherTitle;
+            helpEl.textContent = copy.teacherHelp;
+            reasonEl.placeholder = copy.teacherPlaceholder;
+            classFields.hidden = true;
+            orgSelect.required = false;
+            classSelect.required = false;
+            orgSelect.value = '';
+            classSelect.innerHTML = '';
+            classSelect.disabled = true;
+        }
+    }
+
+    function applyPreselect() {
+        var orgId = modal.getAttribute('data-preselect-org') || '';
+        var classId = modal.getAttribute('data-preselect-class') || '';
+        var mode = modal.getAttribute('data-mode') || 'teacher';
+        setMode(mode);
+        if (mode === 'class_instructor' && orgId) {
+            orgSelect.value = String(orgId);
+            fillClasses(orgId, classId);
+        }
+    }
+
+    $(document).on('click', '#instructor-verification-btn', function () {
+        modal.setAttribute('data-mode', 'teacher');
+        setTimeout(applyPreselect, 0);
+    });
+    $(document).on('click', '#class-instructor-verification-btn', function () {
+        modal.setAttribute('data-mode', 'class_instructor');
+        setTimeout(applyPreselect, 0);
+    });
+    applyPreselect();
+})();
+</script>

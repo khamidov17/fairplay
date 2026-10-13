@@ -1,0 +1,232 @@
+{% extends "base.html" %}
+
+{% block js_media %}
+    <script type="text/javascript">
+        $(function () {
+            $("#instructor-verification-btn").on("click", function () {
+                $("#instructor-verification-modal").prop("hidden", false);
+            });
+            $("#instructor-verification-modal .js-close-modal").on("click", function () {
+                $("#instructor-verification-modal").prop("hidden", true);
+            });
+            $('#select-all').on('change', function () {
+                $('.req-select').prop('checked', this.checked);
+            });
+            $('.js-row-action-select').on('change', function () {
+                var action = $(this).val();
+                if (!action) return;
+                var id = String($(this).data('id'));
+                var $form = $('#join-bulk-form');
+                $form.find('.req-select').prop('checked', false);
+                $form.find('.req-select[value="' + id + '"]').prop('checked', true);
+                $form.find('#bulk-action').val(action);
+                $form.trigger('submit');
+                $(this).val('');
+            });
+            $('.js-bulk-submit').on('click', function () {
+                $('#bulk-action').val($(this).data('action'));
+            });
+            $('#join-bulk-form').on('submit', function (e) {
+                if (!$('.req-select:checked').length) {
+                    e.preventDefault();
+                    alert({{ _('Select at least one request.')|htmltojs }});
+                    return;
+                }
+                if (!$('#bulk-action').val()) {
+                    e.preventDefault();
+                    alert({{ _('Choose an action.')|htmltojs }});
+                }
+            });
+        });
+    </script>
+{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'join_requests' %}
+    {% set title = _('Course') %}
+    {% set title_url = url('organization_list') %}
+    {% include "organization/course-tabs.html" %}
+{% endblock %}
+
+{% block body %}
+<div class="course-redesign oj-ui">
+    {% include "messages.html" %}
+
+    <p class="empty" style="text-align:left;margin:0 0 0.85rem">{{ _('All applications appear here: course/class membership, site-wide teacher access, and class-instructor requests.') }}</p>
+
+    <div class="join-toolbar">
+        <form class="join-requests-filters" method="get" action="">
+            <div>
+                <label for="f-status">{{ _('Status') }}</label>
+                <select id="f-status" name="status" class="oj-select" onchange="this.form.submit()">
+                    <option value="P" {% if status == 'P' %}selected{% endif %}>{{ _('Pending') }}</option>
+                    <option value="all" {% if status == 'all' %}selected{% endif %}>{{ _('All') }}</option>
+                    <option value="A" {% if status == 'A' %}selected{% endif %}>{{ _('Approved') }}</option>
+                    <option value="R" {% if status == 'R' %}selected{% endif %}>{{ _('Rejected') }}</option>
+                </select>
+            </div>
+            <div>
+                <label for="f-kind">{{ _('Type') }}</label>
+                <select id="f-kind" name="kind" class="oj-select" onchange="this.form.submit()">
+                    <option value="" {% if not kind %}selected{% endif %}>{{ _('All types') }}</option>
+                    <option value="course" {% if kind == 'course' %}selected{% endif %}>{{ _('Course membership') }}</option>
+                    <option value="class" {% if kind == 'class' %}selected{% endif %}>{{ _('Class join') }}</option>
+                    <option value="teacher" {% if kind == 'teacher' %}selected{% endif %}>{{ _('Teacher access') }}</option>
+                    <option value="class_instructor" {% if kind == 'class_instructor' %}selected{% endif %}>{{ _('Class instructor') }}</option>
+                </select>
+            </div>
+            <div>
+                <label for="f-course">{{ _('Course') }}</label>
+                <select id="f-course" name="course" class="oj-select" onchange="this.form.submit()">
+                    <option value="">{{ _('All courses') }}</option>
+                    {% for course in courses %}
+                        <option value="{{ course.id }}" {% if course_id == course.id %}selected{% endif %}>
+                            {{ course.short_name }} · {{ course.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="f-class">{{ _('Class') }}</label>
+                <select id="f-class" name="class" class="oj-select" onchange="this.form.submit()">
+                    <option value="">{{ _('All classes') }}</option>
+                    {% for cls in classes %}
+                        <option value="{{ cls.id }}" {% if class_id == cls.id %}selected{% endif %}>
+                            {{ cls.organization.short_name }} · {{ cls.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label for="f-q">{{ _('Search') }}</label>
+                <input id="f-q" type="search" name="q" value="{{ filter_q }}"
+                       placeholder="{{ _('User or reason…') }}" autocomplete="off">
+            </div>
+        </form>
+    </div>
+
+    {% if requests %}
+        <form id="join-bulk-form" method="post" action="{{ url('organization_join_requests') }}?status={{ status }}{% if kind %}&kind={{ kind }}{% endif %}{% if course_id %}&course={{ course_id }}{% endif %}{% if class_id %}&class={{ class_id }}{% endif %}{% if filter_q %}&q={{ filter_q|urlencode }}{% endif %}">
+            {% csrf_token %}
+            <input type="hidden" name="action" id="bulk-action" value="">
+            <table class="table join-requests-table">
+                <thead>
+                <tr>
+                    <th><input type="checkbox" id="select-all"></th>
+                    <th>{{ _('User') }}</th>
+                    <th>{{ _('Type') }}</th>
+                    <th>{{ _('Applied') }}</th>
+                    <th>{{ _('Target') }}</th>
+                    <th>{{ _('Reason') }}</th>
+                    <th>{{ _('State') }}</th>
+                    <th>{{ _('Action') }}</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for req in requests %}
+                    <tr>
+                        <td><input type="checkbox" name="request_ids" value="{{ req.box_id }}" class="req-select"></td>
+                        <td>{{ link_user(req.user) }}</td>
+                        <td>
+                            {% if req.applied_kind == 'course' %}{{ _('Course membership') }}
+                            {% elif req.applied_kind == 'class' %}{{ _('Class join') }}
+                            {% elif req.applied_kind == 'teacher' %}{{ _('Teacher access') }}
+                            {% else %}{{ _('Class instructor') }}{% endif %}
+                        </td>
+                        <td>
+                            {% if req.detail_url %}
+                                <a href="{{ req.detail_url }}">{{ req.time|date(_("N j, Y, H:i")) }}</a>
+                            {% else %}
+                                {{ req.time|date(_("N j, Y, H:i")) }}
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if req.applied_kind == 'class' and req.request_class %}
+                                <span class="join-target class"><i class="fa fa-users"></i>
+                                    {{ _('Class') }} ·
+                                    <a href="{{ req.request_class.get_absolute_url() }}">{{ req.request_class.name }}</a>
+                                </span>
+                            {% elif req.applied_kind == 'course' and req.organization %}
+                                <span class="join-target"><i class="fa fa-university"></i>
+                                    {{ _('Course membership') }} ·
+                                    <a href="{{ req.organization.get_absolute_url() }}">{{ req.organization.short_name }}</a>
+                                </span>
+                            {% elif req.applied_kind == 'class_instructor' %}
+                                <span class="join-target class"><i class="fa fa-id-badge"></i>
+                                    {{ req.target_label or '—' }}
+                                </span>
+                            {% else %}
+                                <span class="join-target"><i class="fa fa-id-badge"></i>
+                                    {{ _('Site-wide teacher access') }}
+                                </span>
+                            {% endif %}
+                        </td>
+                        <td>{{ req.reason|truncatechars(80) or '—' }}</td>
+                        <td>
+                            {% if req.state == 'P' %}<span class="join-state pending">{{ _('Pending') }}</span>
+                            {% elif req.state == 'A' %}<span class="join-state approved">{{ _('Approved') }}</span>
+                            {% else %}<span class="join-state rejected">{{ _('Rejected') }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="join-row-actions">
+                            <select class="oj-select js-row-action-select" data-id="{{ req.box_id }}"
+                                    aria-label="{{ _('Action') }}">
+                                {% if req.state == 'P' %}
+                                    <option value="" selected>{{ _('Pending') }}</option>
+                                    <option value="approve">{{ _('Approve') }}</option>
+                                    <option value="reject">{{ _('Reject') }}</option>
+                                {% elif req.state == 'A' %}
+                                    <option value="">{{ _('Choose action') }}</option>
+                                    <option value="reopen">{{ _('Revoke / reopen') }}</option>
+                                    <option value="reject">{{ _('Reject') }}</option>
+                                {% else %}
+                                    <option value="">{{ _('Choose action') }}</option>
+                                    <option value="reopen">{{ _('Reopen') }}</option>
+                                    <option value="approve">{{ _('Approve') }}</option>
+                                {% endif %}
+                            </select>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+            <div class="bulk-actions join-foot">
+                {% if status == 'P' or status == 'all' %}
+                    <button type="submit" class="button js-bulk-submit" data-action="approve">
+                        {{ _('Approve selected') }}
+                    </button>
+                    <button type="submit" class="button danger js-bulk-submit" data-action="reject">
+                        {{ _('Reject selected') }}
+                    </button>
+                {% endif %}
+                {% if status == 'A' or status == 'all' %}
+                    <button type="submit" class="button js-bulk-submit" data-action="reopen">
+                        {{ _('Reopen selected as pending') }}
+                    </button>
+                    {% if status == 'A' %}
+                    <button type="submit" class="button danger js-bulk-submit" data-action="reject">
+                        {{ _('Reject selected') }}
+                    </button>
+                    {% endif %}
+                {% endif %}
+                {% if status == 'R' %}
+                    <button type="submit" class="button js-bulk-submit" data-action="reopen">
+                        {{ _('Reopen selected as pending') }}
+                    </button>
+                    <button type="submit" class="button js-bulk-submit" data-action="approve">
+                        {{ _('Approve selected') }}
+                    </button>
+                {% endif %}
+                <button type="submit" class="button danger js-bulk-submit" data-action="delete">
+                    {{ _('Delete selected') }}
+                </button>
+            </div>
+        </form>
+    {% else %}
+        <div class="empty">{{ _('No join requests match your filters.') }}</div>
+    {% endif %}
+</div>
+{% include "organization/instructor-verification-modal.html" %}
+{% endblock %}

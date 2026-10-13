@@ -1,0 +1,50 @@
+{# File-upload submission UI: a single file input. Multipart is required for the upload. #}
+<br>
+{% if request.in_contest and submission_limit %}
+    {% if submissions_left > 0 %}
+        <div class="alert alert-warning alert-dismissable">
+            <a class="close">x</a>
+            {% trans left=submissions_left -%}
+                You have {{ left }} submission left
+                {%- pluralize -%}
+                You have {{ left }} submissions left
+            {%- endtrans %}
+        </div>
+    {% else %}
+        <div class="alert alert-warning alert-dismissable">
+            <a class="close">x</a>
+            {{ _('You have 0 submissions left') }}
+        </div>
+    {% endif %}
+{% endif %}
+
+{% if problem.file_config and problem.file_config.instructions %}
+    <div class="file-upload-instructions" style="margin-bottom: 1em; white-space: pre-wrap;">{{ problem.file_config.instructions }}</div>
+{% endif %}
+
+<form id="problem_submit" action="{{ submit_url|default('') }}" method="post" class="form-area"
+      enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form.non_field_errors() }}
+    <div class="file-upload-field" style="margin-bottom: 0.8em;">
+        {{ form.file.errors }}
+        {{ form.file }}
+        {% if problem.file_config %}
+            <p class="help-text">
+                {% if problem.file_config.allowed_extension_list() %}
+                    {{ _('Allowed types:') }} {{ problem.file_config.allowed_extension_list()|join(', ') }}.
+                {% endif %}
+                {% if problem.file_config.max_file_size %}
+                    {{ _('Max size:') }} {{ problem.file_config.max_file_size // 1048576 }} MB.
+                {% endif %}
+            </p>
+        {% endif %}
+    </div>
+
+    <hr>
+
+    <div class="submit-bar">
+        <input type="submit" value="{{ _('Submit!') }}" class="button"
+               {% if request.in_contest and submission_limit and not submissions_left %}disabled{% endif %}>
+    </div>
+</form>

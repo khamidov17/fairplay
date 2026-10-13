@@ -1,0 +1,472 @@
+import json
+import mimetypes
+import os
+from itertools import chain
+from typing import List
+from zipfile import BadZipfile, ZipFile
+
+from django.conf import settings
+from django.contrib.auth.decorators import login_required
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError
+from django.forms import BaseModelFormSet, HiddenInput, ModelForm, NumberInput, Select, formset_factory
+from django.forms.models import inlineformset_factory
+from django.http import Http404, HttpResponse, HttpResponseRedirect
+from django.shortcuts import get_object_or_404, render
+from django.urls import reverse
+from django.utils.html import escape, format_html
+from django.utils.safestring import mark_safe
+from django.utils.translation import gettext as _
+from django.views.generic import DetailView
+
+from django_ace import AceWidget
+from judge.highlight_code import highlight_code
+from judge.models import Problem, ProblemData, ProblemHarness, ProblemTestCase, Submission, problem_data_storage
+from judge.utils.problem_data import ProblemDataCompiler
+from judge.utils.unicode import utf8text
+from judge.utils.views import TitleMixin, add_file_response
+from judge.views.problem import ProblemMixin
+
+mimetypes.init()
+mimetypes.add_type('application/x-yaml', '.yml')
+
+
+def checker_args_cleaner(self):
+    data = self.cleaned_data['checker_args']
+    if not data or data.isspace():
+        return ''
+    try:
+        if not isinstance(json.loads(data), dict):
+            raise ValidationError(_('Checker arguments must be a JSON object.'))
+    except ValueError:
+        raise ValidationError(_('Checker arguments is invalid JSON.'))
+    return data
+
+
+class ProblemDataForm(ModelForm):
+    def clean_zipfile(self):
+        if hasattr(self, 'zip_valid') and not self.zip_valid:
+            raise ValidationError(_('Your zip file is invalid!'))
+
+        zipfile = self.cleaned_data['zipfile']
+        if zipfile and not zipfile.name.endswith('.zip'):
+            raise ValidationError(_("Zip files must end in '.zip'"))
+
+        return zipfile
+
+    def clean_generator(self):
+        generator = self.cleaned_data['generator']
+        if generator and generator.name == 'init.yml':
+            raise ValidationError(_('Generators must not be named init.yml.'))
+
+        return generator
+
+    clean_checker_args = checker_args_cleaner
+
+    class Meta:
+        model = ProblemData
+        fields = ['zipfile', 'generator', 'unicode', 'nobigmath', 'output_limit', 'output_prefix',
+                  'checker', 'checker_args']
+        widgets = {
+            'checker_args': HiddenInput,
+        }
+
+
+class ProblemCaseForm(ModelForm):
+    clean_checker_args = checker_args_cleaner
+
+    class Meta:
+        model = ProblemTestCase
+        fields = ('order', 'type', 'input_file', 'output_file', 'points', 'is_pretest', 'output_limit',
+                  'output_prefix', 'checker', 'checker_args', 'generator_args', 'batch_dependencies')
+        widgets = {
+            'generator_args': HiddenInput,
+            'batch_dependencies': HiddenInput,
+            'type': Select(attrs={'style': 'width: 100%'}),
+            'points': NumberInput(attrs={'style': 'width: 4em'}),
+            'output_prefix': NumberInput(attrs={'style': 'width: 4.5em'}),
+            'output_limit': NumberInput(attrs={'style': 'width: 6em'}),
+            'checker_args': HiddenInput,
+        }
+
+
+class ProblemCaseFormSet(formset_factory(ProblemCaseForm, formset=BaseModelFormSet, extra=1, max_num=1,
+                                         can_delete=True)):
+    model = ProblemTestCase
+
+    def __init__(self, *args, **kwargs):
+        self.valid_files = kwargs.pop('valid_files', None)
+        super(ProblemCaseFormSet, self).__init__(*args, **kwargs)
+
+    def _construct_form(self, i, **kwargs):
+        form = super(ProblemCaseFormSet, self)._construct_form(i, **kwargs)
+        form.valid_files = self.valid_files
+        return form
+
+
+class ProblemHarnessForm(ModelForm):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Filter to only Java and Python language variants
+        from judge.models import Language
+        self.fields['language'].queryset = Language.objects.filter(
+            common_name__in=['Java', 'Python'],
+        ).order_by('common_name', 'key')
+
+    class Meta:
+        model = ProblemHarness
+        fields = ['language', 'skip_precompile', 'run_student_main', 'harness_code']
+        widgets = {
+            'harness_code': AceWidget(mode='java', theme='chrome', width='100%', height='300px'),
+        }
+
+
+ProblemHarnessFormSet = inlineformset_factory(
+    Problem, ProblemHarness,
+    form=ProblemHarnessForm,
+    extra=1,
+    max_num=1,
+    can_delete=True,
+)
+
+
+class ProblemManagerMixin(LoginRequiredMixin, ProblemMixin, DetailView):
+    def get_object(self, queryset=None):
+        problem = super(ProblemManagerMixin, self).get_object(queryset)
+        if problem.is_manually_managed:
+            raise Http404()
+        if self.request.user.is_superuser or problem.is_editable_by(self.request.user):
+            return problem
+        raise Http404()
+
+
+class ProblemSubmissionDiff(TitleMixin, ProblemMixin, DetailView):
+    template_name = 'problem/submission-diff.html'
+
+    def get_title(self):
+        return _('Comparing submissions for {0}').format(self.object.name)
+
+    def get_content_title(self):
+        return mark_safe(escape(_('Comparing submissions for {0}')).format(
+            format_html('<a href="{1}">{0}</a>', self.object.name, reverse('problem_detail', args=[self.object.code])),
+        ))
+
+    def get_object(self, queryset=None):
+        problem = super(ProblemSubmissionDiff, self).get_object(queryset)
+        if self.request.user.is_superuser or problem.is_editable_by(self.request.user):
+            return problem
+        raise Http404()
+
+    def get_context_data(self, **kwargs):
+        context = super(ProblemSubmissionDiff, self).get_context_data(**kwargs)
+        try:
+            ids = self.request.GET.getlist('id')
+            subs = Submission.objects.filter(id__in=ids)
+        except ValueError:
+            raise Http404
+        if not subs:
+            raise Http404
+
+        context['submissions'] = subs
+
+        # If we have associated data we can do better than just guess
+        data = ProblemTestCase.objects.filter(dataset=self.object, type='C')
+        if data:
+            num_cases = data.count()
+        else:
+            num_cases = subs.first().test_cases.count()
+        context['num_cases'] = num_cases
+        return context
+
+
+class ProblemDataView(TitleMixin, ProblemManagerMixin):
+    template_name = 'problem/data.html'
+
+    def dispatch(self, request, *args, **kwargs):
+        response = super().dispatch(request, *args, **kwargs)
+        # Allow the create_v2 problem editor to embed this page in a same-origin iframe.
+        # The global middleware otherwise sends X-Frame-Options: DENY, blocking the frame.
+        if request.GET.get('embed'):
+            response['X-Frame-Options'] = 'SAMEORIGIN'
+        return response
+
+    def get_title(self):
+        return _('Editing data for {0}').format(self.object.name)
+
+    def get_content_title(self):
+        return mark_safe(escape(_('Editing data for %s')) % (
+            format_html('<a href="{1}">{0}</a>', self.object.name,
+                        reverse('problem_detail', args=[self.object.code]))))
+
+    def get_data_form(self, post=False):
+        return ProblemDataForm(data=self.request.POST if post else None, prefix='problem-data',
+                               files=self.request.FILES if post else None,
+                               instance=ProblemData.objects.get_or_create(problem=self.object)[0])
+
+    def get_case_formset(self, files, post=False):
+        return ProblemCaseFormSet(data=self.request.POST if post else None, prefix='cases', valid_files=files,
+                                  queryset=ProblemTestCase.objects.filter(dataset_id=self.object.pk).order_by('order'))
+
+    def get_harness_formset(self, post=False):
+        return ProblemHarnessFormSet(
+            data=self.request.POST if post else None,
+            instance=self.object,
+            prefix='harnesses',
+            queryset=ProblemHarness.objects.filter(problem=self.object),
+        )
+
+    def get_valid_files(self, data, post=False) -> List[str]:
+        try:
+            if post and 'problem-data-zipfile-clear' in self.request.POST:
+                return self._loose_case_files()
+            elif post and 'problem-data-zipfile' in self.request.FILES:
+                return ZipFile(self.request.FILES['problem-data-zipfile']).namelist()
+            elif data.zipfile:
+                return ZipFile(data.zipfile.path).namelist()
+        except BadZipfile:
+            raise
+        return self._loose_case_files()
+
+    def _loose_case_files(self) -> List[str]:
+        """Include loose .in/.out/.ans written by create-v2 so they are not marked bad-file."""
+        import os
+
+        from judge.models import problem_data_storage
+
+        root = getattr(problem_data_storage, 'location', None) or ''
+        problem_dir = os.path.join(root, self.object.code) if root else ''
+        if not problem_dir or not os.path.isdir(problem_dir):
+            return []
+        names = []
+        for name in sorted(os.listdir(problem_dir)):
+            lower = name.lower()
+            if lower.endswith('.in') or lower.endswith('.out') or lower.endswith('.ans'):
+                names.append(name)
+        return names
+
+    def get_context_data(self, **kwargs):
+        context = super(ProblemDataView, self).get_context_data(**kwargs)
+        valid_files = []
+        if 'data_form' not in context:
+            context['data_form'] = self.get_data_form()
+            try:
+                valid_files = self.get_valid_files(context['data_form'].instance)
+            except BadZipfile:
+                pass
+        context['valid_files'] = set(valid_files)
+        context['valid_files_json'] = mark_safe(json.dumps(valid_files))
+
+        context['cases_formset'] = self.get_case_formset(valid_files)
+        context['all_case_forms'] = chain(context['cases_formset'], [context['cases_formset'].empty_form])
+
+        if 'harness_formset' not in context:
+            context['harness_formset'] = self.get_harness_formset()
+
+        context['ACE_URL'] = settings.ACE_URL
+
+        # Add language ace modes for harness editor
+        from judge.models import Language
+        harness_languages = Language.objects.filter(
+            common_name__in=['Java', 'Python'],
+        ).values('id', 'ace')
+        context['language_ace_map'] = mark_safe(json.dumps({
+            lang['id']: lang['ace'] for lang in harness_languages
+        }))
+
+        # Chrome-less rendering when embedded inside the create_v2 problem editor (iframe).
+        context['embed'] = embed = bool(self.request.GET.get('embed'))
+        context['layout'] = 'problem/data_embed_base.html' if embed else 'base.html'
+        context['problem_points'] = self.object.points
+
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self.object = problem = self.get_object()
+        data_form = self.get_data_form(post=True)
+        try:
+            valid_files = self.get_valid_files(data_form.instance, post=True)
+            data_form.zip_valid = True
+        except BadZipfile:
+            valid_files = []
+            data_form.zip_valid = False
+
+        cases_formset = self.get_case_formset(valid_files, post=True)
+        harness_formset = self.get_harness_formset(post=True)
+
+        if data_form.is_valid() and cases_formset.is_valid() and harness_formset.is_valid():
+            data = data_form.save()
+            for case in cases_formset.save(commit=False):
+                case.dataset_id = problem.id
+                case.save()
+            for case in cases_formset.deleted_objects:
+                case.delete()
+
+            # Save harness formset
+            harness_formset.save()
+
+            ProblemDataCompiler.generate(problem, data, problem.cases.order_by('order'), valid_files)
+            return HttpResponseRedirect(request.get_full_path())
+        return self.render_to_response(self.get_context_data(
+            data_form=data_form, cases_formset=cases_formset,
+            harness_formset=harness_formset, valid_files=valid_files))
+
+    put = post
+
+
+@login_required
+def problem_data_file(request, problem, path):
+    object = get_object_or_404(Problem, code=problem)
+    if not object.is_editable_by(request.user):
+        raise Http404()
+
+    problem_dir = problem_data_storage.path(problem)
+    if os.path.commonpath((problem_data_storage.path(os.path.join(problem, path)), problem_dir)) != problem_dir:
+        raise Http404()
+
+    response = HttpResponse()
+
+    if hasattr(settings, 'DMOJ_PROBLEM_DATA_INTERNAL'):
+        url_path = '%s/%s/%s' % (settings.DMOJ_PROBLEM_DATA_INTERNAL, problem, path)
+    else:
+        url_path = None
+
+    try:
+        add_file_response(request, response, url_path, os.path.join(problem, path), problem_data_storage)
+    except IOError:
+        raise Http404()
+
+    response['Content-Type'] = 'application/octet-stream'
+    return response
+
+
+@login_required
+def problem_init_view(request, problem):
+    problem = get_object_or_404(Problem, code=problem)
+    if not problem.is_editable_by(request.user):
+        raise Http404()
+
+    try:
+        with problem_data_storage.open(os.path.join(problem.code, 'init.yml'), 'rb') as f:
+            data = utf8text(f.read()).rstrip('\n')
+    except IOError:
+        raise Http404()
+
+    return render(request, 'problem/yaml.html', {
+        'raw_source': data, 'highlighted_source': highlight_code(data, 'yaml'),
+        'title': _('Generated init.yml for %s') % problem.name,
+        'content_title': mark_safe(escape(_('Generated init.yml for %s')) % (
+            format_html('<a href="{1}">{0}</a>', problem.name,
+                        reverse('problem_detail', args=[problem.code])))),
+    })
+
+
+@login_required
+def download_test_case(request, submission, case, type):
+    submission = get_object_or_404(Submission, id=int(submission))
+    if not submission.problem.view_test_cases:
+        raise Http404()
+
+    if not submission.can_see_detail(request.user):
+        raise Http404()
+
+    case = get_object_or_404(ProblemTestCase, dataset=submission.problem, order=int(case))
+
+    first_failed = submission.test_cases.exclude(status='AC').exclude(status='SC').order_by('case').first()
+
+    if not first_failed:
+        raise Http404()
+
+    if first_failed.case != case.order:
+        raise Http404()
+
+    if type == 'in':
+        filename = case.input_file
+    elif type == 'out':
+        filename = case.output_file
+    else:
+        raise Http404()
+
+    if not filename:
+        raise Http404()
+
+    response = HttpResponse()
+    problem_code = submission.problem.code
+
+    # First, try to access the file directly from storage
+    file_path = os.path.join(problem_code, filename)
+    if problem_data_storage.exists(file_path):
+        try:
+            add_file_response(request, response, None, file_path, problem_data_storage)
+            response['Content-Type'] = 'application/octet-stream'
+            response['Content-Disposition'] = 'attachment; filename="%s"' % os.path.basename(filename)
+            return response
+        except IOError:
+            pass
+
+    # If not found directly, try to extract from zipfile
+    try:
+        problem_data = ProblemData.objects.get(problem=submission.problem)
+        if problem_data.zipfile:
+            with ZipFile(problem_data.zipfile.path, 'r') as zip_file:
+                if filename in zip_file.namelist():
+                    response.content = zip_file.read(filename)
+                    response['Content-Type'] = 'application/octet-stream'
+                    response['Content-Disposition'] = 'attachment; filename="%s"' % os.path.basename(filename)
+                    return response
+    except (ProblemData.DoesNotExist, IOError, BadZipfile):
+        pass
+    raise Http404()
+
+
+@login_required
+def download_tester(request, problem):
+    problem = get_object_or_404(Problem, code=problem)
+    if not problem.view_tester:
+        raise Http404()
+
+    # Get available harnesses
+    harnesses = problem.harnesses.select_related('language').all()
+
+    if harnesses.exists():
+        # Get requested language from query param, or default to first harness
+        lang_key = request.GET.get('lang')
+        if lang_key:
+            harness = harnesses.filter(language__key=lang_key).first()
+        else:
+            harness = harnesses.first()
+
+        if not harness:
+            raise Http404()
+
+        # Determine filename based on language
+        if harness.language.key.startswith('JAVA'):
+            import re
+            class_match = re.search(r'public\s+class\s+(\w+)', harness.harness_code)
+            harness_class = class_match.group(1) if class_match else 'MainTest'
+            filename = '%s.java' % harness_class
+        elif harness.language.key in ('PY3', 'PYPY3', 'PY2', 'PYPY'):
+            filename = 'tester.py'
+        else:
+            filename = 'tester.txt'
+
+        # Return harness code as downloadable file
+        response = HttpResponse(harness.harness_code, content_type='application/octet-stream')
+        response['Content-Disposition'] = 'attachment; filename="%s"' % filename
+        return response
+
+    # Fall back to legacy MainTest.java if it exists
+    filename = 'MainTest.java'
+    path = os.path.join(problem.code, filename)
+
+    if not problem_data_storage.exists(path):
+        raise Http404()
+
+    response = HttpResponse()
+    try:
+        add_file_response(request, response, None, path, problem_data_storage)
+    except IOError:
+        raise Http404()
+
+    response['Content-Type'] = 'application/octet-stream'
+    response['Content-Disposition'] = 'attachment; filename="%s"' % filename
+    return response

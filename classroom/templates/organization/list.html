@@ -1,0 +1,287 @@
+{% extends "base.html" %}
+
+{% block js_media %}
+    <script type="text/javascript">
+        $(function () {
+            $("#instructor-verification-btn").on("click", function () {
+                $("#instructor-verification-modal").prop("hidden", false);
+            });
+            $("#instructor-verification-modal .js-close-modal, #join-request-modal .js-close-modal").on("click", function () {
+                $(this).closest(".course-modal").prop("hidden", true);
+            });
+            var isSiteTeacher = {{ 'true' if is_site_teacher else 'false' }};
+            var joinClasses = {};
+            try {
+                var joinEl = document.getElementById('join-classes-json');
+                if (joinEl) joinClasses = JSON.parse(joinEl.textContent || '{}');
+            } catch (e) {}
+            function fillJoinClassSelect(orgId) {
+                var $sel = $('#join-class-select');
+                $sel.empty();
+                $sel.append($('<option>').val('').text({{ _('Select a class…')|htmltojs }}));
+                (joinClasses[String(orgId)] || []).forEach(function (cls) {
+                    $sel.append($('<option>').val(cls.id).text(cls.name));
+                });
+            }
+            // Delegate: applyFilters() uses $grid.empty(), which strips direct handlers.
+            $("#course-grid").on("click", ".js-open-join-modal", function (e) {
+                e.preventDefault();
+                var $btn = $(this);
+                var orgId = $btn.attr('data-org-id');
+                var orgName = $btn.attr('data-org-name') || '';
+                $('#join-request-form').attr('action', $btn.attr('data-request-url'));
+                $('#join-title').text({{ _('Request course membership')|htmltojs }} + (orgName ? (' — ' + orgName) : ''));
+                fillJoinClassSelect(orgId);
+                var hasClasses = (joinClasses[String(orgId)] || []).length > 0;
+                if (isSiteTeacher) {
+                    var noneLabel = {{ _('None — course only (not co-teaching)')|htmltojs }};
+                    $('#join-class-select option[value=""]').text(noneLabel);
+                    $('#join-class-wrap').prop('hidden', !hasClasses);
+                    $('#join-class-select').prop('required', false);
+                    $('#join-reason').prop('required', false);
+                    $('#join-submit').text({{ _('Submit request')|htmltojs }});
+                    $('#join-teacher-help').prop('hidden', false);
+                    $('#join-class-label').text({{ _('Class (optional)')|htmltojs }});
+                } else {
+                    $('#join-class-wrap').prop('hidden', !hasClasses);
+                    $('#join-class-select').prop('required', hasClasses);
+                    $('#join-reason').prop('required', true);
+                    $('#join-submit').text({{ _('Submit request')|htmltojs }});
+                    $('#join-teacher-help').prop('hidden', true);
+                    $('#join-class-label').text({{ _('Target class')|htmltojs }});
+                }
+                $('#join-request-modal').prop('hidden', false);
+            });
+            $(".js-delete-course").on("click", function (e) {
+                if (!confirm({{ _('Delete this course? This cannot be undone.')|htmltojs }})) {
+                    e.preventDefault();
+                }
+            });
+
+            var $grid = $('#course-grid');
+            var $empty = $('#course-empty');
+            var $cards = $grid.find('.course-card');
+
+            function applyFilters() {
+                var q = ($('#f-q').val() || '').trim().toLowerCase();
+                var joined = $('#f-joined').val() || '';
+                var mode = $('#f-mode').val() || '';
+                var sort = $('#f-sort').val() || 'short_name';
+
+                var items = $cards.get().map(function (el) {
+                    return {
+                        el: el,
+                        code: (el.getAttribute('data-code') || '').toLowerCase(),
+                        name: (el.getAttribute('data-name') || '').toLowerCase(),
+                        joined: el.getAttribute('data-joined') === '1',
+                        pending: el.getAttribute('data-pending') === '1',
+                        open: el.getAttribute('data-open') === '1',
+                        manage: el.getAttribute('data-manage') === '1',
+                        classes: parseInt(el.getAttribute('data-classes') || '0', 10),
+                        instructors: parseInt(el.getAttribute('data-instructors') || '0', 10)
+                    };
+                });
+
+                items.forEach(function (it) {
+                    var show = true;
+                    if (q && it.code.indexOf(q) < 0 && it.name.indexOf(q) < 0) show = false;
+                    if (joined === 'joined' && !it.joined) show = false;
+                    if (joined === 'pending' && !(it.pending && !it.joined)) show = false;
+                    if (joined === 'open' && !(it.open && !it.joined && !it.pending && !it.manage)) show = false;
+                    if (mode === 'open' && !it.open) show = false;
+                    if (mode === 'required' && it.open) show = false;
+                    it.show = show;
+                });
+
+                items.sort(function (a, b) {
+                    if (sort === 'name') return a.name.localeCompare(b.name);
+                    if (sort === 'classes') return b.classes - a.classes || a.code.localeCompare(b.code);
+                    if (sort === 'instructors') return b.instructors - a.instructors || a.code.localeCompare(b.code);
+                    return a.code.localeCompare(b.code) || a.name.localeCompare(b.name);
+                });
+
+                $grid.empty();
+                var visible = items.filter(function (it) { return it.show; });
+                visible.forEach(function (it) {
+                    $grid.append(it.el);
+                    $(it.el).show();
+                });
+                $empty.prop('hidden', !!visible.length);
+                $grid.prop('hidden', !visible.length);
+
+                try {
+                    var params = new URLSearchParams();
+                    if (q) params.set('q', $('#f-q').val().trim());
+                    if (joined) params.set('joined', joined);
+                    if (mode) params.set('join_mode', mode);
+                    if (sort && sort !== 'short_name') params.set('sort', sort);
+                    var qs = params.toString();
+                    var next = window.location.pathname + (qs ? ('?' + qs) : '');
+                    if (next !== window.location.pathname + window.location.search) {
+                        window.history.replaceState(null, '', next);
+                    }
+                } catch (e) {}
+            }
+
+            $('#f-q').on('input', applyFilters);
+            $('#f-joined, #f-mode, #f-sort').on('change', applyFilters);
+            $('#course-list-filters').on('submit', function (e) {
+                e.preventDefault();
+                applyFilters();
+            });
+            var joinId = null;
+            try {
+                joinId = new URLSearchParams(window.location.search).get('join');
+            } catch (e) {}
+            applyFilters();
+            // applyFilters() rewrites the query string and would drop ?join= if we read it after.
+            if (joinId && /^\d+$/.test(joinId)) {
+                var trigger = document.querySelector('.js-open-join-modal[data-org-id="' + joinId + '"]');
+                if (trigger) $(trigger).trigger('click');
+            }
+        });
+    </script>
+{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'course' %}
+    {% set title = _('Course') %}
+    {% include "organization/course-tabs.html" %}
+{% endblock %}
+
+{% block body %}
+{% if request.user.is_authenticated %}
+<div class="course-redesign oj-ui">
+    <form id="course-list-filters" class="filters" method="get" action="" role="search">
+        <div>
+            <label for="f-q">{{ _('Course code / course name') }}</label>
+            <input id="f-q" type="text" name="q" value="{{ filter_q }}"
+                   placeholder="{{ _('e.g. course code or course name') }}"
+                   autocomplete="off">
+        </div>
+        <div>
+            <label for="f-joined">{{ _('Join status') }}</label>
+            <select id="f-joined" name="joined" class="oj-select">
+                <option value="" {% if not filter_joined %}selected{% endif %}>{{ _('All') }}</option>
+                <option value="joined" {% if filter_joined == 'joined' %}selected{% endif %}>{{ _('Joined') }}</option>
+                <option value="open" {% if filter_joined == 'open' %}selected{% endif %}>{{ _('Can join') }}</option>
+                <option value="pending" {% if filter_joined == 'pending' %}selected{% endif %}>{{ _('Pending') }}</option>
+            </select>
+        </div>
+        <div>
+            <label for="f-mode">{{ _('Join mode') }}</label>
+            <select id="f-mode" name="join_mode" class="oj-select">
+                <option value="" {% if not filter_join_mode %}selected{% endif %}>{{ _('All') }}</option>
+                <option value="required" {% if filter_join_mode == 'required' %}selected{% endif %}>{{ _('Approval required') }}</option>
+                <option value="open" {% if filter_join_mode == 'open' %}selected{% endif %}>{{ _('Open join') }}</option>
+            </select>
+        </div>
+        <div>
+            <label for="f-sort">{{ _('Sort by') }}</label>
+            <select id="f-sort" name="sort" class="oj-select">
+                <option value="short_name" {% if filter_sort == 'short_name' %}selected{% endif %}>{{ _('Course code') }}</option>
+                <option value="name" {% if filter_sort == 'name' %}selected{% endif %}>{{ _('Course name') }}</option>
+                <option value="classes" {% if filter_sort == 'classes' %}selected{% endif %}>{{ _('Class count') }}</option>
+                <option value="instructors" {% if filter_sort == 'instructors' %}selected{% endif %}>{{ _('Instructor count') }}</option>
+            </select>
+        </div>
+    </form>
+
+    {% include "messages.html" %}
+
+    {% if organizations %}
+        <div id="course-grid" class="course-grid">
+            {% for org in organizations %}
+                <div class="course-card"
+                     data-code="{{ org.short_name }}"
+                     data-name="{{ org.name }}"
+                     data-joined="{% if org.user_joined %}1{% else %}0{% endif %}"
+                     data-pending="{% if org.user_pending %}1{% else %}0{% endif %}"
+                     data-open="{% if org.is_open %}1{% else %}0{% endif %}"
+                     data-manage="{% if org.can_manage %}1{% else %}0{% endif %}"
+                     data-classes="{{ org.class_count }}"
+                     data-instructors="{{ org.instructor_count }}">
+                    {% if org.review_pending_count %}
+                        <a class="course-pending" href="{{ url('organization_join_requests') }}?status=P&course={{ org.id }}"
+                           title="{{ _('Pending join requests') }}">{{ org.review_pending_count }}</a>
+                    {% endif %}
+                    <div class="course-tint">
+                        <div class="course-code">{{ org.short_name }}</div>
+                        <div class="course-title">
+                            <a href="{{ org.get_absolute_url() }}">{{ org.name }}</a>
+                        </div>
+                        <div class="course-meta">
+                            <div class="line"><i class="fa fa-sitemap"></i>
+                                <span>
+                                    {% if org.class_count == 1 %}{{ _('1 class') }}
+                                    {% else %}{{ _('%(count)d classes', count=org.class_count) }}{% endif %}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="course-foot">
+                        <div class="status">
+                            {% if org.user_joined %}{{ _('Already in course') }}
+                            {% elif org.user_pending %}{{ _('Waiting for membership approval') }}
+                            {% elif org.is_open %}{{ _('Open course join') }}
+                            {% else %}{{ _('Course membership required') }}
+                            {% endif %}
+                        </div>
+                        <div class="actions">
+                            {% if org.can_manage or org.user_joined %}
+                                <a class="oj-btn oj-btn-primary" href="{{ org.get_absolute_url() }}">{{ _('Open course') }}</a>
+                            {% elif org.user_pending %}
+                                <a class="oj-btn oj-btn-primary" href="{{ org.get_absolute_url() }}">{{ _('Pending membership') }}</a>
+                            {% elif org.is_open %}
+                                <a class="oj-btn oj-btn-primary" href="{{ org.get_absolute_url() }}">{{ _('Join course') }}</a>
+                            {% else %}
+                                <button type="button" class="oj-btn oj-btn-primary js-open-join-modal"
+                                        data-org-id="{{ org.id }}"
+                                        data-org-name="{{ org.name }}"
+                                        data-request-url="{{ url('request_organization', org.id, org.slug) }}">
+                                    {{ _('Request membership') }}
+                                </button>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        <div id="course-empty" class="empty" hidden>{{ _('No courses match your filters.') }}</div>
+    {% else %}
+        <div class="empty">{{ _('No courses match your filters.') }}</div>
+    {% endif %}
+</div>
+{% else %}
+    <div>{{ _('Please log in to view courses.') }}</div>
+{% endif %}
+
+{% include "organization/instructor-verification-modal.html" %}
+
+{% if join_classes_script %}{{ join_classes_script|safe }}{% endif %}
+<div id="join-request-modal" class="course-modal" hidden>
+    <div class="course-modal-backdrop js-close-modal"></div>
+    <div class="course-modal-dialog" role="dialog" aria-labelledby="join-title">
+        <h2 id="join-title">{{ _('Request course membership') }}</h2>
+        <p id="join-teacher-help" class="muted" hidden>
+            {{ _('Leave class empty to join as a course instructor (you can open every class). Pick a class only if you will co-teach that section.') }}
+        </p>
+        <form id="join-request-form" method="post" action="" class="join-modal-form">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ url('organization_list') }}">
+            <div id="join-class-wrap">
+                <label id="join-class-label" for="join-class-select">{{ _('Target class') }}</label>
+                <select name="class_" id="join-class-select" class="oj-select"></select>
+            </div>
+            <label for="join-reason">{{ _('Reason') }}</label>
+            <textarea name="reason" id="join-reason" class="oj-input" rows="5"></textarea>
+            <p style="margin-top: 0.85rem;">
+                <button type="submit" class="button" id="join-submit">{{ _('Submit request') }}</button>
+                <button type="button" class="button js-close-modal">{{ _('Cancel') }}</button>
+            </p>
+        </form>
+    </div>
+</div>
+{% endblock %}

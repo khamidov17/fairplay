@@ -1,0 +1,82 @@
+# DKU OJ
+
+[![pipeline status](https://gitlab.oit.duke.edu/dku-oj/dkuoj/badges/main/pipeline.svg)](https://gitlab.oit.duke.edu/dku-oj/dkuoj/-/commits/main)
+[![coverage report](https://gitlab.oit.duke.edu/dku-oj/dkuoj/badges/main/coverage.svg)](https://gitlab.oit.duke.edu/dku-oj/dkuoj/-/commits/main)
+![license](https://img.shields.io/badge/license-AGPL--3.0-blue)
+
+This is a customized fork of the [DMOJ: Modern Online Judge](https://dmoj.ca/), tailored with specific features for course management and enhanced user experience.
+
+## New Features
+
+This fork introduces several new capabilities designed for educational environments and streamlined administration.
+
+### Interactive Online IDE
+A dedicated coding environment (`/ide/`) that allows users to practice and test code without navigating to specific problems.
+*   **Split-Pane Layout**: Side-by-side code editor, input area, and output display.
+*   **Language Support**: Full syntax highlighting for all supported languages using ACE Editor.
+*   **Smart Autosave**: Code and input are automatically saved to local storage, preventing data loss.
+*   **Rate Limiting**: Custom time and memory constraints for IDE executions.
+
+### Enhanced Problem Page
+The problem view has been redesigned for better usability:
+*   **Split-View Interface**: Resizable panes for the problem description and code editor.
+*   **Fullscreen Mode**: A distraction-free coding experience.
+
+### Administrative Tools
+New commands and UI enhancements to simplify management:
+
+*   **Bulk User Import**: Easily onboard students using `python manage.py import_users_csv`.
+*   **Organization User Import**: A user-friendly frontend interface for importing users into organizations via CSV upload.
+*   **Contest Data Export**:
+    *   `export_contest_scores`: Export final scores to CSV.
+    *   `export_contest_submissions`: Download all contest submissions as a ZIP archive.
+*   **Contest PDF Export**: Generate a printable PDF containing all contest problems with proper formatting and math rendering.
+*   **Admin UI Enhancements**:
+    *   **Clone Problem**: One-click button to duplicate existing problems.
+    *   **Edit Test Data**: Quick access link to manage test cases directly from the problem list.
+
+### Problem Management
+*   **Problem Templates**: Define starting code templates for specific languages to guide students.
+*   **Problem Harnesses**: Hidden test code (for Java/Python) that compiles together with the student's submission, enabling black-box testing of specific functions or classes.
+*   **Test Case Access**: Configurable permissions to allow users to download failed test cases or tester files for debugging.
+
+## Original DMOJ Features
+
+*   **Multi-Language Support**: Run code in over 60 languages including C++, Java, Python, and Rust.
+*   **Robust Judging**: Secure, scalable grading system with support for interactive problems and custom validators.
+*   **Contest System**: heavily configurable with support for IOI, ICPC, and AtCoder formats.
+*   **Rich Content**: Problems written in Markdown with LaTeX math support.
+*   **Extensive Admin Interface**: Fine-grained permission controls, plagiarism detection, and more.
+
+## Todo / Roadmap
+
+- [x] **Frontend Custom Grader Config**: Allow teachers to configure custom graders directly from the frontend without backend server access.
+- [x] **Comprehensive Contest Export**: Generate a PDF export containing all problem content, CSV for student scores, and ZIP for source code.
+- [x] **Frontend Student Import**: Add a user-friendly frontend interface for the `import_users_csv` command.
+- [ ] **Enhanced Multi-Choice Support**: Improve configuration options for multi-choice problems.
+- [ ] **Auto Indexing**: Automatically index problems and contests when creating new ones.
+- [x] **Disable Virtual Participation**: Disable virtual participation for some contests.
+- [ ] **Test Cases Editing**: Allow teachers to edit test cases directly from the frontend.
+- [ ] **Auto Rejudging**: Automatically rejudge submissions when a problem is pretested during the contest.
+- [ ] **NetID Login**: Let students login to the website using their NetID.
+
+## Rich text editor
+
+Problem statements, comments, and contest notes use the Tiptap-based `RichEditor` (Markdown is still what we store). Edit `resources/js/rich_editor/` only. The IIFE at `resources/rich_editor.js` and KaTeX files under `resources/vendor/` are build outputs (gitignored, same as `make_style.sh` CSS).
+
+```bash
+npm ci
+npm run build:editor   # writes resources/rich_editor.js and vendor/katex*
+npm run test:editor    # Markdown dialect round-trips
+./make_style.sh        # after changing resources/rich_editor.scss
+```
+
+CI (`styles` job) and the Docker `styles` stage run the same editor build.
+
+## Installation
+
+Check out the install documentation at [docs.dmoj.ca](https://docs.dmoj.ca/#/site/installation) and my blog post at [squirrelstar.com](http://squirrelstar.com/posts/deploy-dmoj-for-cs-course/).
+
+## License
+
+This project is licensed under the same terms as the original DMOJ project.

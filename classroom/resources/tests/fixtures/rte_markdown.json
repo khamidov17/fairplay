@@ -1,0 +1,93 @@
+{
+  "cases": [
+    {
+      "id": "bold_italic",
+      "markdown": "Hello **bold** and *italic*.",
+      "expect_substrings": ["<strong>bold</strong>", "<em>italic</em>"]
+    },
+    {
+      "id": "headings",
+      "markdown": "# Title\n\n## Sub\n\n### H3",
+      "expect_substrings": ["Title", "Sub", "H3"]
+    },
+    {
+      "id": "lists",
+      "markdown": "- a\n- b\n\n1. one\n2. two",
+      "expect_substrings": ["<ul", "<ol", "<li"]
+    },
+    {
+      "id": "inline_code",
+      "markdown": "Use `code` here.",
+      "expect_substrings": ["<code>code</code>"]
+    },
+    {
+      "id": "mark_highlight",
+      "markdown": "A <mark>highlight</mark> word.",
+      "expect_substrings": ["<mark>highlight</mark>"]
+    },
+    {
+      "id": "math_tilde",
+      "markdown": "Formula ~a^2 + b^2 = c^2~ inline.",
+      "expect_substrings": ["\\(a^2 + b^2 = c^2\\)"]
+    },
+    {
+      "id": "math_paren",
+      "markdown": "Inline \\(T_{wc}\\) and \\(V \\le 4.8\\).",
+      "expect_substrings": ["\\(T_{wc}\\)", "\\(V \\le 4.8\\)"]
+    },
+    {
+      "id": "math_brackets",
+      "markdown": "Display \\[x \\le 0\\] here.",
+      "expect_substrings": ["\\[x \\le 0\\]"]
+    },
+    {
+      "id": "math_brackets_multiline_blank",
+      "markdown": "\\[\n\nw = 35.74 + (0.4275T - 35.75)\\,v^{0.16}\n\n\\]\n\nWrite `T`.",
+      "expect_substrings": ["\\[", "v^{0.16}", "\\]", "<code>T</code>"],
+      "forbid_substrings": ["<p>[</p>", "<p>]</p>"]
+    },
+    {
+      "id": "math_dollars",
+      "markdown": "Block\n\n$$ a^2 $$\n\nend",
+      "expect_substrings": ["\\[", "a^2", "\\]"]
+    },
+    {
+      "id": "blank_placeholder",
+      "markdown": "Fill {{blank}} here.",
+      "expect_substrings": ["{{blank}}"]
+    },
+    {
+      "id": "align_div",
+      "markdown": "<div style=\"text-align:center\">Centered</div>",
+      "expect_substrings": ["text-align:center", "Centered"]
+    },
+    {
+      "id": "image_md",
+      "markdown": "![alt](https://example.com/x.png)",
+      "expect_substrings": ["src=\"https://example.com/x.png\""]
+    },
+    {
+      "id": "gfm_table",
+      "markdown": "| A | B |\n| --- | --- |\n| 1 | 2 |\n",
+      "expect_substrings": ["h-scrollable-table", "<table", "<th>", "A", "B", "<td>", "1", "2"]
+    },
+    {
+      "id": "script_bleach",
+      "markdown": "<script>alert(1)</script>",
+      "expect_substrings": ["&lt;script&gt;"],
+      "forbid_substrings": ["<script>alert"]
+    },
+    {
+      "id": "fenced_code_lang",
+      "markdown": "```python\nprint(1)\n```",
+      "expect_substrings": ["code-block", "code-block-lang", "python", "print"],
+      "forbid_substrings": ["<code>python"]
+    },
+    {
+      "id": "fenced_code_plain",
+      "markdown": "```\nint x = 1;\n```",
+      "expect_substrings": ["int x = 1", "<pre>", "<code>"],
+      "forbid_substrings": ["code-block-lang"]
+    }
+  ]
+}

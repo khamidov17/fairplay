@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block media %}
+    <style>
+        th { text-align: left; padding-right: 1rem; vertical-align: top; }
+        td { padding: 0.25rem 0; }
+    </style>
+{% endblock %}
+
+{% block body %}
+<div class="course-redesign oj-ui">
+    <table>
+        <tr>
+            <th>{{ _('User:') }}</th>
+            <td>{{ link_user(object.user) }}</td>
+        </tr>
+        <tr>
+            <th>{{ _('Course:') }}</th>
+            <td>
+                {% with org=object.organization %}
+                    <a href="{{ org.get_absolute_url() }}">{{ org.name }}</a>
+                {% endwith %}
+            </td>
+        </tr>
+        <tr>
+            <th>{{ _('Class:') }}</th>
+            <td>
+                {% if object.request_class %}
+                    <a href="{{ object.request_class.get_absolute_url() }}">{{ object.request_class.name }}</a>
+                {% else %}
+                    {{ _('Course membership') }}
+                {% endif %}
+            </td>
+        </tr>
+        <tr>
+            <th>{{ _('Status:') }}</th>
+            <td>
+                {% if object.state == 'P' %}{{ _('Pending') }}
+                {% elif object.state == 'A' %}{{ _('Approved') }}
+                {% else %}{{ _('Rejected') }}
+                {% endif %}
+            </td>
+        </tr>
+        <tr>
+            <th>{{ _('Time:') }}</th>
+            <td>{{ object.time|date(_("N j, Y, g:i a")) }}</td>
+        </tr>
+        <tr>
+            <th colspan="2">{{ _('Reason:') }}</th>
+        </tr>
+        <tr>
+            <td colspan="2" style="padding-left: 2em">{{ object.reason }}</td>
+        </tr>
+    </table>
+    <p style="margin-top:1rem;">
+        <a href="{{ url('organization_join_requests') }}?status={{ object.state }}&amp;course={{ object.organization_id }}">{{ _('Back to join requests') }}</a>
+    </p>
+</div>
+{% endblock %}

@@ -1,0 +1,462 @@
+<style>
+    .leave-confirm-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 2100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        background: rgba(0, 0, 0, 0.45);
+    }
+    .leave-confirm-overlay[hidden] { display: none; }
+    .leave-confirm-box {
+        width: 520px;
+        max-width: 100%;
+        max-height: calc(100vh - 2rem);
+        overflow: auto;
+        padding: 1.25rem 1.5rem;
+        border: 1px solid var(--oj-border, #ccc);
+        border-radius: var(--oj-radius-lg, 8px);
+        background: var(--oj-surface, #fff);
+        box-shadow: var(--oj-shadow-modal, 0 8px 24px rgba(0, 0, 0, 0.18));
+    }
+    .leave-confirm-title {
+        margin: 0 0 0.75rem;
+        font-size: 1.25rem;
+        font-weight: 700;
+        line-height: 1.35;
+        color: var(--oj-heading, var(--oj-text));
+    }
+    .leave-confirm-stats {
+        margin: 0 0 0.85rem;
+        padding: 0.65rem 0.85rem;
+        border-radius: var(--oj-radius, 4px);
+        background: var(--oj-bg, #f6f6f6);
+        color: var(--oj-text);
+        font-size: 13px;
+    }
+    .leave-confirm-stat + .leave-confirm-stat { margin-top: 0.7rem; }
+    .leave-confirm-stat-head { font-weight: 600; margin: 0 0 0.3rem; }
+    .leave-confirm-names {
+        margin: 0.15rem 0 0;
+        padding-left: 1.15rem;
+        max-height: 160px;
+        overflow: auto;
+    }
+    .leave-confirm-names li { margin: 0.15rem 0; }
+    .leave-confirm-empty { margin: 0.15rem 0 0; color: var(--oj-text-muted, #555); }
+    .leave-confirm-stats details { margin-top: 0.15rem; }
+    .leave-confirm-stats summary {
+        cursor: pointer;
+        color: var(--oj-link, #247);
+        user-select: none;
+    }
+    .leave-confirm-stats[hidden] { display: none; }
+    .leave-confirm-warn {
+        margin: 0 0 0.4rem;
+        color: var(--oj-text);
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1.5;
+    }
+    .leave-confirm-note {
+        margin: 0 0 1rem;
+        color: var(--oj-text-muted, #555);
+        font-size: 13px;
+    }
+    .leave-confirm-note[hidden] { display: none; }
+    .leave-confirm-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
+    .leave-confirm-btn {
+        min-width: 4.5rem;
+        min-height: 2.15rem;
+        padding: 6px 14px;
+        border: 1px solid var(--oj-border, #ccc);
+        border-radius: var(--oj-radius, 4px);
+        background: var(--oj-surface, #fff);
+        color: var(--oj-text);
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+    }
+    .leave-confirm-btn-primary {
+        color: var(--oj-btn-text, #fff);
+        background: var(--oj-accent, #2980B9);
+        border-color: var(--oj-accent, #2980B9);
+    }
+    .leave-confirm-btn-primary:hover {
+        filter: brightness(1.05);
+    }
+    .leave-confirm-btn-danger {
+        color: var(--oj-btn-text, #fff);
+        background: var(--oj-danger, #c0392b);
+        border-color: var(--oj-danger, #c0392b);
+    }
+    .leave-confirm-btn-danger:hover {
+        background: var(--oj-danger-hover, #a93226);
+        border-color: var(--oj-danger-hover, #a93226);
+    }
+</style>
+<div class="leave-confirm-overlay" id="leave-confirm-overlay" hidden>
+    <div class="leave-confirm-box" role="dialog" aria-modal="true" aria-labelledby="leave-confirm-title">
+        <h3 class="leave-confirm-title" id="leave-confirm-title"></h3>
+        <div class="leave-confirm-stats" hidden>
+            <section class="leave-confirm-stat">
+                <div class="leave-confirm-stat-head" id="leave-confirm-submitted-head"></div>
+                <div id="leave-confirm-submitted-body"></div>
+            </section>
+            <section class="leave-confirm-stat">
+                <div class="leave-confirm-stat-head" id="leave-confirm-unsubmitted-head"></div>
+                <div id="leave-confirm-unsubmitted-body"></div>
+            </section>
+        </div>
+        <p class="leave-confirm-warn" id="leave-confirm-warn"></p>
+        <p class="leave-confirm-note" id="leave-confirm-note"></p>
+        <div class="leave-confirm-actions">
+            <button type="button" class="leave-confirm-btn" id="leave-confirm-cancel">{{ _('Cancel') }}</button>
+            <button type="button" class="leave-confirm-btn leave-confirm-btn-danger" id="leave-confirm-ok"></button>
+        </div>
+    </div>
+</div>
+<script type="text/javascript">
+    function dkuojClipTraceValue(value, max) {
+        if (value == null) return value;
+        value = String(value);
+        return value.length > max ? value.slice(0, max) + '…' : value;
+    }
+
+    window.dkuojProgressBarSnapshot = function () {
+        var label = document.getElementById('toolbar-progress-label');
+        var bar = document.getElementById('toolbar-progress-bar');
+        return {
+            bar_label: label ? label.textContent : null,
+            bar_value: bar ? String(bar.value) : null,
+            bar_max: bar ? String(bar.max) : null,
+        };
+    };
+
+    window.dkuojLeaveFormSnapshot = function (form) {
+        if (!form) return {};
+        return {
+            leave_submitted: form.getAttribute('data-submitted'),
+            leave_unsubmitted: form.getAttribute('data-unsubmitted'),
+            leave_total: form.getAttribute('data-total'),
+            leave_submitted_names: dkuojClipTraceValue(form.getAttribute('data-submitted-names'), 400),
+            leave_unsubmitted_names: dkuojClipTraceValue(form.getAttribute('data-unsubmitted-names'), 400),
+        };
+    };
+
+    window.dkuojTraceWorkspaceProgress = function (step, extra) {
+        extra = extra || {};
+        var csrf = '';
+        var meta = document.querySelector('meta[name="csrf-token"]');
+        if (meta) csrf = meta.getAttribute('content') || '';
+        if (!csrf && window.jQuery && typeof $.cookie === 'function') csrf = $.cookie('csrftoken') || '';
+        var body = {step: step, href: location.pathname + location.search};
+        Object.keys(extra).forEach(function (key) { body[key] = extra[key]; });
+        try {
+            fetch({{ url('workspace_progress_trace')|htmltojs }}, {
+                method: 'POST',
+                credentials: 'same-origin',
+                keepalive: true,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': csrf,
+                    'Accept': 'application/json',
+                },
+                body: JSON.stringify(body),
+            }).catch(function () {});
+        } catch (err) { /* tracing must never block Leave / Submit */ }
+    };
+
+    function dkuojClearJoinNotices(contestKey) {
+        if (!contestKey || !window.sessionStorage) return;
+        var prefix = 'dkuoj-ws-submit-notice-join-' + contestKey + '-';
+        var pendingKey = 'dkuoj-ws-join-pending-' + contestKey;
+        var toRemove = [pendingKey];
+        try {
+            for (var i = 0; i < sessionStorage.length; i++) {
+                var key = sessionStorage.key(i);
+                if (key && key.indexOf(prefix) === 0) toRemove.push(key);
+            }
+            toRemove.forEach(function (key) { sessionStorage.removeItem(key); });
+        } catch (err) {}
+    }
+
+    function dkuojMarkJoinPending(contestKey) {
+        if (!contestKey || !window.sessionStorage) return;
+        dkuojClearJoinNotices(contestKey);
+        try { sessionStorage.setItem('dkuoj-ws-join-pending-' + contestKey, '1'); } catch (err) {}
+    }
+
+    function dkuojOnLeaveContest(contestKey) {
+        dkuojClearAssignmentDrafts(contestKey);
+        dkuojClearJoinNotices(contestKey);
+    }
+
+    function dkuojClearAssignmentDrafts(contestKey) {
+        if (!contestKey || !window.localStorage) return;
+        // Matches workspace.js draftContextPrefix(): dkuoj-ws-draft-{assignment|exam}-{contest}-…
+        var prefixes = [
+            'dkuoj-ws-draft-assignment-' + contestKey + '-',
+            'dkuoj-ws-draft-exam-' + contestKey + '-',
+        ];
+        var toRemove = [];
+        for (var i = 0; i < localStorage.length; i++) {
+            var key = localStorage.key(i);
+            if (!key) continue;
+            for (var p = 0; p < prefixes.length; p++) {
+                if (key.indexOf(prefixes[p]) === 0) {
+                    toRemove.push(key);
+                    break;
+                }
+            }
+        }
+        toRemove.forEach(function (key) { localStorage.removeItem(key); });
+    }
+
+    function dkuojParseLeaveNames(form, attr) {
+        try {
+            var parsed = JSON.parse(form.getAttribute(attr) || '[]');
+            return Array.isArray(parsed) ? parsed.map(String) : [];
+        } catch (e) {
+            return [];
+        }
+    }
+
+    function dkuojFillLeaveNames(container, names, startOpen) {
+        container.textContent = '';
+        if (!names.length) {
+            var empty = document.createElement('p');
+            empty.className = 'leave-confirm-empty';
+            empty.textContent = {{ _('None')|htmltojs }};
+            container.appendChild(empty);
+            return;
+        }
+        var list = document.createElement('ul');
+        list.className = 'leave-confirm-names';
+        names.forEach(function (name) {
+            var item = document.createElement('li');
+            item.textContent = name;
+            list.appendChild(item);
+        });
+        if (names.length > 4) {
+            var details = document.createElement('details');
+            if (startOpen) details.open = true;
+            var summary = document.createElement('summary');
+            summary.textContent = names.length + ' ' + {{ _('problems')|htmltojs }};
+            details.appendChild(summary);
+            details.appendChild(list);
+            container.appendChild(details);
+        } else {
+            container.appendChild(list);
+        }
+    }
+
+    window.DKUOJ_MANUAL_SUBMIT_WARN = {{ _('You must press Submit on every problem. Unsubmitted answers will not count toward your grade.')|htmltojs }};
+    window.DKUOJ_MANUAL_SUBMIT_TITLE = {{ _('Please submit your work')|htmltojs }};
+    window.DKUOJ_PREEXAM_TITLE = {{ _('Pre-exam reminder')|htmltojs }};
+    window.DKUOJ_TIME_WARN_TITLE = {{ _('A kind reminder')|htmltojs }};
+    window.DKUOJ_MANUAL_SUBMIT_OK = {{ _('OK')|htmltojs }};
+
+    var leaveOverlayCloser = null;
+
+    function dkuojCloseLeaveOverlay() {
+        if (leaveOverlayCloser) leaveOverlayCloser();
+    }
+
+    function dkuojOpenLeaveOverlay(handlers) {
+        var overlay = document.getElementById('leave-confirm-overlay');
+        var cancel = document.getElementById('leave-confirm-cancel');
+        var ok = document.getElementById('leave-confirm-ok');
+        dkuojCloseLeaveOverlay();
+        handlers = handlers || {};
+        function close(reason) {
+            overlay.hidden = true;
+            overlay.removeEventListener('click', onOverlay);
+            document.removeEventListener('keydown', onKey);
+            cancel.removeEventListener('click', onCancel);
+            ok.removeEventListener('click', onOk);
+            cancel.hidden = false;
+            ok.classList.remove('leave-confirm-btn-primary', 'leave-confirm-btn-danger');
+            leaveOverlayCloser = null;
+            if (typeof handlers.onDismiss === 'function' && reason !== 'ok') handlers.onDismiss();
+        }
+        function onCancel() { close('cancel'); }
+        function onOk() {
+            if (typeof handlers.onOk === 'function') handlers.onOk(function () { close('ok'); });
+            else close('ok');
+        }
+        function onOverlay(event) {
+            if (event.target === overlay) close('cancel');
+        }
+        function onKey(event) {
+            if (event.key === 'Escape') close('cancel');
+        }
+        cancel.addEventListener('click', onCancel);
+        ok.addEventListener('click', onOk);
+        overlay.addEventListener('click', onOverlay);
+        document.addEventListener('keydown', onKey);
+        leaveOverlayCloser = close;
+        overlay.hidden = false;
+        ok.focus();
+    }
+
+    window.dkuojShowAssignmentNotice = function (opts) {
+        var overlay = document.getElementById('leave-confirm-overlay');
+        if (!overlay || !overlay.hidden) return false;
+        opts = opts || {};
+        overlay.classList.remove('is-notice');
+        if (opts.kind === 'join' || opts.kind === '10pct') overlay.classList.add('is-notice');
+        document.getElementById('leave-confirm-title').textContent =
+            opts.title || window.DKUOJ_MANUAL_SUBMIT_TITLE;
+        document.getElementById('leave-confirm-warn').textContent =
+            opts.warn || window.DKUOJ_MANUAL_SUBMIT_WARN;
+        var noteEl = document.getElementById('leave-confirm-note');
+        if (opts.note) {
+            noteEl.hidden = false;
+            noteEl.textContent = opts.note;
+        } else {
+            noteEl.hidden = true;
+            noteEl.textContent = '';
+        }
+        overlay.querySelector('.leave-confirm-stats').hidden = true;
+        document.getElementById('leave-confirm-cancel').hidden = true;
+        var ok = document.getElementById('leave-confirm-ok');
+        ok.textContent = opts.okLabel || window.DKUOJ_MANUAL_SUBMIT_OK;
+        ok.classList.remove('leave-confirm-btn-danger');
+        ok.classList.add('leave-confirm-btn-primary');
+        dkuojOpenLeaveOverlay({
+            onOk: function (done) { done(); if (typeof opts.onClose === 'function') opts.onClose(); },
+            onDismiss: function () { if (typeof opts.onClose === 'function') opts.onClose(); },
+        });
+        return true;
+    };
+
+    function dkuojEnableLeaveButtons(form) {
+        // common.js disables submit buttons on any form submit to prevent
+        // double posts. Leave opens a confirm dialog instead of navigating,
+        // so cancel/Escape must turn the button back on.
+        if (!form) return;
+        $(form).find('button[type=submit], input[type=submit]').prop('disabled', false);
+    }
+
+    function dkuojShowLeaveConfirm(form) {
+        var overlay = document.getElementById('leave-confirm-overlay');
+        if (!overlay) return true;
+        var isSeb = form.getAttribute('data-seb-exit') === '1';
+        var title = isSeb ? {{ _('Exit SEB?')|htmltojs }} : {{ _('Leave?')|htmltojs }};
+        var okLabel = isSeb ? {{ _('Exit SEB')|htmltojs }} : {{ _('Leave')|htmltojs }};
+        overlay.classList.remove('is-notice');
+        document.getElementById('leave-confirm-title').textContent = title;
+        document.getElementById('leave-confirm-warn').textContent =
+            {% if assignment_harvest_enabled() %}
+                {{ _('When you leave, answers you have not submitted yet will be submitted automatically.')|htmltojs }}
+            {% else %}
+                window.DKUOJ_MANUAL_SUBMIT_WARN
+            {% endif %};
+        var noteEl = document.getElementById('leave-confirm-note');
+        if (isSeb) {
+            noteEl.hidden = false;
+            noteEl.textContent = {{ _('You might not be able to re-enter this assignment.')|htmltojs }};
+        {% if assignment_harvest_enabled() %}
+        } else {
+            noteEl.hidden = false;
+            noteEl.textContent = {{ _('Your saved answers are submitted automatically when the assignment closes.')|htmltojs }};
+        {% else %}
+        } else {
+            noteEl.hidden = true;
+            noteEl.textContent = '';
+        {% endif %}
+        }
+        document.getElementById('leave-confirm-ok').textContent = okLabel;
+        document.getElementById('leave-confirm-ok').classList.remove('leave-confirm-btn-primary');
+        document.getElementById('leave-confirm-ok').classList.add('leave-confirm-btn-danger');
+        document.getElementById('leave-confirm-cancel').hidden = false;
+        var trace = window.dkuojLeaveFormSnapshot(form);
+        var bar = window.dkuojProgressBarSnapshot();
+        Object.keys(bar).forEach(function (key) { trace[key] = bar[key]; });
+        trace.source = 'leave_dialog';
+        window.dkuojTraceWorkspaceProgress('client_leave_dialog', trace);
+
+        dkuojOpenLeaveOverlay({
+            onDismiss: function () { dkuojEnableLeaveButtons(form); },
+            onOk: function (done) {
+                done();
+                form.dataset.leaveConfirmed = '1';
+                function submitLeave() {
+                    if (typeof form.requestSubmit === 'function') form.requestSubmit();
+                    else form.submit();
+                }
+                if (typeof window.dkuojFlushServerDraft === 'function') {
+                    var flushed = window.dkuojFlushServerDraft();
+                    if (flushed && typeof flushed.then === 'function') {
+                        flushed.then(submitLeave, submitLeave);
+                        return;
+                    }
+                }
+                submitLeave();
+            },
+        });
+        return false;
+    }
+
+    $(function () {
+        $('.leaving-forever').click(function () {
+            return confirm({{ _('Are you sure you want to leave?')|htmltojs }} + '\n' +
+                {{ _('You cannot come back to a virtual participation. You will have to start a new one.')|htmltojs }});
+        });
+
+        $('.first-join').click(function () {
+            return confirm({{ _('Are you sure you want to join?')|htmltojs }} + '\n' +
+                {{ _('Joining a contest starts your timer, after which it becomes unstoppable.')|htmltojs }});
+        });
+
+        $('form[action$="/join"]').on('submit', function () {
+            var match = (this.getAttribute('action') || '').match(/\/contest\/([^\/]+)\/join\/?$/);
+            if (match) dkuojMarkJoinPending(match[1]);
+        });
+
+        {% if request.in_contest %}
+            $('.contest-join').click(function () {
+                return confirm({{ _('Are you sure you want to join?')|htmltojs }} + '\n' +
+                    {{ _('Joining this contest will leave %(contest)s.', contest=request.participation.contest.name)|htmltojs }});
+            });
+            $('form[action$="/join"]').on('submit', function () {
+                dkuojClearAssignmentDrafts({{ request.participation.contest.key|htmltojs }});
+            });
+        {% endif %}
+
+        $('form[action$="/leave"]').on('submit', function (event) {
+            var form = this;
+            var $btn = $(form).find('button, input[type=submit]');
+            if (form.dataset.leaveConfirmed === '1') {
+                var done = (form.getAttribute('action') || '').match(/\/contest\/([^\/]+)\/leave\/?$/);
+                if (done) dkuojOnLeaveContest(done[1]);
+                return;
+            }
+            if ($btn.hasClass('leaving-forever')) {
+                var forever = (form.getAttribute('action') || '').match(/\/contest\/([^\/]+)\/leave\/?$/);
+                if (forever) dkuojOnLeaveContest(forever[1]);
+                return;
+            }
+            if (form.getAttribute('data-spectate') === '1') {
+                if (!confirm({{ _('Are you sure you want to leave?')|htmltojs }})) {
+                    event.preventDefault();
+                    dkuojEnableLeaveButtons(form);
+                    return false;
+                }
+                var spec = (form.getAttribute('action') || '').match(/\/contest\/([^\/]+)\/leave\/?$/);
+                if (spec) dkuojOnLeaveContest(spec[1]);
+                return;
+            }
+            if ($(form).hasClass('assignment-leave-form') || form.getAttribute('data-seb-exit') === '1') {
+                event.preventDefault();
+                dkuojShowLeaveConfirm(form);
+                return false;
+            }
+            var match = (form.getAttribute('action') || '').match(/\/contest\/([^\/]+)\/leave\/?$/);
+            if (match) dkuojOnLeaveContest(match[1]);
+        });
+    });
+</script>

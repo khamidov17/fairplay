@@ -1,0 +1,59 @@
+.gitlab-ci-local
+.opencode
+.omo
+.playwright-mcp
+.tmp
+.idea
+.vscode
+.sass-cache
+*.sqlite3
+*.py[co]
+*.mo
+*~
+*.swp
+dmoj/local_settings.py
+resources/ace-dmoj.css
+resources/dark
+resources/featherlight.css
+resources/martor-description.css
+resources/select2-dmoj.css
+resources/style.css
+resources/problem_create_v2.css
+resources/rich_editor.css
+resources/rich_editor.js
+# Built vendor trees (katex, abandoned vditor, …). Never ship them.
+resources/vendor/
+resources/vars.scss
+sass_processed
+*.csv
+bridge_logs
+*.png
+*.jpg
+node_modules
+
+.agents
+.codex
+*__pycache__
+.venv
+.test_static
+test_logs/
+test-reports/
+p000000/
+static/jsi18n/
+dmoj/test_settings.py
+# Local STATIC_ROOT (dmoj/local_settings.py) used by compilejsi18n for tests.
+static_test_root/
+.local-backups/
+
+# Ops notes kept on the machine, not in the repo.
+docs/
+
+# Runtime uploads (MEDIA_ROOT) — never commit.
+media/
+# Local fallback for submission_storage when DMOJ_S3_ENDPOINT_URL is empty
+# (dev/CI); tests that write uploads land real files here.
+submission_files/
+submission_files_backup/
+
+# Host-only memory / bind-mount overrides. Never ship to git.
+docker-compose.override.yml

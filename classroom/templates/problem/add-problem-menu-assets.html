@@ -1,0 +1,127 @@
+{# Critical CSS/JS for Add-problem click dropdown. Inlined so stale style.css cache cannot break it. #}
+<style>
+    /* overflow-x:auto forces overflow-y to compute as auto and clips absolute menus. */
+    .tabs,
+    .tabs > ul {
+        overflow: visible !important;
+    }
+    .tabs .tab.add-problem-menu {
+        position: relative !important;
+        overflow: visible !important;
+    }
+    .tabs .tab.add-problem-menu > a.add-problem-toggle {
+        cursor: pointer !important;
+    }
+    .tabs .tab.add-problem-menu .add-problem-dropdown {
+        display: none;
+        position: fixed;
+        z-index: 10000;
+        margin: 0;
+        padding: 0.35em 0;
+        min-width: 11.5rem;
+        background: var(--oj-surface, #fff);
+        border: 1px solid var(--oj-border, #ccc);
+        border-radius: 0 0 var(--oj-radius, 4px) var(--oj-radius, 4px);
+        box-shadow: var(--oj-shadow-dropdown, 0 2px 8px rgba(0, 0, 0, 0.18));
+    }
+    .tabs .tab.add-problem-menu.is-open .add-problem-dropdown {
+        display: block;
+    }
+    .tabs .tab.add-problem-menu .add-problem-dropdown a {
+        display: block;
+        padding: 0.5em 1em;
+        white-space: nowrap;
+        color: var(--oj-text, #222) !important;
+        background: transparent !important;
+        border: none !important;
+        border-radius: 0 !important;
+        font-weight: 500;
+        line-height: 1.4;
+        text-decoration: none !important;
+    }
+    .tabs .tab.add-problem-menu .add-problem-dropdown a:hover {
+        background: var(--oj-hover, #f0f0f0) !important;
+        color: var(--oj-text, #222) !important;
+    }
+    @media (prefers-color-scheme: dark) {
+        .tabs .tab.add-problem-menu .add-problem-dropdown {
+            background: #2a2a2a;
+            border-color: #444;
+        }
+        .tabs .tab.add-problem-menu .add-problem-dropdown a,
+        .tabs .tab.add-problem-menu .add-problem-dropdown a:hover {
+            color: #f0f0f0 !important;
+        }
+        .tabs .tab.add-problem-menu .add-problem-dropdown a:hover {
+            background: #3a3a3a !important;
+        }
+    }
+</style>
+<script>
+    (function () {
+        if (window.dkuojToggleAddProblemMenu) return;
+
+        function placeDropdown(menu) {
+            var toggle = menu.querySelector('.add-problem-toggle');
+            var dd = menu.querySelector('.add-problem-dropdown');
+            if (!toggle || !dd) return;
+            var rect = toggle.getBoundingClientRect();
+            dd.style.top = Math.round(rect.bottom) + 'px';
+            dd.style.left = 'auto';
+            dd.style.right = Math.round(document.documentElement.clientWidth - rect.right) + 'px';
+            dd.style.minWidth = Math.max(180, Math.round(rect.width)) + 'px';
+        }
+
+        window.dkuojCloseAddProblemMenus = function () {
+            document.querySelectorAll('.add-problem-menu.is-open').forEach(function (menu) {
+                menu.classList.remove('is-open');
+                var dd = menu.querySelector('.add-problem-dropdown');
+                if (dd) {
+                    dd.hidden = true;
+                    dd.style.top = '';
+                    dd.style.right = '';
+                    dd.style.left = '';
+                }
+                var toggle = menu.querySelector('.add-problem-toggle');
+                if (toggle) toggle.setAttribute('aria-expanded', 'false');
+            });
+        };
+
+        window.dkuojToggleAddProblemMenu = function (event, toggle) {
+            if (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            var menu = toggle.closest('.add-problem-menu');
+            if (!menu) return false;
+            var wasOpen = menu.classList.contains('is-open');
+            window.dkuojCloseAddProblemMenus();
+            if (!wasOpen) {
+                menu.classList.add('is-open');
+                var dd = menu.querySelector('.add-problem-dropdown');
+                if (dd) dd.hidden = false;
+                toggle.setAttribute('aria-expanded', 'true');
+                placeDropdown(menu);
+            }
+            return false;
+        };
+
+        // Close on outside click; use capture so it does not race the toggle handler.
+        document.addEventListener('click', function (event) {
+            if (!event.target.closest('.add-problem-menu')) {
+                window.dkuojCloseAddProblemMenus();
+            }
+        });
+
+        document.addEventListener('keydown', function (event) {
+            if (event.key === 'Escape') window.dkuojCloseAddProblemMenus();
+        });
+
+        window.addEventListener('resize', function () {
+            document.querySelectorAll('.add-problem-menu.is-open').forEach(placeDropdown);
+        });
+        window.addEventListener('scroll', function () {
+            document.querySelectorAll('.add-problem-menu.is-open').forEach(placeDropdown);
+        }, true);
+    })();
+</script>

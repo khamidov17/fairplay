@@ -1,0 +1,35 @@
+{% extends "tabs-base.html" %}
+
+{% block tabs %}
+    {{ make_tab('course', 'fa-university', url('organization_list'), _('Course')) }}
+    {% if can_apply_teacher %}
+        <li class="tab" id="instructor-verification-tab">
+            <a href="javascript:void(0)" id="instructor-verification-btn">
+                <i class="tab-icon fa fa-id-badge"></i> {{ _('Apply as teacher') }}
+            </a>
+        </li>
+    {% elif pending_teacher_apply %}
+        <li class="tab">
+            <a href="javascript:void(0)" class="disabled" title="{{ _('Your teacher application is pending review.') }}">
+                <i class="tab-icon fa fa-id-badge"></i> {{ _('Teacher application pending') }}
+            </a>
+        </li>
+    {% endif %}
+    {% if can_review_any %}
+        <li class="tab{% if tab == 'join_requests' %} active{% endif %}">
+            <a href="{{ url('organization_join_requests') }}">
+                <i class="tab-icon fa fa-lock"></i> {{ _('Join requests') }}
+                {% if pending_review_total %}
+                    <span class="course-tab-badge">{{ pending_review_total }}</span>
+                {% endif %}
+            </a>
+        </li>
+    {% endif %}
+    {% if can_add_course %}
+        <li class="tab tab-action">
+            <a class="course-add-btn" href="{{ url('organization_create') }}">
+                <i class="tab-icon fa fa-plus"></i> {{ _('Add Course') }}
+            </a>
+        </li>
+    {% endif %}
+{% endblock %}

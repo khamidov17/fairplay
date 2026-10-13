@@ -1,0 +1,342 @@
+"""
+Management command to import users from a CSV (Canvas / NetID roster) and
+optionally attach them to an organization by slug.
+
+CSV must include a header row. Accepted columns: NetID or username,
+First name / first_name, Last Name / last_name, Email / email (or
+netid@duke.edu). New accounts use username=NetID with an unusable local
+password; students sign in via Duke NetID SSO.
+
+```
+python manage.py import_users_csv path/to/users.csv --org-slug your-org
+```
+"""
+
+import csv
+from pathlib import Path
+
+from django.contrib.auth.models import User
+from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
+from django.db.utils import IntegrityError
+
+from judge.models import Class, Organization, Profile
+
+
+class DryRunRollback(Exception):
+    """Internal sentinel exception to trigger a rollback in dry‑run mode."""
+
+
+class Command(BaseCommand):
+    help = (
+        'Import users from a CSV (username/NetID, first_name, last_name, email) and'
+        ' optionally attach them to a single Organization by slug. Canvas roster'
+        ' exports are accepted. New accounts use unusable passwords (NetID SSO).'
+    )
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            'csv_path',
+            type=str,
+            help='Path to the CSV file containing user data.',
+        )
+        parser.add_argument(
+            '--password',
+            default=None,
+            help=(
+                'Optional local password for newly created users. Omit to leave an '
+                'unusable password (students use NetID SSO).'
+            ),
+        )
+        parser.add_argument(
+            '--org-slug',
+            help='Slug of the organization to add all users to.',
+        )
+        parser.add_argument(
+            '--org-name',
+            help='Name of the organization to add users to (used when creating).',
+        )
+        parser.add_argument(
+            '--create-org-if-missing',
+            action='store_true',
+            help=(
+                'Create the organization if it does not exist. If using this flag,'
+                ' you should provide at least --org-slug and optionally --org-name.'
+            ),
+        )
+        parser.add_argument(
+            '--update-existing',
+            action='store_true',
+            help=(
+                'If a username already exists, update the user’s first name, last name'
+                ' and email. Passwords are never changed for existing users.'
+            ),
+        )
+        parser.add_argument(
+            '--activate',
+            action='store_true',
+            help='Force `is_active=True` on created/updated users.',
+        )
+        parser.add_argument(
+            '--dry-run',
+            action='store_true',
+            help='Parse and validate but do not commit any changes to the database.',
+        )
+        parser.add_argument(
+            '--class-slug',
+            help='Slug of the class to add all users to (must belong to the target organization).',
+        )
+
+    def handle(self, *args, **opts):
+        csv_path = Path(opts['csv_path']).expanduser().resolve()
+        if not csv_path.exists():
+            raise CommandError(f'CSV not found: {csv_path}')
+
+        # Resolve (or create) the target organization once up front.
+        org = None
+        slug = opts.get('org_slug')
+        if slug:
+            org = self._resolve_organization(
+                slug=slug,
+                name=opts.get('org_name'),
+                create_if_missing=opts.get('create_org_if_missing', False),
+            )
+            if org is None:
+                raise CommandError(
+                    'Organization not found. Provide a valid --org-slug/--org-name'
+                    ' or use --create-org-if-missing.',
+                )
+
+        # Resolve target class if specified
+        target_class = None
+        class_slug = opts.get('class_slug')
+        if class_slug:
+            target_class = self._resolve_class(class_slug, org)
+            if target_class is None:
+                raise CommandError(
+                    f"Class with slug '{class_slug}' not found"
+                    + (f' in organization {org.slug}' if org else '') + '.',
+                )
+
+        rows = self._read_csv(csv_path)
+        if not rows:
+            self.stdout.write(self.style.WARNING('No rows found in CSV. Nothing to do.'))
+            return
+
+        created = updated = skipped = errors = org_linked = class_linked = 0
+
+        self.stdout.write(
+            self.style.NOTICE(
+                f'Importing {len(rows)} users from {csv_path}'
+                f" (dry-run={opts['dry_run']}, update-existing={opts['update_existing']})",
+            ),
+        )
+        if org:
+            self.stdout.write(
+                self.style.NOTICE(
+                    f'Target organization: {org.slug} ({org.name})',
+                ),
+            )
+        if target_class:
+            self.stdout.write(
+                self.style.NOTICE(
+                    f'Target class: {target_class.slug} ({target_class.name})',
+                ),
+            )
+
+        for i, row in enumerate(rows, start=1):
+            try:
+                with transaction.atomic():
+                    result, user = self._upsert_user(row, opts)
+                    if result == 'created':
+                        created += 1
+                    elif result == 'updated':
+                        updated += 1
+                    elif result == 'skipped':
+                        skipped += 1
+
+                    if org and user:
+                        # link user to org (no-op if already a member)
+                        if self._add_user_to_org(user, org):
+                            org_linked += 1
+
+                    if target_class and user:
+                        # link user to class (no-op if already a member)
+                        if self._add_user_to_class(user, target_class):
+                            class_linked += 1
+
+                    if opts['dry_run']:
+                        # Trigger rollback for this iteration only; not counted as an error.
+                        raise DryRunRollback()
+
+            except DryRunRollback:
+                pass
+            except Exception as exc:
+                errors += 1
+                self.stderr.write(
+                    self.style.ERROR(
+                        f"[Row {i}] Error processing username='{row.get('username', '')}': {exc}",
+                    ),
+                )
+
+        # Summary
+        self.stdout.write('')
+        self.stdout.write(
+            self.style.SUCCESS(
+                f'Done. Created: {created}, Updated: {updated}, '
+                f'Skipped: {skipped}, Org-linked: {org_linked}, Class-linked: {class_linked}, Errors: {errors}',
+            ),
+        )
+
+    # --- helpers ---
+    def _read_csv(self, path: Path):
+        """Load CSV rows into a list of dictionaries and trim whitespace."""
+        from judge.utils.import_export import (
+            REQUIRED_CSV_FIELDS, csv_row_to_user_fields, resolve_csv_headers,
+        )
+
+        rows = []
+        with path.open('r', newline='', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            header_map = resolve_csv_headers(reader.fieldnames)
+            missing = [field for field in REQUIRED_CSV_FIELDS if field not in header_map]
+            if missing:
+                raise CommandError(
+                    f"CSV missing required headers: {', '.join(sorted(missing))}",
+                )
+            for raw in reader:
+                row = csv_row_to_user_fields(raw, header_map)
+                if not row.get('username'):
+                    continue
+                rows.append(row)
+        return rows
+
+    def _resolve_organization(self, slug: str, name: str = None, create_if_missing: bool = False):
+        """
+        Look up an Organization by slug.  If it does not exist and
+        `create_if_missing` is true, create it using the provided slug and name.
+        Otherwise return None if not found.
+        """
+        try:
+            return Organization.objects.get(slug=slug)
+        except Organization.DoesNotExist:
+            if create_if_missing:
+                # Provide fallbacks for fields required by the model: name and short_name.
+                name = name or slug.replace('-', ' ').title()
+                short_name = slug[:20]
+                org = Organization.objects.create(
+                    slug=slug,
+                    name=name,
+                    short_name=short_name,
+                    about='',
+                )
+                self.stdout.write(
+                    self.style.SUCCESS(
+                        f"Created organization '{org.slug}' ({org.name})",
+                    ),
+                )
+                return org
+            return None
+
+    def _resolve_class(self, slug: str, org: Organization = None):
+        """
+        Look up a Class by slug, optionally restricted to the given organization.
+        Returns None if not found.
+        """
+        try:
+            if org:
+                return Class.objects.get(slug=slug, organization=org)
+            else:
+                return Class.objects.get(slug=slug)
+        except Class.DoesNotExist:
+            return None
+
+    def _ensure_profile(self, user: User) -> Profile:
+        """Ensure a Profile exists for the given user, creating one if necessary."""
+        profile, _created = Profile.objects.get_or_create(user=user)
+        return profile
+
+    def _upsert_user(self, row: dict, opts):
+        """Create or update a User based on CSV row data."""
+        username = row.get('username')
+        first_name = row.get('first_name', '')
+        last_name = row.get('last_name', '')
+        email = row.get('email', '')
+
+        try:
+            user = User.objects.get(username=username)
+            # Optionally update existing user’s names and email
+            if opts.get('update_existing'):
+                updated_fields = []
+                if first_name and user.first_name != first_name:
+                    user.first_name = first_name
+                    updated_fields.append('first_name')
+                if last_name and user.last_name != last_name:
+                    user.last_name = last_name
+                    updated_fields.append('last_name')
+                if email and user.email != email:
+                    user.email = email
+                    updated_fields.append('email')
+                if opts.get('activate') and not user.is_active:
+                    user.is_active = True
+                    updated_fields.append('is_active')
+                if updated_fields:
+                    user.save(update_fields=updated_fields)
+                # Ensure profile exists, even if nothing changed
+                self._ensure_profile(user)
+                return 'updated', user
+            else:
+                return 'skipped', user
+        except User.DoesNotExist:
+            pass
+
+        # Create new user (NetID SSO by default: unusable local password).
+        try:
+            password = opts.get('password')
+            if password:
+                user = User.objects.create_user(
+                    username=username,
+                    email=email or '',
+                    password=password,
+                )
+            else:
+                user = User.objects.create_user(
+                    username=username,
+                    email=email or '',
+                )
+                user.set_unusable_password()
+            # Set names after creation to avoid uniqueness issues on username
+            user.first_name = first_name or ''
+            user.last_name = last_name or ''
+            if opts.get('activate'):
+                user.is_active = True
+            user.save()
+            # Ensure profile exists
+            self._ensure_profile(user)
+            self.stdout.write(self.style.SUCCESS(f"Created user '{username}'"))
+            return 'created', user
+        except IntegrityError as exc:
+            raise CommandError(f"IntegrityError for '{username}': {exc}")
+
+    def _add_user_to_org(self, user: User, org: Organization) -> bool:
+        """Attach the user's profile to the given organization.  Returns True if
+        a new membership link was created or ensured."""
+        profile = self._ensure_profile(user)
+        # Check if membership already exists
+        if org.members.filter(id=profile.id).exists():
+            return False
+        # Add via the reverse M2M relation.  The forward relation
+        # is `profile.organizations`, which would be equivalent.  We use the
+        # reverse here for clarity.
+        org.members.add(profile)
+        return True
+
+    def _add_user_to_class(self, user: User, target_class: Class) -> bool:
+        """Attach the user's profile to the given class.  Returns True if
+        a new membership link was created."""
+        profile = self._ensure_profile(user)
+        # Check if membership already exists
+        if target_class.members.filter(id=profile.id).exists():
+            return False
+        target_class.members.add(profile)
+        return True

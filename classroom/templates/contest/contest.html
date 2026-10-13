@@ -1,0 +1,602 @@
+{% extends "common-content.html" %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'detail' %}
+    {% set title = contest.name %}
+    {% include "contest/contest-tabs.html" %}
+{% endblock %}
+
+{% block content_js_media %}
+    {% include "rte_display_js.html" %}
+    <script type="text/javascript">
+        $(document).ready(function () {
+            $('.time-remaining').each(function () {
+                count_down($(this));
+            });
+        });
+
+        $('.contest-extracting-to-pdf form').on('submit', function() {
+            var button = $(this).find('button');
+            button.html('<i class="fa fa-spinner fa-spin"></i> {{ _("Generating...") }}');
+            button.prop('disabled', true);
+        });
+
+        $(document).on('submit', '.js-contest-document-export', function () {
+            var $button = $(this).find('button[type="submit"]');
+            $button.html('<i class="fa fa-spinner fa-spin"></i> {{ _("Generating...") }}');
+            $button.prop('disabled', true);
+        });
+
+        $(document).on('submit', '#contest-grade-import-form', function () {
+            var form = this;
+            var fileInput = document.getElementById('contest-grade-csv');
+            if (!fileInput.files.length) {
+                return;
+            }
+
+            var token = window.crypto && window.crypto.randomUUID ?
+                window.crypto.randomUUID() :
+                Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+            form.elements.export_token.value = token;
+            document.cookie = 'contest_score_export=; Max-Age=0; path=/; SameSite=Lax';
+
+            var $button = $(form).find('button[type="submit"]');
+            $button.html('<i class="fa fa-spinner fa-spin"></i> {{ _("Exporting...") }}');
+            $button.prop('disabled', true);
+
+            var completionCookie = 'contest_score_export=' + token;
+            var refreshWhenComplete = window.setInterval(function () {
+                if (document.cookie.split('; ').indexOf(completionCookie) === -1) {
+                    return;
+                }
+                window.clearInterval(refreshWhenComplete);
+                document.cookie = 'contest_score_export=; Max-Age=0; path=/; SameSite=Lax';
+                window.location.reload();
+            }, 200);
+        });
+
+        $(document).on('click', '#exportDropdownBtn', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var $dropdown = $(this).closest('.dropdown');
+            $('.dropdown').not($dropdown).removeClass('open');
+            $dropdown.toggleClass('open');
+            $(this).attr('aria-expanded', $dropdown.hasClass('open'));
+        });
+
+        $(document).on('click', '.js-contest-document-option', function (event) {
+            event.preventDefault();
+            var formId = $(this).data('format') === 'pdf' ? 'export-pdf-form' : 'export-word-form';
+            var $button = $('#exportDropdownBtn');
+            $button.html('<i class="fa fa-spinner fa-spin"></i> {{ _("Generating...") }}');
+            $button.prop('disabled', true);
+            $('.dropdown').removeClass('open');
+            document.getElementById(formId).submit();
+        });
+
+        $(document).on('click', function (event) {
+            if (!$(event.target).closest('.dropdown').length) {
+                $('.dropdown').removeClass('open');
+                $('#exportDropdownBtn').attr('aria-expanded', 'false');
+            }
+        });
+    </script>
+    {% include "contest/media-js.html" %}
+    {% include "comments/media-js.html" %}
+{% endblock %}
+
+{% block content_media %}
+    {% include "comments/media-css.html" %}
+    {% include "rte_display_css.html" %}
+
+    {# Contest detail redesign — reference design on --oj-* tokens (dark-mode aware) #}
+    <style>
+        /* Banner: centered countdown + time + details */
+        #banner {
+            margin-bottom: 1.15rem;
+        }
+        #banner .date {
+            display: block;
+            font-size: 1.05rem;
+            font-weight: 600;
+            color: var(--oj-link);
+            text-align: center;
+        }
+        #banner #time {
+            margin-top: 0.35rem;
+            color: var(--oj-text-muted);
+            font-size: 13px;
+            line-height: 1.55;
+            text-align: center;
+        }
+        #banner #details {
+            margin-top: 0.85rem;
+            font-size: 13px;
+        }
+        #banner #details ul {
+            margin: 0.35rem 0 0;
+            padding-left: 1.2rem;
+        }
+
+        /* Description card */
+        .content-description {
+            background: var(--oj-surface);
+            border: 1px solid var(--oj-border);
+            border-radius: var(--oj-radius-md);
+            padding: 0.9rem 1rem;
+            line-height: 1.65;
+            min-height: 3rem;
+            margin-bottom: 1rem;
+        }
+
+        /* Stat cards (Problems / Participants / Submissions / Released) */
+        .contest-stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+        .contest-stat-card {
+            background: var(--oj-surface);
+            border: 1px solid var(--oj-border);
+            border-radius: var(--oj-radius-md);
+            padding: 0.75rem 0.85rem;
+        }
+        .contest-stat-card .label {
+            font-size: 11px;
+            color: var(--oj-text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .contest-stat-card .value {
+            margin-top: 0.25rem;
+            font-size: 1.15rem;
+            font-weight: 700;
+            color: var(--oj-heading);
+        }
+        @media (max-width: 760px) {
+            .contest-stat-grid { grid-template-columns: 1fr 1fr; }
+        }
+
+        /* Problems table card */
+        .contest-problems-wrap {
+            margin-top: 1rem;
+            background: var(--oj-surface);
+            border: 1px solid var(--oj-border);
+            border-radius: var(--oj-radius-md);
+            overflow: hidden;
+        }
+        .contest-problems-wrap > h2 {
+            margin: 0;
+            padding: 0.55rem 1rem;
+            font-size: 1.1em;
+            font-weight: 600;
+            background: var(--admin-header, #3b3b3b);
+            color: var(--admin-header-text, #fff);
+            border-bottom: 1px solid var(--admin-header-border, #808080);
+        }
+        .contest-problems-wrap table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+        }
+        .contest-problems-wrap th,
+        .contest-problems-wrap td {
+            border-bottom: 1px solid var(--oj-border);
+            padding: 0.65rem 0.8rem;
+            text-align: left;
+            vertical-align: top;
+        }
+        .contest-problems-wrap th {
+            background: var(--oj-bg);
+            color: var(--oj-text-muted);
+            font-size: 12px;
+        }
+        .contest-problems-wrap tr:last-child td { border-bottom: none; }
+        .contest-problems-wrap tr:hover td { background: var(--oj-hover-overlay); }
+
+        /* Export controls row */
+        .contest-export-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+        .contest-export-bar .contest-extracting-dropdown {
+            margin-bottom: 0;
+        }
+    </style>
+{% endblock %}
+
+{% block body %}
+    <div id="banner">
+        <a href="https://www.timeanddate.com/worldclock/fixedtime.html?msg={{ contest.name|urlquote('') }}&amp;iso=
+                {{- (contest.start_time if contest.start_time >= now else contest.end_time)|utc|date('Y-m-d\TH:i:s') }}" class="date">
+            {%- if contest.is_in_contest(request.user) and not request.participation.live -%}
+                {% if request.participation.spectate %}
+                    {{- _('Spectating, assignment ends in %(countdown)s.', countdown=as_countdown(contest.time_before_end)) -}}
+                {% elif request.participation.end_time %}
+                    {{- _('Participating virtually, %(countdown)s remaining.', countdown=as_countdown(request.participation.time_remaining)) -}}
+                {% else %}
+                    {{- _('Participating virtually.') -}}
+                {% endif %}
+            {%- else -%}
+                {% if contest.start_time > now %}
+                    {{- _('Starting in %(countdown)s.', countdown=as_countdown(contest.time_before_start)) -}}
+                {% elif contest.end_time < now %}
+                    {{- _('Assignment is over.') -}}
+                {% else %}
+                    {%- if has_joined -%}
+                        {% if live_participation.ended %}
+                            {{- _('Your time is up! The assignment ends in %(countdown)s.', countdown=as_countdown(contest.time_before_end)) -}}
+                        {% else %}
+                            {{- _('You have %(countdown)s remaining.', countdown=as_countdown(live_participation.time_remaining)) -}}
+                        {% endif %}
+                    {%- else -%}
+                        {{ _('Assignment ends in %(countdown)s.', countdown=as_countdown(contest.time_before_end)) }}
+                    {%- endif -%}
+                {% endif %}
+            {%- endif -%}
+        </a>
+        <div id="time">
+            {% if contest.time_limit %}
+                <span class="badge badge-duration" style="margin-bottom:0.4rem;"><i class="fa fa-hourglass-half"></i> {{ _('Time limited') }} · {{ contest.time_limit|timedelta('localized-no-seconds') }}</span>
+            {% endif %}
+            {% with start_time=contest.start_time|date(_("F j, Y, G:i T")) %}
+                {% if contest.time_limit %}
+                    {% set end_time=contest.end_time|date(_("F j, Y, G:i T")) %}
+                    {% set time_limit=contest.time_limit|timedelta('localized-no-seconds') %}
+                    {{ _('%(time_limit)s window between %(start_time)s and %(end_time)s', start_time=bold(start_time), end_time=bold(end_time), time_limit=bold(time_limit)) }}
+                {% else %}
+                    {% set length=contest.contest_window_length|timedelta('localized-no-seconds') %}
+                    {{ _('%(length)s long starting on %(start_time)s', start_time=bold(start_time), length=bold(length)) }}
+                {% endif %}
+            {% endwith %}
+        </div>
+        {% if contest.time_limit %}
+            <div class="dur-note" style="text-align:left;max-width:640px;margin-left:auto;margin-right:auto;">
+                <i class="fa fa-hourglass-half"></i>
+                {{ _('This assignment is time-limited: you get %(time)s from the moment you start, and it closes at %(end)s — if the deadline arrives first, your remaining time is forfeited.', time=bold(contest.time_limit|timedelta('localized-no-seconds')), end=bold(contest.end_time|date(_("F j, Y, G:i T")))) }}
+            </div>
+        {% endif %}
+        {% if contest.allow_student_ai_grading %}
+            <div class="dur-note" style="text-align:left;max-width:640px;margin-left:auto;margin-right:auto;">
+                <i class="fa fa-magic"></i>
+                {{ _('AI Feedback is available on demand. After you submit, open the submission page and press “View AI Feedback” to request a score. Only your latest submission per problem is graded.') }}
+            </div>
+        {% endif %}
+        {% if contest.show_short_display %}
+            <div id="details">
+                <ul>
+                    {% with authors=contest.authors.all() %}
+                        {% if authors %}
+                            <li>
+                                {% trans trimmed count=authors|length, link_authors=link_users(authors) %}
+                                    The author of this contest is {{ link_authors }}.
+                                {% pluralize count %}
+                                    The authors of this contest are {{ link_authors }}.
+                                {% endtrans %}
+                            </li>
+                        {% endif %}
+                    {% endwith %}
+                    {% with testers=contest.testers.all() %}
+                        {% if testers %}
+                            <li>
+                                {% trans trimmed count=testers|length, link_testers=link_users(testers) %}
+                                    Special thanks to {{ link_testers }} for testing and feedback on the problems.
+                                {% pluralize count %}
+                                    Special thanks to {{ link_testers }} for testing and feedback on the problems.
+                                {% endtrans %}
+                            </li>
+                        {% endif %}
+                    {% endwith %}
+                    <li>
+                        {% if contest.is_rated %}
+                            {% if contest.rate_all %}
+                                {% if contest.rating_floor is not none and contest.rating_ceiling is not none %}
+                                    {{ _('This contest will be **rated** for **all** participants who have a rating between **%(rating_floor)d** and **%(rating_ceiling)d**, inclusive.', rating_floor=contest.rating_floor, rating_ceiling=contest.rating_ceiling)|markdown('default') }}
+                                {% elif contest.rating_floor is not none and contest.rating_ceiling is none %}
+                                    {{ _('This contest will be **rated** for **all** participants who have a rating of at least **%(rating_floor)d**.', rating_floor=contest.rating_floor)|markdown('default') }}
+                                {% elif contest.rating_floor is none and contest.rating_ceiling is not none %}
+                                    {{ _('This contest will be **rated** for **all** participants who have a rating of at most **%(rating_ceiling)d**.', rating_ceiling=contest.rating_ceiling)|markdown('default') }}
+                                {% else %}
+                                    {{ _('This contest will be **rated** for **all** participants.')|markdown('default') }}
+                                {% endif %}
+                            {% else %}
+                                {% if contest.rating_floor is not none and contest.rating_ceiling is not none %}
+                                    {{ _('This contest will be **rated** for participants who submit at least once and have a rating between **%(rating_floor)d** and **%(rating_ceiling)d**, inclusive.', rating_floor=contest.rating_floor, rating_ceiling=contest.rating_ceiling)|markdown('default') }}
+                                {% elif contest.rating_floor is not none and contest.rating_ceiling is none %}
+                                    {{ _('This contest will be **rated** for participants who submit at least once and have a rating of at least **%(rating_floor)d**.', rating_floor=contest.rating_floor)|markdown('default') }}
+                                {% elif contest.rating_floor is none and contest.rating_ceiling is not none %}
+                                    {{ _('This contest will be **rated** for participants who submit at least once and have a rating of at most **%(rating_ceiling)d**.', rating_ceiling=contest.rating_ceiling)|markdown('default') }}
+                                {% else %}
+                                    {{ _('This contest will be **rated** for participants who submit at least once.')|markdown('default') }}
+                                {% endif %}
+                            {% endif %}
+                        {% else %}
+                            {{ _('This contest will **not** be rated.')|markdown('default') }}
+                        {% endif %}
+                    </li>
+                    <li>
+                        {% filter markdown('default') %}
+                            {% trans trimmed count=metadata.problem_count %}
+                                There is **{{ count }}** problem in this contest.
+                            {% pluralize count %}
+                                There are **{{ count }}** problems in this contest.
+                            {% endtrans %}
+                        {% endfilter %}
+                        <ul>
+                            <li>
+                                {% if metadata.has_partials %}
+                                    {{ _('**Partial scoring is enabled** for some or all of these problems.')|markdown('default') }}
+                                {% else %}
+                                    {{ _('This contest **will not use partial scoring**.')|markdown('default') }}
+                                {% endif %}
+                            </li>
+                            <li>
+                                {% if metadata.has_pretests %}
+                                    {{ _('The pretest system **will be used** for some or all of these problems.')|markdown('default') }}
+                                {% else %}
+                                    {{ _('The pretest system **will not be used** for this contest.')|markdown('default') }}
+                                {% endif %}
+                            </li>
+                            <li>
+                                {% if metadata.has_submission_cap %}
+                                    {{ _('Some or all of these problems **have a submission limit**.')|markdown('default') }}
+                                {% else %}
+                                    {{ _('There is **no submission limit** for any of these problems.')|markdown('default') }}
+                                {% endif %}
+                            </li>
+                        </ul>
+                    </li>
+                    <li>
+                        {{ _('The contest format is **%(format)s**.', format=contest.format.name)|markdown('default') }}
+                        <ul>
+                            {% for line in contest.format.get_short_form_display() %}
+                                <li>{{ line|markdown('default') }}</li>
+                            {% endfor %}
+                        </ul>
+                    </li>
+                    <li>
+                        {% if contest.scoreboard_visibility == contest.SCOREBOARD_VISIBLE %}
+                            {{ _('The scoreboard will be **visible** for the duration of the contest.')|markdown('default') }}
+                        {% elif contest.scoreboard_visibility == contest.SCOREBOARD_AFTER_PARTICIPATION %}
+                            {{ _('The scoreboard will be **hidden** until your window is over.')|markdown('default') }}
+                        {% elif contest.scoreboard_visibility == contest.SCOREBOARD_AFTER_CONTEST %}
+                            {{ _('The scoreboard will be **hidden** for the entire duration of the contest.')|markdown('default') }}
+                        {% elif contest.scoreboard_visibility == contest.SCOREBOARD_HIDDEN %}
+                            {{ _('The scoreboard will be **hidden**, even after the contest is over.')|markdown('default') }}
+                        {% endif %}
+                    </li>
+                    {% if contest.access_code %}
+                        <li>
+                            {{ _('An **access code is required** to join the contest.')|markdown('default') }}
+                        </li>
+                    {% endif %}
+                    {% if contest.seb_required %}
+                        <li>
+                            {{ _('This contest can only be entered through **Safe Exam Browser**.')|markdown('default') }}
+                        </li>
+                    {% endif %}
+                </ul>
+            </div>
+        {% endif %}
+    </div>
+
+    <div class="content-description">
+        {% if contest.description %}
+        <script type="application/json" class="rte-md-source">{{ contest.description|tojson }}</script>
+        <div class="rte-display"></div>
+        <noscript>
+            {{ contest.description|markdown('contest', MATH_ENGINE)|reference|str|safe }}
+        </noscript>
+        {% else %}
+            <p style="margin:0;color:var(--oj-text-muted);font-style:italic;">{{ _('No description.') }}</p>
+        {% endif %}
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between;">
+
+            <style>
+                .contest-extracting-dropdown {
+                    margin-bottom: 1em;
+                }
+                .dropdown {
+                    position: relative;
+                    display: inline-block;
+                }
+                .contest-export-bar .dropdown-toggle {
+                    display: inline-block;
+                    width: auto;
+                }
+                .dropdown-toggle .caret {
+                    display: inline-block;
+                    width: 0;
+                    height: 0;
+                    margin-left: 5px;
+                    vertical-align: middle;
+                    border-top: 4px dashed;
+                    border-right: 4px solid transparent;
+                    border-left: 4px solid transparent;
+                }
+                .dropdown-menu {
+                    position: absolute;
+                    top: 100%;
+                    left: 0;
+                    z-index: 1000;
+                    display: none;
+                    float: left;
+                    min-width: 160px;
+                    padding: 5px 0;
+                    margin: 2px 0 0;
+                    font-size: 14px;
+                    text-align: left;
+                    list-style: none;
+                    background-color: var(--oj-surface, #fff);
+                    background-clip: padding-box;
+                    border: 1px solid var(--oj-border, #ccc);
+                    border-radius: 4px;
+                    box-shadow: var(--oj-shadow-dropdown, 0 6px 12px rgba(0,0,0,.175));
+                }
+                .dropdown-menu li a {
+                    display: block;
+                    padding: 3px 20px;
+                    clear: both;
+                    font-weight: normal;
+                    line-height: 1.42857143;
+                    color: var(--oj-text, #333);
+                    white-space: nowrap;
+                    text-decoration: none;
+                }
+                .dropdown-menu li a:hover {
+                    background-color: var(--oj-accent-soft, #e6e6e6);
+                    color: var(--oj-accent, #262626);
+                }
+                .dropdown.open .dropdown-menu {
+                    display: block;
+                }
+            </style>
+
+        {% if can_edit %}
+            <div class="contest-export-bar">
+                <button type="button" class="button" id="btn-open-grade-import"
+                        onclick="document.getElementById('contest-grade-import-modal').removeAttribute('hidden');"
+                        style="display: inline-block; width: auto;"><i class="fa fa-download"></i> {{ _('Export Scores') }}</button>
+                <div class="contest-extracting-dropdown">
+                    <div class="dropdown">
+                        <button type="button" class="button dropdown-toggle" id="exportDropdownBtn"
+                                aria-haspopup="true" aria-expanded="false"
+                                onclick="event.stopPropagation(); this.parentElement.classList.toggle('open');">
+                            <i class="fa fa-file-o"></i> {{ _('Extract the contest') }}
+                            <span class="caret"></span>
+                        </button>
+                        <ul class="dropdown-menu" aria-labelledby="exportDropdownBtn">
+                            <li>
+                                <a href="#" data-format="pdf" class="js-contest-document-option"
+                                   onclick="event.preventDefault(); event.stopPropagation(); document.getElementById('export-pdf-form').submit();">
+                                    <i class="fa fa-file-pdf-o"></i> {{ _('Extract to PDF') }}
+                                </a>
+                            </li>
+                            <li>
+                                <a href="#" data-format="word" class="js-contest-document-option"
+                                   onclick="event.preventDefault(); event.stopPropagation(); document.getElementById('export-word-form').submit();">
+                                    <i class="fa fa-file-word-o"></i> {{ _('Extract to Word') }}
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                    <form id="export-pdf-form" action="{{ url('contest_export_pdf', contest.key) }}" method="post" style="display: none;">
+                        {% csrf_token %}
+                    </form>
+                    <form id="export-word-form" action="{{ url('contest_export_word', contest.key) }}" method="post" style="display: none;">
+                        {% csrf_token %}
+                    </form>
+                </div>
+                <a href="{{ url('contest_export_submissions', contest.key) }}" class="button" style="display: inline-block; width: auto;"><i class="fa fa-file-archive-o"></i> {{ _('Export Submissions') }}</a>
+            </div>
+
+            <div id="contest-grade-import-modal" class="course-modal" hidden>
+                <div class="course-modal-backdrop js-close-score-import"
+                     onclick="document.getElementById('contest-grade-import-modal').setAttribute('hidden', 'hidden');"></div>
+                <div class="course-modal-dialog" role="dialog" aria-labelledby="contest-grade-import-title">
+                        <h2 id="contest-grade-import-title">{{ _('Export Scores') }}</h2>
+                        <p>
+                            <a href="{{ url('contest_export_scores', contest.key) }}" class="button">
+                                <i class="fa fa-download"></i> {{ _('Export Scores') }}
+                            </a>
+                        </p>
+                        <h3>{{ _('Export joined scores') }}</h3>
+                        <p class="helptext">
+                            {{ _('Upload a CSV downloaded from Canvas grades. Its rows remain the source of truth, and a column named after this assignment is added for matched students only.') }}
+                            <br>
+                            {{ _('All Canvas columns, including Student and the grading metadata rows, are preserved. Student names such as "Lastname, Firstname" are supported.') }}
+                            <br>
+                            {{ _('OJ-only accounts, including test students, are not added to this export.') }}
+                        </p>
+                    <form method="post" enctype="multipart/form-data" action="{{ url('contest_export_joined_scores', contest.key) }}" id="contest-grade-import-form" class="course-form">
+                        {% csrf_token %}
+                        <input type="hidden" name="export_token" value="">
+                        <label for="contest-grade-csv" class="checkbox-row">
+                            <strong>{{ _('Canvas score CSV') }}</strong>
+                        </label>
+                        <input type="file" class="oj-input" id="contest-grade-csv" name="grade_csv" accept=".csv,text/csv"
+                               onchange="document.getElementById('contest-score-file-name').textContent = this.files.length ? this.files[0].name : {{ _('No file selected')|tojson }};">
+                        <p class="helptext" style="margin-top: 0.45rem; margin-bottom: 0.45rem;" id="contest-score-file-name">{{ _('No file selected') }}</p>
+                        <label for="contest-score-column"><strong>{{ _('Score column') }}</strong></label>
+                        <input type="text" class="oj-input" id="contest-score-column" name="score_column"
+                               value="{{ contest.name }}" maxlength="255">
+                        <p class="helptext" style="margin-top: 0.45rem;">{{ _('Use an existing Canvas column name to overwrite it, or enter a new name to append a column.') }}</p>
+                        <p style="margin-top: 0.85rem;">
+                            <button type="submit" class="button"><i class="fa fa-download"></i> {{ _('Export joined scores') }}</button>
+                            <button type="button" class="button js-close-score-import"
+                                    onclick="document.getElementById('contest-grade-import-modal').setAttribute('hidden', 'hidden');">{{ _('Cancel') }}</button>
+                        </p>
+                    </form>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+
+    {% if contest.started or request.user.is_superuser or is_editor or is_tester or is_spectator or is_org_admin %}
+        <div class="contest-stat-grid">
+            <div class="contest-stat-card">
+                <div class="label">{{ _('Problems') }}</div>
+                <div class="value">{{ metadata.problem_count or contest_problems|length }}</div>
+            </div>
+            <div class="contest-stat-card">
+                <div class="label">{{ _('Participants') }}</div>
+                <div class="value">{{ contest.user_count }}</div>
+            </div>
+            <div class="contest-stat-card">
+                <div class="label">{{ _('Format') }}</div>
+                <div class="value" style="font-size:1rem;">{{ contest.format.name }}</div>
+            </div>
+            <div class="contest-stat-card">
+                <div class="label">{{ _('Rated') }}</div>
+                <div class="value" style="font-size:1rem;">
+                    {% if contest.is_rated %}{{ _('Yes') }}{% else %}{{ _('No') }}{% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="contest-problems-wrap">
+            <h2><i class="fa fa-fw fa-question-circle"></i>{{ _('Problems') }}</h2>
+            <table>
+                <thead>
+                <tr>
+                    <th>{{ _('Problem') }}</th>
+                    <th>{{ _('Points') }}</th>
+                    <th>{{ _('AC Rate') }}</th>
+                    <th>{{ _('Users') }}</th>
+                    {% if metadata.has_public_editorials %}
+                        <th>{{ _('Editorials') }}</th>
+                    {% endif %}
+                </tr>
+                </thead>
+                <tbody>
+                    {% for problem in contest_problems %}
+                        {% include "contest/contest-problem-row.html" %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    {% endif %}
+
+    {% if enable_social %}
+        <hr>
+        <span class="social">
+            {{ post_to_facebook(request, contest, '<i class="fa fa-facebook-official"></i>') }}
+            {{ post_to_twitter(request, SITE_NAME + ':', contest, '<i class="fa fa-twitter"></i>') }}
+        </span>
+    {% endif %}
+
+    {% if enable_comments %}
+        {% include "comments/list.html" %}
+    {% endif %}
+{% endblock %}
+
+{% block description_end %}{% endblock %}

@@ -1,0 +1,3058 @@
+{% extends "base.html" %}
+
+{% block title %}{% if import_editor_mode %}{{ _('Excel import preview') }}{% elif edit_code %}{{ _('Edit problem') }} &mdash; {{ edit_name or edit_code }}{% else %}{{ _('Add problem') }}{% endif %}{% endblock %}
+
+{# Match the problem list: show List / Admin / Add tabs at the top, with Add highlighted. #}
+{% block title_row %}
+  {% if not import_editor_mode %}
+  {% set tab = 'add' %}
+  {% include "problem/problem-list-tabs.html" %}
+  {% endif %}
+{% endblock %}
+{% block title_ruler %}{% endblock %}
+
+{% block media %}
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <link rel="stylesheet" href="{{ static('vendor/katex.min.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}">
+  <link rel="stylesheet" href="{{ static('rich_editor.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}">
+  <link rel="stylesheet" href="{{ static('problem_create_v2.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}">
+  {# Same pattern as base.html DARK_STYLE_CSS: rebuild page styles with vars-dark. #}
+  <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="{{ static('dark/problem_create_v2.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}" media="(prefers-color-scheme: dark)">
+  {% include "problem/add-problem-menu-assets.html" %}
+
+  <!-- Math formulas: block $$...$$ / \[...\]; inline \(...\) (legacy ~...~ remains supported). -->
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['\\(', '\\)'], ['~', '~']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      },
+      svg: { fontCache: 'global' },
+      options: { enableMenu: false },
+      startup: { typeset: false },
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" async></script>
+  <script src="{{ static('jszip.min.js') }}"></script>
+  <script src="{{ static('rich_editor.js') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}"></script>
+  <script src="{{ static('markdown_preview.js') }}"></script>
+
+  <!-- Page-local layout tweaks; colours come from --oj-* / problem_create_v2.css -->
+  <style>
+    /* Integrate with the base.html layout: do not lock height to 100vh; scroll with the page. */
+    .v2-main { display: block; }
+    /* Sit on the site page background — no grey pad behind the form cards. */
+    .pcv2 { background: transparent; }
+    /* Edit-only problem / clone links: plain text, not a grey type bar. */
+    .v2-edit-meta {
+      margin: 0 0 0.45rem;
+      padding: 0;
+      font-size: 13px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.85rem;
+      background: none;
+      border: none;
+    }
+
+    /* Hide noisy Basic-tab banners/hints; keep `.help` for Advanced field guidance. */
+    .form-content .note,
+    .blank-hints,
+    .draft-banner,
+    #opt-hint,
+    #tc-testdata-hint { display: none !important; }
+
+    /* Keep the statement label level with the preview heading. */
+    .stem-block > .block-label,
+    .content-preview .pv-head { height: 20px; line-height: 20px; margin-bottom: 0.6rem !important; }
+    .stem-block > .block-label { display: block; font-weight: 600; font-size: var(--oj-font-size, 14px); }
+
+    /* Inline test cases. */
+    .tc-table { width: 100%; border-collapse: collapse; font-size: var(--oj-font-size-sm, 12px); }
+    .tc-table th, .tc-table td { border: 1px solid var(--admin-border, #ddd); padding: 0.35rem 0.4rem; text-align: left; vertical-align: top; }
+    .tc-table th { background: var(--admin-header, #3b3b3b); color: #fff; font-weight: 600; }
+    .tc-table textarea { width: 100%; min-height: 64px; font-family: monospace; font-size: var(--oj-font-size-sm, 12px); resize: vertical; }
+    .tc-table input[type="number"] { width: 64px; }
+    .tc-toolbar {
+      display: flex; flex-wrap: wrap; gap: 0.45rem 0.6rem; align-items: center;
+      margin-bottom: 0.65rem; font-size: var(--oj-font-size-sm, 12px);
+    }
+    .tc-toolbar .tc-sep { color: var(--muted); line-height: 1; }
+    .tc-toolbar .btn,
+    .tc-toolbar label.btn {
+      min-height: 28px; height: 28px; padding: 0 10px;
+      font-size: var(--oj-font-size-sm, 12px); line-height: 1; box-sizing: border-box;
+    }
+    .tc-toolbar .tc-checker-label,
+    .tc-toolbar .tc-partial-label {
+      display: inline-flex; align-items: center; gap: 0.35rem;
+      font-weight: 600; font-size: var(--oj-font-size-sm, 12px); color: var(--text);
+      margin: 0; cursor: pointer; user-select: none;
+    }
+    .tc-toolbar .tc-partial-label input { margin: 0; }
+    .tc-toolbar .tc-checker-label select,
+    .tc-toolbar #tc-checker {
+      width: auto; max-width: 160px; height: 28px; min-height: 28px;
+      padding: 0 8px; margin: 0; font-size: var(--oj-font-size-sm, 12px);
+      box-sizing: border-box; border: 1px solid var(--admin-border);
+      border-radius: var(--oj-radius, 4px); background: var(--card-bg, #fff); color: var(--text);
+    }
+    .tc-file-btn {
+      display: inline-flex; align-items: center; gap: 0.25rem;
+      border: 1px solid var(--admin-border) !important;
+      background: var(--pcv2-accent-soft, #eceff1) !important;
+      color: var(--dmoj-green-dark, #0d47a1) !important;
+      border-radius: var(--oj-radius, 4px); padding: 0.25rem 0.5rem; font-size: var(--oj-font-size-sm, 12px); cursor: pointer;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; max-width: 100%;
+      font-weight: 600;
+    }
+    .tc-file-btn:hover { filter: brightness(1.08); }
+    .tc-file-btn.dirty::after { content: '{{ _("· modified") }}'; color: #e65100 !important; font-size: 11px; margin-left: 0.2rem; font-weight: 600; }
+    .tc-file-btn.manual { color: var(--text) !important; }
+    .tc-collapse { border: 1px solid var(--admin-border); border-radius: var(--oj-radius-md, 6px); background: var(--card-bg, #fff); color: var(--text); }
+    .tc-collapse-summary { cursor: pointer; padding: 0.6rem 0.85rem; font-weight: 600; font-size: var(--oj-font-size, 14px); list-style: none; user-select: none; color: var(--text); }
+    .tc-collapse-summary::-webkit-details-marker { display: none; }
+    .tc-collapse-summary::before { content: '▸'; display: inline-block; margin-right: 0.5rem; color: var(--muted); transition: transform 0.15s; }
+    .tc-collapse[open] .tc-collapse-summary::before { transform: rotate(90deg); }
+    .tc-body-wrap { border-top: 1px solid var(--admin-border); padding: 0.75rem 0.85rem 0.9rem; }
+    .editorial-collapse { margin: 0; }
+    .editorial-collapse > summary {
+      background: var(--admin-header); color: var(--admin-header-text); margin: 0; padding: 0.55rem 1rem;
+      font-size: 1.1em; font-weight: 600; cursor: pointer; list-style: none; user-select: none;
+      border-bottom: 1px solid var(--admin-header-border);
+      border-radius: var(--oj-radius-md, 6px) var(--oj-radius-md, 6px) 0 0;
+    }
+    .editorial-collapse > summary::-webkit-details-marker { display: none; }
+    .editorial-collapse > summary::before { content: '▸'; display: inline-block; margin-right: 0.5rem; transition: transform 0.15s; }
+    .editorial-collapse[open] > summary::before { transform: rotate(90deg); }
+    .editorial-collapse:not([open]) > summary { border-bottom: none; border-radius: var(--oj-radius-md, 6px); }
+
+    /* ZIP case preview: compact and shows both input and output. */
+    .tc-drawer-mask {
+      display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.28); z-index: 1200;
+    }
+    .tc-drawer-mask.open { display: block; }
+    .tc-drawer {
+      position: fixed; top: 0; right: 0; width: min(420px, 88vw); height: 100%;
+      background: var(--card-bg, #fff); box-shadow: -8px 0 24px rgba(0,0,0,0.12); z-index: 1201;
+      transform: translateX(100%); transition: transform 0.2s ease; display: flex; flex-direction: column;
+      color: var(--text);
+    }
+    .tc-drawer.open { transform: translateX(0); }
+    .tc-drawer-head {
+      display: flex; align-items: center; gap: 0.5rem; padding: 0.55rem 0.75rem;
+      border-bottom: 1px solid var(--admin-border); background: var(--admin-bg, #fafafa);
+    }
+    .tc-drawer-head strong { flex: 1; font-size: var(--oj-font-size-sm, 12px); word-break: break-all; color: var(--text); }
+    .tc-drawer-body {
+      flex: 1; padding: 0.55rem 0.75rem; overflow: auto;
+      display: flex; flex-direction: column; gap: 0.55rem;
+    }
+    .tc-drawer-pane { display: flex; flex-direction: column; gap: 0.25rem; flex: 1; min-height: 0; }
+    .tc-drawer-pane label {
+      font-size: 11px; font-weight: 700; color: #37474f;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .tc-drawer-pane textarea {
+      width: 100%; flex: 1; min-height: 120px; max-height: 38vh;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--oj-font-size-sm, 12px);
+      border: 1px solid var(--admin-border, #ddd); border-radius: var(--oj-radius, 4px); padding: 0.4rem; resize: vertical;
+      color: var(--text); background: var(--card-bg, #fff);
+    }
+    .tc-drawer-foot {
+      display: flex; justify-content: flex-end; gap: 0.5rem; padding: 0.5rem 0.75rem;
+      border-top: 1px solid var(--admin-border); background: var(--admin-bg, #fafafa);
+    }
+
+    .draft-banner { display: flex; align-items: center; gap: 0.5rem; background: var(--pcv2-accent-soft, rgba(41,128,185,0.12)); border: 1px solid var(--admin-border); border-radius: var(--oj-radius, 4px); padding: 0.5rem 0.75rem; font-size: var(--oj-font-size-sm, 12px); margin-bottom: 0.6rem; }
+    .draft-banner .dot { width: 8px; height: 8px; border-radius: 50%; background: #f39c12; flex-shrink: 0; }
+    .draft-banner.saved .dot { background: var(--dmoj-green); }
+
+    /* Composite-problem subquestions. */
+    .sub-q { border: 1px solid var(--admin-border); border-radius: var(--oj-radius-md, 6px); margin-bottom: 0.75rem; overflow: hidden; background: #fff; }
+    .sub-q-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; padding: 0.5rem 0.65rem; background: #f5f5f5; border-bottom: 1px solid var(--admin-border); }
+    .sub-q-head .sq-idx { font-weight: 700; color: var(--oj-accent, #2980B9); }
+    .sq-pills { display: inline-flex; gap: 0.25rem; flex-wrap: wrap; }
+    .sq-pill { border: 1px solid var(--admin-border); background: #fff; border-radius: var(--oj-radius, 4px); padding: 0.1rem 0.6rem; font-size: var(--oj-font-size-sm, 12px); cursor: pointer; color: var(--muted); }
+    .sq-pill.on { border-color: var(--oj-accent, #2980B9); background: var(--pcv2-accent-soft, rgba(41,128,185,0.12)); color: var(--oj-accent, #2980B9); font-weight: 600; }
+    .sub-q-head .sq-spacer { flex: 1; }
+    .sub-q-head .sq-score { font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 0.3rem; }
+    .sub-q-head .sq-score input { width: 60px; }
+    .sub-q-body { padding: 0.75rem; }
+    .sub-q.collapsed .sub-q-body { display: none; }
+
+    /* Partial-score and AI-judging configuration. */
+    .score-conf { margin-top: 0.5rem; padding: 0.6rem 0.75rem; background: var(--admin-bg, #fafafa); border: 1px dashed var(--admin-border); border-radius: 5px; }
+    .profile-select2 + .select2-container,
+    .org-select2 + .select2-container { max-width: 500px; width: 100% !important; }
+    .unsaved-note { font-size: 12px; color: var(--muted); padding: 0.35rem 1rem 0.6rem; }
+    .radio-list label { display: block; font-weight: normal; width: auto; padding: 0.2rem 0; }
+    .inline-num input { width: 70px; }
+
+    /* Formulas and subquestions in the preview. */
+    .pv-sub { border-top: 1px dashed #e0e0e0; margin-top: 1rem; padding-top: 0.8rem; }
+    .pv-sub .pv-sub-t { font-weight: 600; margin-bottom: 0.35rem; }
+    .pv-badge { display: inline-block; font-size: 11px; background: #f3e5f5; color: #7b1fa2; border-radius: 4px; padding: 0.05rem 0.4rem; font-weight: 600; }
+
+    /* Two columns: the form scrolls with the page and the preview is a matching sticky card.
+       Align with the tab row (no extra grey gutter); keep a modest gap between columns. */
+    .v2-split { display: grid; grid-template-columns: 1fr 1fr; align-items: start; column-gap: 1.25rem; }
+    .v2-left { min-width: 0; padding: 0.25rem 0 2rem; }
+    .v2-right { min-width: 0; padding: 0.25rem 0 2rem; position: sticky; top: 56px; align-self: start; }
+    /* Preview card: match fieldset.module heading bar (dark admin header) */
+    .pv-panel { border: 1px solid var(--admin-border); border-radius: var(--oj-radius-md, 6px); background: var(--card-bg); overflow: hidden; display: flex; flex-direction: column; max-height: calc(100vh - 80px); box-shadow: var(--oj-shadow, none); }
+    .v2-right .pv-head {
+      background: var(--admin-header, #3b3b3b); color: var(--admin-header-text, #fff); margin: 0; padding: 0.55rem 1rem;
+      font-size: 1.1em; font-weight: 600; text-transform: none; letter-spacing: normal;
+      border-bottom: 1px solid var(--admin-header-border, #808080); flex-shrink: 0;
+    }
+    #preview-body { padding: 1rem; overflow-y: auto; }
+    @media (max-width: 900px) {
+      .v2-split { grid-template-columns: 1fr; }
+      .v2-right { position: static; padding: 0 0 2rem; }
+      .pv-panel { max-height: none; }
+    }
+
+    /* AI difficulty assessment. */
+    #diff-ai-box { margin-top: 0.5rem; }
+    .diff-ai-result { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 12px; background: #ede7f6; color: #5e35b1; border: 1px solid #d1c4e9; border-radius: 14px; padding: 0.15rem 0.6rem; margin-left: 0.5rem; }
+
+    /* AI Grading: stack the label above the field. The section holds a grading table
+       plus a rubric and a checkbox, which reads better full-width than beside a 160px label. */
+    #ai-row { flex-direction: column; align-items: stretch; }
+    #ai-row > label { width: auto; padding-top: 0; margin-bottom: 0.35rem; }
+    #ai-row > .field { width: 100%; }
+    {% if import_editor_mode %}
+    #navigation,
+    #page-container > br,
+    #page-container > footer,
+    #content > h2,
+    #content > hr { display: none; }
+    #page-container,
+    #content,
+    #content-body { margin: 0; max-width: none; padding: 0; width: auto; }
+    .v2-right { display: none; }
+    .v2-split { display: block; }
+    .v2-left { padding: 0.75rem; }
+    .import-review-notice { margin: 0.75rem; }
+    .import-review-notice .form-row:last-child { margin-bottom: 0; }
+    {% endif %}
+  </style>
+{% endblock %}
+
+{% block body %}
+  <div class="pcv2 pcv2-problem">
+  <main class="v2-main" id="content-main">
+    {% include "messages.html" %}
+    {% if import_editor_mode and (import_type_needs_review or import_name_needs_review or import_data_needs_review or import_config_needs_review) %}
+    <fieldset class="module import-review-notice">
+      <h2>{{ _('Review required') }}</h2>
+      <div class="form-content">
+        {% if import_name_needs_review %}
+        <div class="form-row"><div class="field"><ul class="errorlist"><li>{{ _('Replace the generated missing-name placeholder before saving.') }}</li></ul></div></div>
+        {% endif %}
+        {% if import_type_needs_review %}
+        <div class="form-row"><div class="field"><label><input id="import-confirm-type" type="checkbox" onchange="if (this.checked) submitForm('save')"> {{ _('Confirm the selected question type') }}</label></div></div>
+        {% endif %}
+        {% if import_data_needs_review %}
+        <div class="form-row"><div class="field"><ul class="errorlist"><li>{{ _('Test data could not be loaded:') }} {{ import_data_load_error }}</li></ul><label><input id="import-confirm-data" type="checkbox" onchange="if (this.checked) submitForm('save')"> {{ _('Confirm and create this problem without the unreadable test data') }}</label></div></div>
+        {% endif %}
+        {% if import_config_needs_review %}
+        <div class="form-row"><div class="field"><ul class="errorlist"><li>{{ _('Review the imported configuration values below, then revise the corresponding fields where needed.') }}</li></ul>
+          <ul>{% for config in import_unrecognized_configurations %}<li><strong>{{ config.column }}</strong>: {{ config.value }}{% if config.reason %} - {{ config.reason }}{% endif %}</li>{% endfor %}</ul>
+          <label><input id="import-confirm-config" type="checkbox" onchange="if (this.checked) submitForm('save')"> {{ _('I have reviewed these values and updated the corresponding configuration where needed') }}</label>
+        </div></div>
+        {% endif %}
+      </div>
+    </fieldset>
+    {% endif %}
+    {% if edit_code or (can_clone_problem and clone_url) %}
+    <p class="v2-edit-meta">
+      {% if edit_code %}<a href="{{ edit_detail_url }}">{{ edit_name or edit_code }}</a>{% endif %}
+      {% if can_clone_problem and clone_url %}
+        <a href="{{ clone_url }}"><i class="fa fa-copy"></i> {{ _('Clone') }}</a>
+      {% endif %}
+    </p>
+    {% endif %}
+
+    <div class="v2-split">
+    <form id="add-problem-form" class="v2-left" novalidate>
+      <!-- Basic information -->
+      <fieldset class="module">
+        <h2>{{ _('Basic information') }}</h2>
+        <div class="form-content">
+          <!-- Select the question type directly instead of a broad category. -->
+          <div class="form-row">
+            <label>{{ _('Type') }} <span class="req">*</span></label>
+            <div class="field">
+              <div class="type-pills" id="type-pills">
+                <label class="type-pill" data-save="programming" {% if not can_create_code %}title="{{ _('Requires permission to create problems') }}" style="opacity:0.45;"{% endif %}>
+                  <input type="radio" name="qtype" value="programming" onchange="selectType('programming')" {% if not can_create_code %}disabled{% endif %}><span>{{ _('Programming') }}</span></label>
+                <label class="type-pill" data-save="mcq">
+                  <input type="radio" name="qtype" value="single" {% if can_create_mcq %}checked{% endif %} onchange="selectType('single')"><span>{{ _('Single choice') }}</span></label>
+                <label class="type-pill" data-save="mcq" {% if not can_create_mcq %}style="opacity:0.45;"{% endif %}>
+                  <input type="radio" name="qtype" value="multiple" onchange="selectType('multiple')" {% if not can_create_mcq %}disabled{% endif %}><span>{{ _('Multiple choice') }}</span></label>
+                <label class="type-pill" data-save="blank" {% if not can_create_mcq %}style="opacity:0.45;"{% endif %}>
+                  <input type="radio" name="qtype" value="blank" onchange="selectType('blank')" {% if not can_create_mcq %}disabled{% endif %}><span>{{ _('Fill-in-blank') }}</span></label>
+                <label class="type-pill" data-save="truefalse" {% if not can_create_mcq %}style="opacity:0.45;"{% endif %}>
+                  <input type="radio" name="qtype" value="truefalse" onchange="selectType('truefalse')" {% if not can_create_mcq %}disabled{% endif %}><span>{{ _('True/False') }}</span></label>
+                <label class="type-pill" data-save="short" {% if not can_create_mcq %}style="opacity:0.45;"{% endif %}>
+                  <input type="radio" name="qtype" value="short" onchange="selectType('short')" {% if not can_create_mcq %}disabled{% endif %}><span>{{ _('Short answer') }}</span></label>
+                <label class="type-pill" data-save="file" {% if not can_create_file %}style="opacity:0.45;"{% endif %}>
+                  <input type="radio" name="qtype" value="file" onchange="selectType('file')" {% if not can_create_file %}disabled{% endif %}><span>{{ _('File upload') }}</span></label>
+                <label class="type-pill" data-save="none" style="opacity:0.55;">
+                  <input type="radio" name="qtype" value="compound" onchange="selectType('compound')"><span>{{ _('Composite') }}</span></label>
+                <label class="type-pill" data-save="none" style="opacity:0.55;">
+                  <input type="radio" name="qtype" value="other" onchange="selectType('other')"><span>{{ _('Other') }}</span></label>
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>{{ _('Name') }} <span class="req">*</span></label>
+            <div class="field"><input type="text" id="f-name" placeholder="{{ _('Problem name') }}" oninput="renderPreview()"></div>
+          </div>
+          <div class="form-row">
+            <label>{{ _('Courses') }}</label>
+            <div class="field">
+              <div class="select-with-add">
+                <select multiple id="f-org" class="org-select2" style="width:100%;max-width:500px;"{% if not can_create_organization %} disabled{% endif %}>
+                  {% for o in organizations %}<option value="{{ o.id }}">{{ o.name }}</option>{% endfor %}
+                </select>
+                {% if can_create_organization %}
+                <button type="button" class="inline-add-btn" title="{{ _('Create course') }}" aria-label="{{ _('Create course') }}" onclick="toggleInlineAdd('org')">+</button>
+                {% endif %}
+              </div>
+              {% if can_create_organization %}
+              <div class="inline-add-box" id="org-add-box" style="display:none;">
+                <input type="text" id="org-add-name" placeholder="{{ _('Course name') }}" onkeydown="if(event.key==='Enter'){event.preventDefault();createOrg();}">
+                <button type="button" class="btn-mini btn-mini-primary" onclick="createOrg()">{{ _('Create') }}</button>
+                <button type="button" class="btn-mini" onclick="toggleInlineAdd('org')">{{ _('Cancel') }}</button>
+              </div>
+              {% endif %}
+            </div>
+          </div>
+          <div class="form-row">
+            <label>{{ _('Public visible') }}</label>
+            <div class="field">
+              <input type="checkbox" id="f-public"{% if not can_change_public %} disabled{% endif %}>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>{{ _('Difficulty') }} <span class="req">*</span></label>
+            <div class="field">
+              <div class="diff-row">
+                <div class="type-pills" id="difficulty">
+                  <label class="type-pill"><input type="radio" name="difficulty" value="easy" onchange="setDifficulty('easy')"><span>{{ _('Easy') }}</span></label>
+                  <label class="type-pill"><input type="radio" name="difficulty" value="medium" checked onchange="setDifficulty('medium')"><span>{{ _('Medium') }}</span></label>
+                  <label class="type-pill"><input type="radio" name="difficulty" value="hard" onchange="setDifficulty('hard')"><span>{{ _('Hard') }}</span></label>
+                </div>
+                <button type="button" class="inline-add-btn ptype-ai" id="diff-ai-btn" title="{{ _('AI recommends Easy / Medium / Hard from the statement') }}" onclick="runAIDifficulty()">🤖 AI</button>
+              </div>
+              <div id="diff-ai-box" style="display:none;margin-top:0.4rem;">
+                <span id="diff-ai-result"></span>
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>{{ _('Problem tags') }} <span class="req">*</span></label>
+            <div class="field">
+              <div class="ptype-tags" id="f-types">
+                <button type="button" class="inline-add-btn ptype-add" title="{{ _('Select from existing tags / create new') }}" onclick="openTypeModal()">+</button>
+                <button type="button" class="inline-add-btn ptype-ai" id="ptype-ai-btn" title="{{ _('AI recommends problem tags from the statement') }}" onclick="runAIProblemTypeInline()">🤖 AI</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Points -->
+          <div class="form-row">
+            <label>{{ _('Points') }} <span class="req">*</span></label>
+            <div class="field"><input type="number" id="f-points" value="1" min="0" step="0.5" style="max-width:120px;"></div>
+          </div>
+          <div class="form-row">
+            <label>{{ _('AI hints enabled') }}</label>
+            <div class="field"><input type="checkbox" id="f-ai-hints" checked><div class="help">{{ _('Allow AI hints') }}</div></div>
+          </div>
+
+          <!-- Fill-blank: optional per-blank points. -->
+          <div class="form-row type-panel" data-for="blank" id="partial-row" style="display:none;">
+            <label>{{ _('Partial scoring') }}</label>
+            <div class="field">
+              <label style="font-weight:normal;display:inline-flex;align-items:center;gap:0.35rem;">
+                <input type="checkbox" id="f-partial" onchange="syncPartialFromMain(); renderScoreConf()"> {{ _('Allow partial scoring') }}
+              </label>
+              <div class="help" id="partial-sub">{{ _('Each blank is scored separately; set points next to each blank under Answers.') }}</div>
+              <div id="partial-conf" class="score-conf" style="display:none;"></div>
+            </div>
+          </div>
+
+          <!-- Multiple choice: two partial-credit rules (no extra checkbox). -->
+          <div class="form-row type-panel" data-for="multiple" id="mcq-scoring-row" style="display:none;">
+            <label>{{ _('Scoring method') }}</label>
+            <div class="field">
+              <div class="radio-list" id="mcq-scoring-list">
+                <label>
+                  <input type="radio" name="mcq-scoring" value="underselect">
+                  {{ _('Under-select credit:') }}
+                  {{ _('each correct choice earns') }}
+                  <span class="inline-num"><input type="number" id="f-mcq-underselect-points" min="0" step="0.5" placeholder="" onfocus="document.querySelector('input[name=mcq-scoring][value=underselect]').checked = true;"></span>
+                  {{ _('points; a wrong choice scores 0') }}
+                </label>
+                <label>
+                  <input type="radio" name="mcq-scoring" value="proportional" checked>
+                  {{ _('Proportional credit:') }}
+                  {{ _('score = full points × (correct − wrong) / number of correct options, minimum 0') }}
+                </label>
+              </div>
+              <div class="help">{{ _('Leave per-choice points empty to split the question evenly among correct options.') }}</div>
+            </div>
+          </div>
+
+          <!-- AI Grading (short-answer / fill-blank / programming) -->
+          <div class="form-row type-panel" data-for="short,blank,programming" id="ai-row" style="display:none;">
+            <label>{{ _('AI Feedback') }}</label>
+            <div class="field">
+              <label style="font-weight:normal;display:inline-flex;align-items:center;gap:0.35rem;">
+                <input type="checkbox" id="f-ai" onchange="renderScoreConf()"> {{ _('Allow Student Use AI Feedback') }}
+              </label>
+              <div class="help" id="ai-help">{{ _('Sends the rubric and student answer to the configured LLM for automated scoring. In an assignment/exam, the teacher chooses realtime (each submit) or batch (latest submit after the contest). Always uses the latest submission. Requires LITELLM_API_BASE.') }}</div>
+              <div id="ai-conf" class="score-conf" style="display:none;">
+                <!-- Grading Table (shown when AI grading is on) -->
+                <div id="grading-table-panel" style="margin-bottom:0.75rem;">
+                  <label style="display:block;font-weight:600;font-size:12px;margin-bottom:0.35rem;">{{ _('Grading Table') }}</label>
+                  <div class="grading-table-section">
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem;">
+                      <button type="button" class="btn-mini btn-mini-primary" id="btn-ai-decompose"
+                              onclick="runAIDecompose()">{{ _('Auto-generate') }}</button>
+                      <span id="decompose-status" style="font-size:11px;color:var(--muted);display:none;"></span>
+                    </div>
+                    <table class="grading-table" id="grading-table">
+                      <thead>
+                        <tr><th>{{ _('Sub-question') }}</th><th>{{ _('Points') }}</th><th>{{ _('Strictness') }}</th><th></th></tr>
+                      </thead>
+                      <tbody id="grading-tbody">
+                        <tr id="grading-empty" style="display:none"><td colspan="4" style="font-size:11px;color:var(--muted);padding:8px 6px;">
+                          {{ _('Click Auto-generate to let the AI analyse the problem and suggest sub-questions, or add rows manually below.') }}
+                        </td></tr>
+                      </tbody>
+                    </table>
+                    <div style="margin-top:0.35rem;display:flex;gap:0.4rem;">
+                      <button type="button" class="btn-mini" onclick="addSubQuestion()">+ {{ _('Add sub-question') }}</button>
+                    </div>
+                  </div>
+                </div>
+                <div style="font-weight:600;font-size:12px;margin-bottom:0.35rem;">{{ _('Rubric (sent to the model; never shown to students)') }}</div>
+                <textarea id="f-rubric" rows="3" placeholder="{{ _('e.g. Correctly identifying the time complexity gives 60%%, proving stability gives 40%%...') }}" style="width:100%;font-family:inherit;"></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
+      <!-- Statement (preview is in the right column). -->
+      <fieldset class="module">
+        <h2>{{ _('Statement') }}</h2>
+        <div class="form-content">
+              <!-- Prompt / main statement -->
+              <div class="stem-block">
+                <label class="block-label" id="stem-label">{{ _('Description') }} <span class="req">*</span></label>
+                <div data-rich-mount="stem" data-toolbar="full" data-placeholder="{{ _('Enter the problem statement…') }}"></div>
+              </div>
+
+              <!-- Single-choice / multiple-choice -->
+              <div class="type-panel" data-for="single,multiple">
+                <label style="display:block;font-weight:600;font-size:13px;margin-bottom:0.4rem;">{{ _("Options") }} <span class="req">*</span> <span style="font-weight:normal;color:var(--muted);" id="opt-hint">{{ _("(select the correct answer)") }}</span></label>
+                <div class="options-list" id="options"></div>
+                <button type="button" class="btn-add-option" onclick="addOption()">+ {{ _("Add option") }}</button>
+              </div>
+
+              <!-- True/false -->
+              <div class="type-panel" data-for="truefalse" style="display:none;">
+                <label style="display:block;font-weight:600;font-size:13px;margin-bottom:0.4rem;">{{ _('Answer') }} <span class="req">*</span></label>
+                <div class="tf-choices">
+                  <label><input type="radio" name="tf" value="true" checked onchange="renderPreview()"><span>{{ _('True') }}</span></label>
+                  <label><input type="radio" name="tf" value="false" onchange="renderPreview()"><span>{{ _('False') }}</span></label>
+                </div>
+              </div>
+
+              <!-- Short answer -->
+              <div class="type-panel" data-for="short" style="display:none;">
+                <label style="display:block;font-weight:600;font-size:13px;margin-bottom:0.4rem;">{{ _("Reference answer") }} <span class="req">*</span></label>
+                <div data-rich-mount="short" data-toolbar="mini" data-placeholder="{{ _('Enter the reference answer…') }}"></div>
+              </div>
+
+              <!-- File upload -->
+              <div class="type-panel" data-for="file" style="display:none;">
+                <div class="form-row">
+                  <label for="f-file-ext">{{ _("Allowed extensions") }}</label>
+                  <div class="field">
+                    <input type="text" id="f-file-ext" placeholder="pdf, zip" oninput="renderPreview()">
+                    <div class="help">{{ _("Comma-separated. Leave blank to allow any file type.") }}</div>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <label for="f-file-size">{{ _("Maximum file size (MB)") }} <span class="req">*</span></label>
+                  <div class="field"><input type="number" id="f-file-size" min="1" step="1" value="20"></div>
+                </div>
+                <div class="form-row">
+                  <label for="f-file-instructions">{{ _("Submission instructions") }}</label>
+                  <div class="field">
+                    <textarea id="f-file-instructions" rows="3" oninput="renderPreview()"></textarea>
+                    <div class="help">{{ _("Optional. Shown to students above the upload box.") }}</div>
+                  </div>
+                </div>
+                <div class="blank-hints">{{ _("File-upload problems are graded manually by a teacher after submission.") }}</div>
+              </div>
+
+              <!-- Fill in the blank -->
+              <div class="type-panel" data-for="blank" style="display:none;">
+                <label style="display:block;font-weight:600;font-size:13px;margin-bottom:0.4rem;">{{ _("Answers") }} <span class="req">*</span> <span style="font-weight:normal;color:var(--muted);">{{ _("Each blank may have multiple acceptable answers; one per line") }}</span></label>
+                <div class="blank-answers" id="blank-answers"></div>
+                <button type="button" class="btn-add-option" onclick="addBlank()">+ {{ _("Add blank answer") }}</button>
+                <div style="display:flex;gap:1.2rem;flex-wrap:wrap;margin-top:0.6rem;font-size:13px;">
+                  <label style="display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer;">
+                    <input type="checkbox" id="f-blank-trim" checked oninput="renderPreview()"> {{ _("Ignore leading/trailing spaces (trim)") }}
+                  </label>
+                  <label style="display:inline-flex;align-items:center;gap:0.35rem;cursor:pointer;">
+                    <input type="checkbox" id="f-blank-case" oninput="renderPreview()"> {{ _("Case sensitive") }}
+                  </label>
+                </div>
+              </div>
+
+              <!-- Code problem: statement guidance -->
+              <div class="type-panel" data-for="programming" style="display:none;">
+                <div class="blank-hints">
+                  {{ _('For programming problems: set time/memory limits and allowed languages under Advanced; enter test cases directly in the section below.') }}
+                </div>
+              </div>
+
+              <!-- Composite problem: subquestions -->
+              <div class="type-panel" data-for="compound" style="display:none;">
+                <label style="display:block;font-weight:600;font-size:13px;margin-bottom:0.4rem;">{{ _("Sub-questions") }} <span class="req">*</span> <span style="font-weight:normal;color:var(--muted);">{{ _("Each sub-question can use a different type and its own points") }}</span></label>
+                <div id="sub-list"></div>
+                <button type="button" class="btn-add-option" onclick="addSub('single')">+ {{ _("Add sub-question") }}</button>
+              </div>
+
+              <!-- Other question types -->
+              <div class="type-panel" data-for="other" style="display:none;">
+                <div class="blank-hints">{{ _('Other type only records the statement and notes for offline/manual grading; it is not auto-judged.') }}</div>
+              </div>
+        </div>
+      </fieldset>
+
+      <!-- Same Solution model as classic admin; label matches the student Editorial tab. -->
+      <fieldset class="module type-panel" data-for="single,multiple,truefalse,short,blank,programming,file">
+        <details class="editorial-collapse" id="editorial-collapse">
+        <summary>{{ _('Editorial') }}</summary>
+        <div class="form-content">
+          <div class="form-row">
+            <label>{{ _('Is public') }}</label>
+            <div class="field">
+              <input type="checkbox" id="f-sol-public">
+              <div class="help">{{ _('Publish the editorial') }}</div>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>{{ _('Publish on') }}</label>
+            <div class="field">
+              <input type="text" id="f-sol-publish" inputmode="numeric" autocomplete="off" placeholder="YYYY-MM-DD HH:MM">
+              <div class="help">{{ _('Students can read it after this time, once it is public. Hidden during assignments/contests.') }}</div>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>{{ _('Authors') }}</label>
+            <div class="field">
+              <select multiple id="f-sol-authors" class="profile-select2" style="width:100%;max-width:500px;"></select>
+            </div>
+          </div>
+          <div class="form-row" style="align-items:flex-start;">
+            <label>{{ _('Content') }}</label>
+            <div class="field">
+              <div data-rich-mount="editorial" data-toolbar="mini" data-placeholder="{{ _('Enter the editorial…') }}"></div>
+              <div class="help">{{ _('Shown on the student problem page as the Editorial tab.') }}</div>
+            </div>
+          </div>
+        </div>
+        </details>
+      </fieldset>
+
+      <!-- Code problem test cases: zip members + file matching, same model as classic test_data. -->
+      <fieldset class="module type-panel" data-for="programming" style="display:none;">
+        <h2>{{ _("Test cases") }}</h2>
+        <div class="form-content">
+          <details class="tc-collapse" id="tc-collapse" open>
+            <summary class="tc-collapse-summary">{{ _("Test data settings (click to collapse)") }}</summary>
+            <div class="tc-body-wrap">
+              {% if test_data_url %}
+                <p class="help tc-admin-link">
+                  <a href="{{ test_data_url }}" target="_blank" rel="noopener">{{ _('Edit test data') }}</a>
+                  — {{ _('Opens the original test-data page (generator, batches, harness, and zip file matching).') }}
+                </p>
+              {% else %}
+                <p class="help tc-admin-link">{{ _('After you save this programming problem, a link to the original test-data editor will appear here.') }}</p>
+              {% endif %}
+              <div class="tc-toolbar">
+                <button type="button" class="btn" onclick="addTestCase()">+ {{ _("Add case") }}</button>
+                <label class="btn" style="cursor:pointer;margin:0;">
+                  {{ _('Upload ZIP') }}
+                  <input type="file" id="tc-zip-input" accept=".zip,application/zip" hidden>
+                </label>
+                <span class="tc-sep">|</span>
+                <label class="tc-checker-label">{{ _('Checker') }}
+                  <select id="tc-checker">
+                    <option value="">{{ _('Default') }}</option>
+                    {% for c in checkers %}
+                      <option value="{{ c.value }}">{{ c.label }}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <label class="tc-partial-label" title="{{ _('If enabled, score = passed weights / total weights × problem Points. If disabled, only a full AC earns points.') }}">
+                  <input type="checkbox" id="f-partial-code" onchange="syncPartialFromCode()">
+                  {{ _('Partial') }}
+                </label>
+                <span id="tc-zip-status" style="color:var(--muted);"></span>
+              </div>
+              <p class="help" style="margin:0.4rem 0 0.6rem;">{{ _('Upload a zip to list its files, then pick input and output for each case. Case weights are relative.') }}</p>
+              <div style="overflow-x:auto;">
+                <table class="tc-table" id="tc-table">
+                  <thead>
+                    <tr>
+                      <th style="width:36px;">#</th>
+                      <th>{{ _('Input') }}</th>
+                      <th>{{ _('Output') }}</th>
+                      <th style="width:72px;">{{ _('Weight') }}</th>
+                      <th style="width:64px;">{{ _('Sample') }}</th>
+                      <th style="width:36px;"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="tc-body"></tbody>
+                </table>
+              </div>
+              <details class="tc-harness" id="tc-harness"{% if not test_data_url %} open{% endif %}>
+                <summary>{{ _('Harness') }}</summary>
+                <p class="help">{{ _("Hidden test code that wraps student submissions. Students can download this via 'Download Tester'. Only one harness per problem is supported.") }}</p>
+                <div class="form-row">
+                  <label>{{ _('Language') }}</label>
+                  <div class="field">
+                    <select id="f-harness-lang"></select>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <label></label>
+                  <div class="field">
+                    <label><input type="checkbox" id="f-harness-skip"> {{ _('Skip pre-compilation') }}</label>
+                    <div class="help">{{ _('Enable if student code references classes/functions only defined in the harness (e.g., hidden APIs).') }}</div>
+                  </div>
+                </div>
+                <div class="form-row">
+                  <label></label>
+                  <div class="field">
+                    <label><input type="checkbox" id="f-harness-main"> {{ _('Run student main') }}</label>
+                    <div class="help">{{ _('If enabled, student code is the entry point; harness provides hidden APIs.') }}</div>
+                  </div>
+                </div>
+                <div class="form-row" style="align-items:flex-start;">
+                  <label>{{ _('Harness Code') }}</label>
+                  <div class="field">
+                    <div id="f-harness-monaco" class="harness-monaco"></div>
+                    <textarea id="f-harness-code" rows="10" hidden spellcheck="false" placeholder="{{ _('Hidden test code compiled/run with the student submission.') }}"></textarea>
+                    <div class="help">{{ _('Hidden test code compiled/run with the student submission.') }}</div>
+                  </div>
+                </div>
+              </details>
+            </div>
+          </details>
+        </div>
+      </fieldset>
+
+      <!-- Test-case file drawer: shows both input and output for the case. -->
+      <div class="tc-drawer-mask" id="tc-drawer-mask" onclick="closeTcDrawer()"></div>
+      <aside class="tc-drawer" id="tc-drawer" aria-hidden="true">
+        <div class="tc-drawer-head">
+          <strong id="tc-drawer-title">{{ _("Test case") }}</strong>
+          <button type="button" class="btn-icon" onclick="closeTcDrawer()" title="{{ _('Close') }}">×</button>
+        </div>
+        <div class="tc-drawer-body">
+          <div class="tc-drawer-pane">
+            <label id="tc-drawer-in-label">{{ _('Input') }}</label>
+            <textarea id="tc-drawer-in" spellcheck="false"></textarea>
+          </div>
+          <div class="tc-drawer-pane">
+            <label id="tc-drawer-out-label">{{ _('Output') }}</label>
+            <textarea id="tc-drawer-out" spellcheck="false"></textarea>
+          </div>
+        </div>
+        <div class="tc-drawer-foot">
+          <button type="button" class="btn" onclick="closeTcDrawer()">{{ _('Cancel') }}</button>
+          <button type="button" class="btn" onclick="applyTcDrawer()">{{ _('Save to case') }}</button>
+        </div>
+      </aside>
+
+      <!-- Code-problem creation presets are in Advanced. -->
+      <p style="margin:1rem 0;">
+        <button type="button" class="btn" id="advanced-btn" onclick="toggleAdvanced()">{{ _('Advanced') }}</button>
+        <span style="font-size:12px;color:var(--muted);margin-left:0.5rem;">{{ _('Advanced settings (fields shown by problem type)') }}</span>
+      </p>
+      <div class="advanced-hidden">
+        <fieldset class="module">
+          <h2>{{ _('Advanced') }}</h2>
+          <div class="form-content">
+            <div class="form-row type-panel" data-for="programming"><label>{{ _('Creation preset') }}</label><div class="field"><select id="preset" style="max-width:200px;"><option selected>{{ _('Default') }}</option><option>{{ _('Custom') }}</option></select><div class="help">{{ _('Becomes Custom after you change advanced fields') }}</div></div></div>
+            <div class="form-row">
+              <label>{{ _('Problem group') }}</label>
+              <div class="field">
+                <div class="select-with-add">
+                  <select id="f-group">
+                    {% for g in groups %}<option value="{{ g.id }}"{% if g.id == default_group_id %} selected{% endif %}>{{ g.full_name or g.name }}</option>{% endfor %}
+                  </select>
+                  <button type="button" class="inline-add-btn" title="{{ _('Create problem group') }}" aria-label="{{ _('Create problem group') }}" onclick="toggleInlineAdd('group')">+</button>
+                </div>
+                <div class="inline-add-box" id="group-add-box" style="display:none;">
+                  <input type="text" id="group-add-name" placeholder="{{ _('Group name') }}" onkeydown="if(event.key==='Enter'){event.preventDefault();createGroup();}">
+                  <button type="button" class="btn-mini btn-mini-primary" onclick="createGroup()">{{ _('Create') }}</button>
+                  <button type="button" class="btn-mini" onclick="toggleInlineAdd('group')">{{ _('Cancel') }}</button>
+                </div>
+              </div>
+            </div>
+            <div class="form-row"><label>{{ _('Problem code') }}</label><div class="field"><input type="text" id="f-code" value="{% if edit_code %}{{ edit_code }}{% else %}{{ suggested_code }}{% endif %}" placeholder="{{ _('e.g. p000000') }}" maxlength="20" pattern="[a-z0-9]+" {% if edit_code %}readonly{% endif %}><div class="help">{% if edit_code %}{{ _('Problem code cannot be changed after creation.') }}{% else %}{{ _('Unique problem code. You can edit this before saving.') }}{% endif %}</div></div></div>
+            <div class="form-row"><label>{{ _('Is manually managed') }}</label><div class="field"><input type="checkbox" id="f-manual" {% if not can_change_manually_managed %}disabled{% endif %}><div class="help">{% if can_change_manually_managed %}{{ _('When checked, the test_data page cannot be used') }}{% else %}{{ _('You do not have permission to change this flag') }}{% endif %}</div></div></div>
+            <div class="form-row"><label>{{ _('Date') }}</label><div class="field"><input type="text" id="f-date" inputmode="numeric" autocomplete="off" placeholder="YYYY-MM-DD HH:MM"><div class="help">{{ _('Problem publish/release time') }}</div></div></div>
+            <div class="form-row"><label>{{ _('Authors') }}</label><div class="field">
+              <select multiple id="f-authors" class="profile-select2" style="width:100%;max-width:500px;"></select>
+            </div></div>
+            <div class="form-row"><label>{{ _('Curators') }}</label><div class="field">
+              <select multiple id="f-curators" class="profile-select2" style="width:100%;max-width:500px;"></select>
+              <div class="help">{{ _('Can edit but are not shown as authors') }}</div>
+            </div></div>
+            <div class="form-row"><label>{{ _('Testers') }}</label><div class="field">
+              <select multiple id="f-testers" class="profile-select2" style="width:100%;max-width:500px;"></select>
+              <div class="help">{{ _('Can view the problem before it is public') }}</div>
+            </div></div>
+            <div class="form-row"><label>{{ _('Submission source visibility') }}</label><div class="field"><select id="f-src-vis">
+              <option value="F">{{ _('Follow global setting') }}</option>
+              <option value="A">{{ _('Always visible') }}</option>
+              <option value="S">{{ _('Visible if problem solved') }}</option>
+              <option value="O">{{ _('Only own submissions') }}</option>
+            </select></div></div>
+            <div class="form-row"><label>{{ _('Is full markup') }}</label><div class="field"><input type="checkbox" id="f-full-markup" {% if not can_full_markup %}disabled{% endif %}><div class="help">{% if can_full_markup %}{{ _('Allow full HTML markup in the statement') }}{% else %}{{ _('You do not have permission to change this flag') }}{% endif %}</div></div></div>
+            <div class="form-row"><label>{{ _('View test cases') }}</label><div class="field"><input type="checkbox" id="f-view-cases"><div class="help">{{ _('Allow contestants to download failed test samples') }}</div></div></div>
+            <div class="form-row"><label>{{ _('View tester') }}</label><div class="field"><input type="checkbox" id="f-view-tester"><div class="help">{{ _('Allow downloading the tester file') }}</div></div></div>
+            <div class="form-row"><label>{{ _('License') }}</label><div class="field"><select id="f-license">
+              <option value="">{{ _('— None —') }}</option>
+              {% for lic in licenses %}<option value="{{ lic.id }}">{{ lic.display or lic.name }}</option>{% endfor %}
+            </select></div></div>
+            <div class="form-row"><label>{{ _('Upload Markdown') }}</label><div class="field">
+              <div class="file-pick">
+                <input type="file" id="f-md-upload" accept=".md,.markdown,.mdown,.txt,text/markdown,text/plain" hidden>
+                <button type="button" class="btn file-pick-btn" id="f-md-upload-btn">{{ _('Choose file') }}</button>
+                <span class="file-pick-name" id="f-md-upload-name">{{ _('No file selected') }}</span>
+              </div>
+              <div class="help">{{ _('Import statement from a Markdown file (legacy markdown_upload)') }}</div>
+            </div></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="module">
+          <h2>{{ _('Advanced Social Media') }}</h2>
+          <div class="form-content">
+            <div class="form-row"><label>{{ _('OpenGraph image') }}</label><div class="field"><input type="text" id="f-og-image" placeholder="https://…"><div class="help">{{ _('Social share preview image URL') }}</div></div></div>
+            <div class="form-row"><label>{{ _('Problem summary') }}</label><div class="field"><textarea id="f-summary" rows="3" placeholder="{{ _('Plain-text meta description for social media') }}" style="width:100%;"></textarea><div class="help">{{ _('Plain-text summary for meta description') }}</div></div></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="module">
+          <h2>{{ _('Classes') }}</h2>
+          <div class="form-content">
+            <div class="form-row"><label>{{ _('Classes') }}</label><div class="field">
+              <select multiple id="f-classes" class="class-select2" style="width:100%;max-width:500px;"{% if not can_create_organization %} disabled{% endif %}></select>
+              <div class="help">{{ _('Only classes belonging to the selected courses are listed') }}</div>
+            </div></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="module">
+          <h2>{{ _('Advanced Points') }}</h2>
+          <div class="form-content">
+            <div class="form-row"><label>{{ _('Short circuit') }}</label><div class="field"><input type="checkbox" id="f-short-circuit"><div class="help">{{ _('Stop on first failure (short circuit); skip remaining cases') }}</div></div></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="module type-panel" data-for="programming">
+          <h2>{{ _('Advanced Limits') }}</h2>
+          <div class="form-content">
+            <div class="form-row"><label>{{ _('Time limit (s)') }}</label><div class="field"><input type="number" id="f-time" value="2" step="0.1" style="width:120px;"></div></div>
+            <div class="form-row"><label>{{ _('Memory limit (MB)') }}</label><div class="field"><input type="number" id="f-mem" value="256" style="width:120px;"></div></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="module type-panel" data-for="programming">
+          <h2>{{ _('Advanced Language') }}</h2>
+          <div class="form-content">
+            <div class="form-row">
+              <label>{{ _('Allowed languages') }}</label>
+              <div class="field">
+                <div class="checkbox-list" id="f-langs">
+                  {% for l in languages %}<label><input type="checkbox" class="lang-cb" value="{{ l.key }}"> {{ l.name }}</label>{% endfor %}
+                </div>
+                <div class="help">{{ _('If none are checked, all languages are allowed by default') }}</div>
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <div class="inline-group type-panel" data-for="programming">
+          <h2>{{ _('Language limits') }}</h2>
+          <table class="inline-table">
+            <thead><tr><th>{{ _('Language') }}</th><th>{{ _('Time limit (s)') }}</th><th>{{ _('Memory limit (KB)') }}</th><th>{{ _('Delete') }}</th></tr></thead>
+            <tbody id="lang-limit-body">
+              <tr><td colspan="4"><a href="#" id="lang-limit-add" onclick="event.preventDefault(); addLangLimitRow();">{{ _('+ Add another Language limit') }}</a></td></tr>
+            </tbody>
+          </table>
+          <p class="unsaved-note">{{ _('Override global time/memory for specific languages (same as classic LanguageLimit).') }}</p>
+        </div>
+
+        <fieldset class="module">
+          <h2>{{ _('Advanced Justice') }}</h2>
+          <div class="form-content">
+            <div class="form-row"><label>{{ _('Banned users') }}</label><div class="field">
+              <select multiple id="f-banned-users" class="profile-select2" style="width:100%;max-width:500px;"></select>
+              <div class="help">{{ _('Ban selected users from submitting this problem') }}</div>
+            </div></div>
+          </div>
+        </fieldset>
+
+        <fieldset class="module">
+          <h2>{{ _('Advanced History') }}</h2>
+          <div class="form-content">
+            <div class="form-row"><label>{{ _('Edit reason') }}</label><div class="field">
+              <input type="text" id="f-edit-reason" placeholder="{{ _('Describe the changes you made (optional)') }}" maxlength="200">
+              <p class="unsaved-note">{{ _('Stored as the revision comment (same as classic admin history).') }}</p>
+            </div></div>
+          </div>
+        </fieldset>
+
+        <div class="inline-group type-panel" data-for="programming">
+          <h2>{{ _('Problem templates') }}</h2>
+          <table class="inline-table">
+            <thead><tr><th>{{ _('Language') }}</th><th>{{ _('Code template') }}</th><th>{{ _('Delete') }}</th></tr></thead>
+            <tbody id="template-body">
+              <tr><td colspan="3"><a href="#" id="template-add" onclick="event.preventDefault(); addTemplateRow();">{{ _('+ Add another Problem template') }}</a></td></tr>
+            </tbody>
+          </table>
+          <p class="unsaved-note">{{ _('Starter code shown in the submit editor (same as classic ProblemTemplate).') }}</p>
+        </div>
+
+        <div class="inline-group">
+          <h2>{{ _('Clarifications') }}</h2>
+          <table class="inline-table">
+            <thead><tr><th>{{ _('Description') }}</th><th>{{ _('Delete') }}</th></tr></thead>
+            <tbody id="clarification-body">
+              <tr><td colspan="2"><a href="#" id="clarification-add" onclick="event.preventDefault(); addClarificationRow();">{{ _('+ Add another Clarification') }}</a></td></tr>
+            </tbody>
+          </table>
+          <p class="unsaved-note">{{ _('Shown on the problem page (same as classic ProblemClarification).') }}</p>
+        </div>
+
+        <div class="inline-group">
+          <h2>{{ _('Translations') }}</h2>
+          <table class="inline-table">
+            <thead><tr><th>{{ _('Language') }}</th><th>{{ _('Name') }}</th><th>{{ _('Description') }}</th><th>{{ _('Delete') }}</th></tr></thead>
+            <tbody id="f-translations-body">
+              <tr class="tr-row">
+                <td style="width:120px;"><select class="tr-lang">{% for code, name in ui_languages %}<option value="{{ code }}">{{ name }} ({{ code }})</option>{% endfor %}</select></td>
+                <td style="width:160px;"><input type="text" class="tr-name" placeholder="{{ _('Translated name') }}"></td>
+                <td><textarea rows="2" class="tr-desc" placeholder="{{ _('Translated description') }}" style="width:100%;"></textarea></td>
+                <td style="width:40px;"><input type="checkbox" class="tr-del"></td>
+              </tr>
+              <tr><td colspan="4"><a href="#" id="f-translations-add" onclick="event.preventDefault(); addTranslationRow();">{{ _('+ Add another Translation') }}</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="bottombar">
+        {% if import_editor_mode %}
+        <button type="button" class="btn btn-primary" onclick="submitForm('save')">{{ _('Save draft') }}</button>
+        <button type="button" class="btn" onclick="submitForm('format')">{{ _('LLM format question') }}</button>
+        <button type="button" class="btn" onclick="submitForm('create')">{{ _('Create problem') }}</button>
+        <span style="flex:1;"></span>
+        <span id="import-save-status" class="unsaved-note"></span>
+        {% else %}
+        <button type="button" class="btn btn-primary" onclick="submitForm('save')">{{ _('Save') }}</button>
+        <button type="button" class="btn" onclick="submitForm('continue')">{{ _('Save and continue editing') }}</button>
+        <button type="button" class="btn" onclick="submitForm('another')">{{ _('Save and add another') }}</button>
+        <span style="flex:1;"></span>
+        <button type="button" class="btn btn-cancel" onclick="cancelEdit()">{{ _('Cancel') }}</button>
+        {% endif %}
+      </div>
+
+    </form>
+
+    <aside class="v2-right">
+      <div class="pv-panel">
+        <div class="pv-head">{{ _("Preview") }}</div>
+        <div id="preview-body"></div>
+      </div>
+    </aside>
+    </div><!-- /.v2-split -->
+
+    <div id="save-toast"></div>
+  </main>
+
+  <!-- Problem-type selection / creation dialog (reused from add.html). -->
+  <div class="qtype-modal hidden" id="ptype-modal">
+    <div class="qtype-box" style="width:480px;">
+      <div class="qtype-head">
+        <h2>{{ _("Select problem tags") }}</h2>
+        <button type="button" onclick="closeTypeModal()">×</button>
+      </div>
+      <div style="padding:1rem 1.25rem;">
+        <div id="ptype-options" style="display:flex;flex-direction:column;gap:0.4rem;max-height:260px;overflow:auto;"></div>
+        <div id="ptype-new-form" style="display:none;margin-top:0.75rem;padding-top:0.75rem;border-top:1px dashed var(--admin-border);">
+          <div style="font-weight:600;font-size:13px;margin-bottom:0.5rem;">{{ _("New problem tag") }}</div>
+          <div style="display:flex;flex-direction:column;gap:0.5rem;">
+            <label style="font-size:12px;">{{ _("Category ID / name (fill one; the other defaults to the same value)") }}
+              <input type="text" id="nt-name" maxlength="100" placeholder="{{ _('e.g. dp or Dynamic Programming') }}" style="width:100%;padding:0.4rem;margin-top:2px;border:1px solid #aaa;border-radius:4px;">
+            </label>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+              <button type="button" class="btn btn-primary" onclick="createNewType()">{{ _("Add") }}</button>
+              <button type="button" class="btn" onclick="runAIProblemType(true)">🤖 {{ _("AI suggest") }}</button>
+              <button type="button" class="btn" onclick="toggleNewTypeForm(false)">{{ _("Cancel") }}</button>
+            </div>
+            <div id="ptype-ai-result" style="font-size:12px;color:var(--muted);"></div>
+          </div>
+        </div>
+        <button type="button" class="btn-add-option" style="width:100%;margin-top:0.75rem;" id="ptype-new-btn" onclick="toggleNewTypeForm(true)">+ {{ _('New problem tag') }}</button>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:0.5rem;padding:0.75rem 1.25rem;border-top:1px solid var(--admin-border);">
+        <button type="button" class="btn" onclick="closeTypeModal()">{{ _('Cancel') }}</button>
+        <button type="button" class="btn btn-primary" onclick="applyTypeSelection()">{{ _('OK') }}</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SAVE_URL = '{{ save_url }}';
+    const PROBLEM_LIST_URL = '{{ problem_list_url }}';
+    const AI_DIFFICULTY_URL = '{{ ai_difficulty_url }}';
+    const CREATE_PROBLEM_TYPE_URL = '{{ create_problem_type_url }}';
+    const CREATE_PROBLEM_GROUP_URL = '{{ create_problem_group_url }}';
+    const CREATE_ORGANIZATION_URL = '{{ create_organization_url }}';
+    const AI_PROBLEM_TYPE_URL = '{{ ai_problem_type_url }}';
+    const AI_DECOMPOSE_URL = '{{ ai_decompose_url }}';
+    const PROBLEM_PREVIEW_URL = '{{ problem_preview_url }}';
+    const PROBLEM_PREVIEW_BATCH_URL = '{{ problem_preview_batch_url }}';
+    const FILE_UPLOAD_URL = '{{ file_upload_url }}';
+    const SEARCH_USERS_URL = '{{ search_users_url }}';
+    const PROFILE_SELECT2_URL = '{{ profile_select2_url }}';
+    const CLASS_SELECT2_URL = '{{ class_select2_url }}';
+    const SELECT2_THEME = '{{ DMOJ_SELECT2_THEME }}';
+    {# |safe required: script data does not decode HTML entities, so autoescaped JSON breaks JSON.parse. #}
+    {# View escapes <>& to \\uXXXX so this is not a script-breakout vector. #}
+    const CURRENT_PROFILE = {{ current_profile_json|safe }};
+    const JUDGE_LANGUAGES = {{ languages_json|safe }};
+    const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
+    const CAN_CREATE_CODE = {{ 'true' if can_create_code else 'false' }};
+    const CAN_CREATE_MCQ = {{ 'true' if can_create_mcq else 'false' }};
+    const CAN_CREATE_FILE = {{ 'true' if can_create_file else 'false' }};
+    const EDIT_CODE = '{{ edit_code }}';
+    const TEST_DATA_URL = '{{ test_data_url }}';
+    (function initProblemCodePrefill() {
+      const codeInputEl = document.getElementById('f-code');
+      if (!codeInputEl || EDIT_CODE) return;
+      codeInputEl.dataset.autoGen = codeInputEl.value ? '1' : '0';
+      codeInputEl.addEventListener('input', function () {
+        this.dataset.autoGen = '0';
+      });
+    })();
+    const HARNESS_LANGUAGES = {{ harness_languages_json|default('[]')|safe }};
+    const MONACO_VS_URL = '{{ static("libs/monaco/vs") }}';
+    const EDIT_DETAIL_URL = '{{ edit_detail_url }}';
+    const EDIT_DATA = {{ edit_data_json|safe }};
+    const IMPORT_EDITOR_MODE = {{ 'true' if import_editor_mode else 'false' }};
+    const FROM_ASSIGNMENT = new URLSearchParams(window.location.search).get('from') === 'assignment';
+    const IMPORT_ITEM_ID = '{{ import_item_id }}';
+    const IMPORT_FORMAT_URL = '{{ import_format_url }}';
+    const IMPORT_CREATE_URL = '{{ import_create_url }}';
+    const SERVER_PROBLEM_TYPES = {{ problem_types_json|safe }};
+
+    const TYPE_META = {
+      programming: { title: '{{ _("Programming") }}', badge: 'programming', tag: '{{ _("Programming") }}' },
+      single:      { title: '{{ _("Single choice") }}', badge: 'regular', tag: '{{ _("Single choice") }}' },
+      multiple:    { title: '{{ _("Multiple choice") }}', badge: 'regular', tag: '{{ _("Multiple choice") }}' },
+      blank:       { title: '{{ _("Fill-in-blank") }}', badge: 'regular', tag: '{{ _("Fill-in-blank") }}' },
+      truefalse:   { title: '{{ _("True/False") }}', badge: 'regular', tag: '{{ _("True/False") }}' },
+      short:       { title: '{{ _("Short answer") }}', badge: 'regular', tag: '{{ _("Short answer") }}' },
+      file:        { title: '{{ _("File upload") }}', badge: 'regular', tag: '{{ _("File upload") }}' },
+      compound:    { title: '{{ _("Composite") }}', badge: 'regular', tag: '{{ _("Composite") }}' },
+      other:       { title: '{{ _("Other") }}', badge: 'regular', tag: '{{ _("Other") }}' },
+    };
+    const SUB_TYPES = ['single', 'multiple', 'blank', 'truefalse', 'short'];
+    let currentType = 'single';
+    let optionSeq = 0, blankSeq = 0, tcSeq = 0, subSeq = 0;
+    let draftSaved = false;
+
+    /* Canonical English tags stored on problem_type; UI pills use gettext separately. */
+    const DIFF_LABEL = { easy: 'Easy', medium: 'Medium', hard: 'Hard' };
+
+    /* Cancel: discard changes in edit mode or the new problem in create mode; never delete a problem. */
+    function cancelEdit() {
+      if (EDIT_CODE) {
+        if (!confirm('{{ _("Discard your changes? Your edits will not be saved, but the problem itself is kept.") }}')) return;
+        window.location.href = EDIT_DETAIL_URL || PROBLEM_LIST_URL;
+        return;
+      }
+      const hasContent = ((document.getElementById('f-name') || {}).value || '').trim()
+        || (RichEditor.getMarkdown('stem') || '').trim();
+      if (hasContent && !confirm('{{ _("Discard this new problem? Unsaved changes will be lost.") }}')) return;
+      window.location.href = PROBLEM_LIST_URL;
+    }
+    let currentDifficulty = 'medium';
+    function setDifficulty(level) {
+      if (level === 'ai') {
+        runAIDifficulty();
+        return;
+      }
+      currentDifficulty = level;
+      const radio = document.querySelector('#difficulty input[value="' + level + '"]');
+      if (radio) radio.checked = true;
+    }
+    // Call the backend AI difficulty assessor; it falls back to heuristics when not configured.
+    function runAIDifficulty() {
+      const res = document.getElementById('diff-ai-result');
+      const box = document.getElementById('diff-ai-box');
+      const btn = document.getElementById('diff-ai-btn');
+      const description = RichEditor.getMarkdown('stem');
+      if (box) box.style.display = 'block';
+      if (!description.trim()) {
+        res.innerHTML = '<span style="color:#c0392b;">{{ _("Please enter problem content first.") }}</span>';
+        return;
+      }
+      // Clear auto difficulty tag until the new suggestion lands.
+      document.getElementById('f-types').querySelectorAll('.ptype-tag.auto-diff').forEach(t => t.remove());
+      res.innerHTML = '🤖 {{ _("Analyzing…") }}';
+      if (btn) btn.disabled = true;
+      fetch(AI_DIFFICULTY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+        body: JSON.stringify({ description }),
+      }).then(r => r.json().then(body => ({ ok: r.ok, body }))).then(({ ok, body }) => {
+        if (!ok) {
+          res.textContent = '';
+          const err = document.createElement('span');
+          err.style.color = '#c0392b';
+          err.textContent = body.error || '{{ _("AI difficulty failed") }}';
+          res.appendChild(err);
+          return;
+        }
+        const level = body.level || 'medium';
+        currentDifficulty = level;
+        const radio = document.querySelector('#difficulty input[value="' + level + '"]');
+        if (radio) radio.checked = true;
+        res.textContent = '';
+        const wrap = document.createElement('span');
+        wrap.className = 'diff-ai-result';
+        wrap.appendChild(document.createTextNode('{{ _("AI suggest:") }} '));
+        const b = document.createElement('b');
+        b.textContent = body.label || '';
+        wrap.appendChild(b);
+        res.appendChild(wrap);
+      }).catch(() => { res.innerHTML = '<span style="color:#c0392b;">{{ _("Network error") }}</span>'; })
+        .finally(() => { if (btn) btn.disabled = false; });
+    }
+
+    /* ---------- Problem-type selection (from the database) ---------- */
+    function allTypes() { return SERVER_PROBLEM_TYPES.slice(); }
+    function pushServerType(entry) {
+      if (!SERVER_PROBLEM_TYPES.some(t => t.name === entry.name)) SERVER_PROBLEM_TYPES.push(entry);
+    }
+    function currentManualTags() {
+      return [...document.querySelectorAll('#f-types .ptype-tag:not(.auto)')].map(t => t.childNodes[0].textContent.trim());
+    }
+    function openTypeModal() { renderTypeOptions(); toggleNewTypeForm(false); document.getElementById('ptype-ai-result').textContent = ''; document.getElementById('ptype-modal').classList.remove('hidden'); }
+    function closeTypeModal() { document.getElementById('ptype-modal').classList.add('hidden'); }
+    function fillPtypeTag(el, text, opts) {
+      opts = opts || {};
+      el.textContent = '';
+      el.appendChild(document.createTextNode(String(text || '')));
+      if (opts.meta) {
+        el.appendChild(document.createTextNode(' '));
+        const meta = document.createElement('span');
+        meta.className = 'meta';
+        meta.textContent = '· ' + opts.meta;
+        el.appendChild(meta);
+      }
+      if (opts.removable) {
+        el.appendChild(document.createTextNode(' '));
+        const x = document.createElement('span');
+        x.className = 'x';
+        x.textContent = '×';
+        x.addEventListener('click', () => el.remove());
+        el.appendChild(x);
+      }
+    }
+    function renderTypeOptions() {
+      const selected = new Set(currentManualTags());
+      const box = document.getElementById('ptype-options');
+      box.textContent = '';
+      allTypes().forEach(t => {
+        const label = document.createElement('label');
+        label.style.cssText = 'display:flex;align-items:center;gap:0.5rem;font-size:13px;padding:0.35rem 0.5rem;border:1px solid var(--admin-border);border-radius:5px;cursor:pointer;';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.value = t.full;
+        input.dataset.name = t.name;
+        if (selected.has(t.full)) input.checked = true;
+        const span = document.createElement('span');
+        span.appendChild(document.createTextNode(t.full + ' '));
+        const sub = document.createElement('span');
+        sub.style.cssText = 'color:var(--muted);font-size:11px;';
+        sub.textContent = '(' + t.name + ')';
+        span.appendChild(sub);
+        label.appendChild(input);
+        label.appendChild(span);
+        box.appendChild(label);
+      });
+    }
+    function toggleNewTypeForm(show) {
+      document.getElementById('ptype-new-form').style.display = show ? 'block' : 'none';
+      document.getElementById('ptype-new-btn').style.display = show ? 'none' : 'block';
+      if (show) document.getElementById('nt-name').focus();
+    }
+    function createNewType() {
+      const raw = document.getElementById('nt-name').value.trim();
+      if (!raw) { showToast('{{ _("Please enter a category ID or name.") }}', false); return; }
+      fetch(CREATE_PROBLEM_TYPE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+        body: JSON.stringify({ name: raw.length <= 20 ? raw : '', full_name: raw }),
+      }).then(r => r.json().then(body => ({ ok: r.ok, body }))).then(({ ok, body }) => {
+        if (!ok) { showToast(body.error || '{{ _("Failed to create problem tag") }}', false); return; }
+        pushServerType(body.type);
+        renderTypeOptions();
+        const box = document.getElementById('f-types');
+        const el = document.createElement('span');
+        el.className = 'ptype-tag';
+        fillPtypeTag(el, body.type.full, { removable: true });
+        box.insertBefore(el, box.querySelector('.ptype-add'));
+        document.getElementById('nt-name').value = '';
+        toggleNewTypeForm(false);
+        showToast('{{ _("Problem tag created") }}', true);
+      }).catch(() => showToast('{{ _("Network error") }}', false));
+    }
+    /* ---------- Inline organization / problem-group creation ---------- */
+    function toggleInlineAdd(kind) {
+      const box = document.getElementById(kind + '-add-box');
+      if (!box) return;
+      const show = box.style.display === 'none' || !box.style.display;
+      box.style.display = show ? 'flex' : 'none';
+      if (show) { const inp = box.querySelector('input'); inp.value = ''; inp.focus(); }
+    }
+    function createGroup() {
+      const inp = document.getElementById('group-add-name');
+      const name = inp.value.trim();
+      if (!name) { showToast('{{ _("Please enter a group name.") }}', false); return; }
+      fetch(CREATE_PROBLEM_GROUP_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+        body: JSON.stringify({ full_name: name }),
+      }).then(r => r.json().then(body => ({ ok: r.ok, body }))).then(({ ok, body }) => {
+        if (!ok) { showToast(body.error || '{{ _("Failed to create group") }}', false); return; }
+        const sel = document.getElementById('f-group');
+        const opt = document.createElement('option');
+        opt.value = body.group.id; opt.textContent = body.group.full;
+        sel.appendChild(opt); sel.value = body.group.id;
+        toggleInlineAdd('group');
+        showToast('{{ _("Problem group created") }}', true);
+      }).catch(() => showToast('{{ _("Network error") }}', false));
+    }
+    function createOrg() {
+      const inp = document.getElementById('org-add-name');
+      const name = inp.value.trim();
+      if (!name) { showToast('{{ _("Please enter a course name.") }}', false); return; }
+      fetch(CREATE_ORGANIZATION_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+        body: JSON.stringify({ name }),
+      }).then(r => r.json().then(body => ({ ok: r.ok, body }))).then(({ ok, body }) => {
+        if (!ok) { showToast(body.error || '{{ _("Failed to create course") }}', false); return; }
+        const sel = document.getElementById('f-org');
+        ensureOption(sel, body.organization.id, body.organization.name, true);
+        if (window.jQuery && jQuery(sel).data('select2')) {
+          const vals = (jQuery(sel).val() || []).concat([String(body.organization.id)]);
+          jQuery(sel).val([...new Set(vals)]).trigger('change');
+        }
+        toggleInlineAdd('org');
+        showToast('{{ _("Course created") }}', true);
+      }).catch(() => showToast('{{ _("Network error") }}', false));
+    }
+    function runAIProblemType(fillInput) {
+      const description = RichEditor.getMarkdown('stem');
+      if (!description.trim()) { showToast('{{ _("Please enter problem content first.") }}', false); return; }
+      const target = fillInput ? document.getElementById('ptype-ai-result') : document.getElementById('ptype-options');
+      if (fillInput) target.textContent = '{{ _("Analyzing…") }}';
+      fetch(AI_PROBLEM_TYPE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+        body: JSON.stringify({ description }),
+      }).then(r => r.json().then(body => ({ ok: r.ok, body }))).then(({ ok, body }) => {
+        if (!ok) { showToast(body.error || '{{ _("AI suggestion failed") }}', false); if (fillInput) target.textContent = ''; return; }
+        const suggestions = body.suggestions || [];
+        if (fillInput) {
+          if (!suggestions.length) { target.textContent = '{{ _("No suggestion") }}'; return; }
+          const s = suggestions[0];
+          document.getElementById('nt-name').value = s.full || s.name;
+          target.textContent = '';
+          suggestions.forEach(x => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn';
+            btn.style.cssText = 'margin:0.2rem 0.3rem 0 0;padding:.2rem .5rem;font-size:11px;';
+            btn.textContent = x.full || x.name;
+            btn.addEventListener('click', () => {
+              document.getElementById('nt-name').value = x.full || x.name || '';
+            });
+            target.appendChild(btn);
+          });
+          return;
+        }
+        suggestions.forEach(s => pushServerType({ name: s.name, full: s.full || s.name }));
+        renderTypeOptions();
+        suggestions.forEach(s => {
+          const cb = [...document.querySelectorAll('#ptype-options input')].find(i => i.dataset.name === s.name || i.value === (s.full || s.name));
+          if (cb) cb.checked = true;
+        });
+        showToast('{{ _("AI suggestions applied — confirm selection") }}', true);
+      }).catch(() => showToast('{{ _("Network error") }}', false));
+    }
+    /* Put the AI entry beside the plus button to recommend and add tags without a dialog. */
+    function runAIProblemTypeInline() {
+      const description = RichEditor.getMarkdown('stem');
+      if (!description.trim()) { showToast('{{ _("Please enter problem content first.") }}', false); return; }
+      const btn = document.getElementById('ptype-ai-btn');
+      const old = btn.textContent;
+      btn.disabled = true; btn.textContent = '…';
+      fetch(AI_PROBLEM_TYPE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+        body: JSON.stringify({ description }),
+      }).then(r => r.json().then(body => ({ ok: r.ok, body }))).then(({ ok, body }) => {
+        if (!ok) { showToast(body.error || '{{ _("AI suggestion failed") }}', false); return; }
+        const suggestions = body.suggestions || [];
+        if (!suggestions.length) { showToast('{{ _("No suggestion") }}', false); return; }
+        const box = document.getElementById('f-types');
+        const existing = new Set(currentManualTags());
+        suggestions.forEach(s => {
+          const full = s.full || s.name;
+          pushServerType({ name: s.name, full });
+          if (existing.has(full)) return;
+          const el = document.createElement('span');
+          el.className = 'ptype-tag';
+          fillPtypeTag(el, full, { removable: true });
+          box.insertBefore(el, box.querySelector('.ptype-add'));
+          existing.add(full);
+        });
+        showToast('{{ _("AI suggestions applied") }}', true);
+      }).catch(() => showToast('{{ _("Network error") }}', false))
+        .finally(() => { btn.disabled = false; btn.textContent = old; });
+    }
+    function applyTypeSelection() {
+      const chosen = [...document.querySelectorAll('#ptype-options input:checked')].map(i => i.value);
+      const box = document.getElementById('f-types');
+      box.querySelectorAll('.ptype-tag:not(.auto)').forEach(t => t.remove());
+      chosen.forEach(full => {
+        const el = document.createElement('span');
+        el.className = 'ptype-tag';
+        fillPtypeTag(el, full, { removable: true });
+        box.insertBefore(el, box.querySelector('.ptype-add'));
+      });
+      closeTypeModal();
+    }
+    function toggleAdvanced() {
+      const cm = document.getElementById('content-main');
+      cm.classList.toggle('advanced-visible');
+      const open = cm.classList.contains('advanced-visible');
+      document.getElementById('advanced-btn').textContent = open
+        ? gettext('Hide advanced settings')
+        : gettext('Advanced');
+    }
+
+    /* ---------- Question-type switching: select the type directly, without broad categories. ---------- */
+    function selectType(type) {
+      currentType = type;
+
+      document.getElementById('stem-label').firstChild.textContent = (type === 'compound') ? (gettext('Main stem') + ' ') : (gettext('Description') + ' ');
+
+      document.querySelectorAll('.type-panel').forEach(el => {
+        const list = (el.dataset.for || '').split(',');
+        el.style.display = list.includes(type) ? '' : 'none';
+      });
+      document.querySelectorAll('.blank-insert').forEach(b => b.style.display = type === 'blank' ? 'inline-block' : 'none');
+
+      if (type === 'single' || type === 'multiple') {
+        document.getElementById('opt-hint').textContent = type === 'multiple' ? gettext('(select all correct answers)') : gettext('(select the correct answer)');
+        if (document.getElementById('options').children.length === 0) { addOption('HTTP'); addOption('TCP'); }
+        else refreshOptionMarkers();
+      }
+      if (type === 'blank' && document.getElementById('blank-answers').children.length === 0) addBlank();
+      if (type === 'compound' && document.getElementById('sub-list').children.length === 0) addSub('single');
+      if (type === 'programming' && document.getElementById('tc-body') && !document.getElementById('tc-body').children.length) {
+        /* keep empty until user adds / imports; do not auto-seed */
+      }
+      if (type === 'programming') layoutHarnessMonaco();
+
+      renderScoreConf();
+      renderPreview();
+    }
+
+    /* RichEditor / MarkdownPreview: source in resources/js/rich_editor/ */
+
+    /* ---------- Options (rich text / Markdown) ---------- */
+    function optionEditorTpl(name) {
+      return RichEditor.html(name, { compact: true, placeholder: gettext('Enter option text…') });
+    }
+    function getOptionText(row) {
+      const ed = row.querySelector('.rich-editor');
+      if (!ed) return row.querySelector('.option-input')?.value || '';
+      return RichEditor.getMarkdown(ed.dataset.editor);
+    }
+    function setOptionText(row, value) {
+      const ed = row.querySelector('.rich-editor');
+      if (!ed) { const inp = row.querySelector('.option-input'); if (inp) inp.value = value || ''; return; }
+      RichEditor.setMarkdown(ed.dataset.editor, value || '');
+    }
+    function addOption(value) {
+      const isMulti = currentType === 'multiple';
+      const id = ++optionSeq;
+      const name = 'opt-' + id;
+      const row = document.createElement('div');
+      row.className = 'option-row';
+      row.innerHTML = `
+        <div class="option-marker"><input type="${isMulti ? 'checkbox' : 'radio'}" name="correct" onchange="renderPreview()"></div>
+        <div>
+          <div class="option-top">${optionEditorTpl(name)}</div>
+        </div>
+        <div class="option-actions"><button type="button" class="btn-icon" title="${gettext('Delete')}" onclick="delOption(this)">×</button></div>`;
+      document.getElementById('options').appendChild(row);
+      RichEditor.init();
+      if (value) setOptionText(row, value);
+      renderPreview();
+    }
+    function delOption(btn) {
+      const list = document.getElementById('options');
+      if (list.children.length <= 2) { alert(gettext('Keep at least 2 options')); return; }
+      btn.closest('.option-row').remove(); renderPreview();
+    }
+    function refreshOptionMarkers() {
+      const isMulti = currentType === 'multiple';
+      document.querySelectorAll('#options .option-marker input').forEach(i => { i.type = isMulti ? 'checkbox' : 'radio'; i.name = 'correct'; });
+    }
+
+    /* ---------- Fill in the blank ---------- */
+    function addBlank() {
+      const n = ++blankSeq;
+      const row = document.createElement('div');
+      row.className = 'blank-answer-row';
+      row.innerHTML = `<span class="blank-label">${interpolate(gettext('Blank %s'), [n])}</span>
+        <textarea class="blank-answer" rows="2" placeholder="" oninput="renderPreview()" style="flex:1;font-family:inherit;resize:vertical;"></textarea>
+        <span class="inline-num blank-pts" style="display:none;"><input type="number" value="1" min="0" step="0.5" title="${gettext('Points for this blank')}" oninput="renderPreview()"></span>
+        <button type="button" class="btn-icon" onclick="this.closest('.blank-answer-row').remove();renderPreview();">×</button>`;
+      document.getElementById('blank-answers').appendChild(row);
+      renderScoreConf(); renderPreview();
+    }
+
+    /* ---------- Test cases (classic zip unpack + file matching) ---------- */
+    let pendingZipFile = null; // original File from <input>, reused on save
+    let zipFiles = []; // zip namelist shown in input/output selects
+    let tcDrawerTarget = null;
+
+    function renumberTestCases() {
+      const rows = document.querySelectorAll('#tc-body tr');
+      rows.forEach((tr, i) => { tr.children[0].textContent = String(i + 1); });
+      tcSeq = rows.length;
+    }
+
+    function usableZipPaths(paths) {
+      return (paths || []).filter(p => {
+        if (!p || String(p).endsWith('/')) return false;
+        const base = basename(p);
+        if (base.startsWith('.') || String(p).includes('__MACOSX')) return false;
+        return true;
+      }).sort((a, b) => {
+        const ka = naturalKey(a), kb = naturalKey(b);
+        return ka < kb ? -1 : ka > kb ? 1 : 0;
+      });
+    }
+
+    function fileSelectHtml(kind, selected) {
+      const opts = ['<option value=""></option>'].concat(zipFiles.map(p => (
+        `<option value="${escapeAttr(p)}"${p === selected ? ' selected' : ''}>${escapeHtml(p)}</option>`
+      )));
+      return `<select class="tc-file-select" data-kind="${kind}">${opts.join('')}</select>`;
+    }
+
+    function matchingOutName(inName) {
+      if (!inName) return '';
+      const guess = inName.replace(/in(?!.*?in)/, 'out');
+      if (zipFiles.indexOf(guess) >= 0) return guess;
+      const alt = inName.replace(/in(?!.*?in)/, 'ans');
+      if (zipFiles.indexOf(alt) >= 0) return alt;
+      return '';
+    }
+
+    function bindFileSelects(tr) {
+      const inSel = tr.querySelector('.tc-file-select[data-kind="input"]');
+      const outSel = tr.querySelector('.tc-file-select[data-kind="output"]');
+      if (!inSel || !outSel) return;
+      inSel.addEventListener('change', () => {
+        if (!outSel.value) {
+          const guess = matchingOutName(inSel.value);
+          if (guess) outSel.value = guess;
+        }
+      });
+    }
+
+    function fillSelect(sel, selected) {
+      const val = selected != null ? selected : sel.value;
+      sel.innerHTML = '<option value=""></option>' + zipFiles.map(p =>
+        `<option value="${escapeAttr(p)}">${escapeHtml(p)}</option>`).join('');
+      sel.value = zipFiles.indexOf(val) >= 0 ? val : '';
+    }
+
+    function applyZipFilesToRows() {
+      document.querySelectorAll('#tc-body tr').forEach(tr => {
+        let inSel = tr.querySelector('.tc-file-select[data-kind="input"]');
+        let outSel = tr.querySelector('.tc-file-select[data-kind="output"]');
+        if (!inSel) {
+          const inBtn = tr.querySelector('.tc-file-btn[data-kind="input"]');
+          const outBtn = tr.querySelector('.tc-file-btn[data-kind="output"]');
+          const inF = tr.querySelector('.tc-fname[data-kind="input"]');
+          const outF = tr.querySelector('.tc-fname[data-kind="output"]');
+          const inName = (inBtn && inBtn.dataset.file) || (inF && inF.value) || '';
+          const outName = (outBtn && outBtn.dataset.file) || (outF && outF.value) || '';
+          tr.dataset.mode = 'zip';
+          const inCell = tr.querySelector('.tc-in');
+          const outCell = tr.querySelector('.tc-out');
+          if (inCell) inCell.innerHTML = fileSelectHtml('input', inName);
+          if (outCell) outCell.innerHTML = fileSelectHtml('output', outName);
+          bindFileSelects(tr);
+        } else {
+          fillSelect(inSel);
+          fillSelect(outSel);
+        }
+      });
+    }
+
+    function fileCellHtml(kind, fileName, isZip) {
+      const path = fileName || '';
+      const label = path ? basename(path) : (kind === 'input' ? 'stdin' : 'expected');
+      const cls = 'tc-file-btn' + (isZip ? '' : ' manual');
+      return `<button type="button" class="${cls}" data-kind="${kind}" data-file="${escapeAttr(path)}" title="${escapeAttr(path || gettext('View/edit content'))}">${escapeHtml(label)}</button>
+              <textarea class="tc-content" data-kind="${kind}" hidden></textarea>`;
+    }
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    function escapeAttr(s) {
+      return escapeHtml(s).replace(/\n/g, ' ');
+    }
+
+    function addTestCase(opts) {
+      const points = (opts && opts.points != null) ? opts.points : 10;
+      const pretest = !!(opts && opts.pretest);
+      const inName = (opts && opts.input_file) || '';
+      const outName = (opts && opts.output_file) || '';
+      const useZip = zipFiles.length > 0 || !!(opts && (opts.fromZip || inName || outName) && !opts.input && !opts.output);
+      const tr = document.createElement('tr');
+      tr.dataset.mode = useZip ? 'zip' : 'manual';
+      if (useZip) {
+        tr.innerHTML = `
+        <td></td>
+        <td class="tc-in">${fileSelectHtml('input', inName)}</td>
+        <td class="tc-out">${fileSelectHtml('output', outName)}</td>
+        <td><input type="number" class="tc-points" value="${points}" min="0"></td>
+        <td style="text-align:center;"><input type="checkbox" class="tc-pretest" title="${gettext('Mark as sample/pretest')}"${pretest ? ' checked' : ''}></td>
+        <td><button type="button" class="btn-icon" onclick="removeTestCaseRow(this)">×</button></td>`;
+        bindFileSelects(tr);
+      } else {
+        tr.innerHTML = `
+        <td></td>
+        <td class="tc-in"><textarea class="tc-content" data-kind="input" placeholder="stdin"></textarea>
+             <input type="hidden" class="tc-fname" data-kind="input" value="${escapeAttr(inName)}"></td>
+        <td class="tc-out"><textarea class="tc-content" data-kind="output" placeholder="expected"></textarea>
+             <input type="hidden" class="tc-fname" data-kind="output" value="${escapeAttr(outName)}"></td>
+        <td><input type="number" class="tc-points" value="${points}" min="0"></td>
+        <td style="text-align:center;"><input type="checkbox" class="tc-pretest" title="${gettext('Mark as sample/pretest')}"${pretest ? ' checked' : ''}></td>
+        <td><button type="button" class="btn-icon" onclick="removeTestCaseRow(this)">×</button></td>`;
+        const inTa = tr.querySelector('textarea.tc-content[data-kind="input"]');
+        const outTa = tr.querySelector('textarea.tc-content[data-kind="output"]');
+        if (inTa && opts && opts.input != null) inTa.value = opts.input;
+        if (outTa && opts && opts.output != null) outTa.value = opts.output;
+      }
+      document.getElementById('tc-body').appendChild(tr);
+      renumberTestCases();
+      return tr;
+    }
+
+    function openTcDrawer(tr) {
+      const inTa = tr.querySelector('textarea.tc-content[data-kind="input"]');
+      const outTa = tr.querySelector('textarea.tc-content[data-kind="output"]');
+      const inBtn = tr.querySelector('.tc-file-btn[data-kind="input"]');
+      const outBtn = tr.querySelector('.tc-file-btn[data-kind="output"]');
+      if (!inTa && !outTa) return;
+      tcDrawerTarget = { tr };
+      const inName = (inBtn && inBtn.dataset.file) || 'input';
+      const outName = (outBtn && outBtn.dataset.file) || 'output';
+      const idx = tr.children[0] ? tr.children[0].textContent : '';
+      document.getElementById('tc-drawer-title').textContent = interpolate(gettext('Case #%s'), [idx]);
+      document.getElementById('tc-drawer-in-label').textContent = 'Input · ' + inName;
+      document.getElementById('tc-drawer-out-label').textContent = 'Output · ' + outName;
+      document.getElementById('tc-drawer-in').value = inTa ? (inTa.value || '') : '';
+      document.getElementById('tc-drawer-out').value = outTa ? (outTa.value || '') : '';
+      document.getElementById('tc-drawer-mask').classList.add('open');
+      document.getElementById('tc-drawer').classList.add('open');
+      document.getElementById('tc-drawer').setAttribute('aria-hidden', 'false');
+    }
+    function closeTcDrawer() {
+      document.getElementById('tc-drawer-mask').classList.remove('open');
+      document.getElementById('tc-drawer').classList.remove('open');
+      document.getElementById('tc-drawer').setAttribute('aria-hidden', 'true');
+      tcDrawerTarget = null;
+    }
+    function applyTcDrawer() {
+      if (!tcDrawerTarget) return;
+      const { tr } = tcDrawerTarget;
+      const inTa = tr.querySelector('textarea.tc-content[data-kind="input"]');
+      const outTa = tr.querySelector('textarea.tc-content[data-kind="output"]');
+      const inBtn = tr.querySelector('.tc-file-btn[data-kind="input"]');
+      const outBtn = tr.querySelector('.tc-file-btn[data-kind="output"]');
+      if (inTa) inTa.value = document.getElementById('tc-drawer-in').value;
+      if (outTa) outTa.value = document.getElementById('tc-drawer-out').value;
+      if (inBtn) inBtn.classList.add('dirty');
+      if (outBtn) outBtn.classList.add('dirty');
+      closeTcDrawer();
+    }
+
+    function removeTestCaseRow(btn) {
+      const tr = btn && btn.closest('tr');
+      if (tr) tr.remove();
+      renumberTestCases();
+      syncPendingZipState();
+    }
+
+    function syncPendingZipState() {
+      // Zip membership is independent of case rows, matching classic test_data.
+    }
+
+    function collectTestCases() {
+      return [...document.querySelectorAll('#tc-body tr')].map(tr => {
+        const inSel = tr.querySelector('.tc-file-select[data-kind="input"]');
+        const outSel = tr.querySelector('.tc-file-select[data-kind="output"]');
+        const inTa = tr.querySelector('textarea.tc-content[data-kind="input"]');
+        const outTa = tr.querySelector('textarea.tc-content[data-kind="output"]');
+        const inBtn = tr.querySelector('.tc-file-btn[data-kind="input"]');
+        const outBtn = tr.querySelector('.tc-file-btn[data-kind="output"]');
+        const inF = tr.querySelector('.tc-fname[data-kind="input"]');
+        const outF = tr.querySelector('.tc-fname[data-kind="output"]');
+        return {
+          input: inTa ? inTa.value : '',
+          output: outTa ? outTa.value : '',
+          input_file: (inSel && inSel.value) || (inBtn && inBtn.dataset.file) || (inF && inF.value) || '',
+          output_file: (outSel && outSel.value) || (outBtn && outBtn.dataset.file) || (outF && outF.value) || '',
+          points: Number((tr.querySelector('.tc-points') || {}).value || 0),
+          pretest: !!(tr.querySelector('.tc-pretest') || {}).checked,
+          fromZip: tr.dataset.mode === 'zip',
+        };
+      });
+    }
+
+    async function buildTestcaseZipBlob(cases) {
+      if (typeof JSZip === 'undefined') throw new Error('JSZip missing');
+      const zip = new JSZip();
+      const used = new Set();
+      cases.forEach((tc, i) => {
+        let inName = String(tc.input_file || '').replace(/\\/g, '/') || (String(i + 1).padStart(2, '0') + '.in');
+        let outName = String(tc.output_file || '').replace(/\\/g, '/') || (String(i + 1).padStart(2, '0') + '.out');
+        if (used.has(inName)) inName = String(i + 1).padStart(2, '0') + '_' + basename(inName);
+        if (used.has(outName)) outName = String(i + 1).padStart(2, '0') + '_' + basename(outName);
+        used.add(inName); used.add(outName);
+        zip.file(inName, tc.input || '');
+        zip.file(outName, tc.output || '');
+      });
+      return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+    }
+
+    function setZipStatus(msg, isError) {
+      const el = document.getElementById('tc-zip-status');
+      if (!el) return;
+      el.textContent = msg || '';
+      el.style.color = isError ? '#c62828' : 'var(--muted)';
+    }
+
+    function setPartialChecked(on) {
+      const main = document.getElementById('f-partial');
+      const code = document.getElementById('f-partial-code');
+      if (main) main.checked = !!on;
+      if (code) code.checked = !!on;
+    }
+    function syncPartialFromCode() {
+      const code = document.getElementById('f-partial-code');
+      setPartialChecked(code && code.checked);
+      renderScoreConf();
+    }
+    function syncPartialFromMain() {
+      const main = document.getElementById('f-partial');
+      setPartialChecked(main && main.checked);
+    }
+
+    function naturalKey(name) {
+      return String(name).toLowerCase().replace(/(\d+)/g, (_, n) => n.padStart(10, '0'));
+    }
+
+    function basename(path) {
+      const parts = path.split('/');
+      return parts[parts.length - 1] || path;
+    }
+
+    function dirname(path) {
+      const i = path.lastIndexOf('/');
+      return i >= 0 ? path.slice(0, i) : '';
+    }
+
+    async function importZipFile(file) {
+      if (!file) return;
+      if (typeof JSZip === 'undefined') {
+        setZipStatus(gettext('ZIP parser not loaded. Please refresh and try again.'), true);
+        return;
+      }
+      if (!/\.zip$/i.test(file.name)) {
+        setZipStatus(gettext('Please choose a .zip file.'), true);
+        return;
+      }
+
+      setZipStatus(interpolate(gettext('Reading %s …'), [file.name]));
+      try {
+        const zip = await JSZip.loadAsync(file);
+        const paths = usableZipPaths(Object.keys(zip.files));
+        if (!paths.length) {
+          setZipStatus(gettext('The zip has no files to match.'), true);
+          return;
+        }
+        pendingZipFile = file;
+        zipFiles = paths;
+        applyZipFilesToRows();
+        if (!document.querySelector('#tc-body tr')) addTestCase({ fromZip: true });
+        setZipStatus(interpolate(gettext('Loaded %s files. Pick input and output for each case.'), [paths.length]));
+      } catch (err) {
+        console.error('[tc-zip]', err);
+        pendingZipFile = null;
+        setZipStatus(interpolate(gettext('Could not parse zip: %s'), [err && err.message ? err.message : gettext('invalid archive')]), true);
+      } finally {
+        document.getElementById('tc-zip-input').value = '';
+      }
+    }
+
+    (function bindZipInput() {
+      const input = document.getElementById('tc-zip-input');
+      if (input) input.addEventListener('change', () => importZipFile(input.files && input.files[0]));
+    })();
+
+    function fillHarnessLanguages() {
+      const sel = document.getElementById('f-harness-lang');
+      if (!sel) return;
+      sel.innerHTML = '<option value=""></option>' + (HARNESS_LANGUAGES || []).map(lang =>
+        `<option value="${escapeAttr(String(lang.id))}" data-key="${escapeAttr(lang.key)}" data-ace="${escapeAttr(lang.ace || '')}">${escapeHtml(lang.name)}</option>`
+      ).join('');
+    }
+    const ACE_TO_MONACO = {
+      c_cpp: 'cpp', cpp: 'cpp', c: 'c', csharp: 'csharp', golang: 'go', go: 'go',
+      java: 'java', javascript: 'javascript', python: 'python', rust: 'rust',
+      ruby: 'ruby', php: 'php', kotlin: 'kotlin', swift: 'swift', typescript: 'typescript',
+    };
+    let harnessEditor = null;
+    function harnessMonacoLang() {
+      const sel = document.getElementById('f-harness-lang');
+      const opt = sel && sel.selectedOptions && sel.selectedOptions[0];
+      const ace = (opt && opt.dataset.ace) || '';
+      if (ACE_TO_MONACO[ace]) return ACE_TO_MONACO[ace];
+      if (ace) return ace;
+      const name = ((opt && opt.textContent) || '').toLowerCase();
+      if (name.indexOf('python') >= 0) return 'python';
+      if (name.indexOf('java') >= 0 && name.indexOf('script') < 0) return 'java';
+      return 'java';
+    }
+    function harnessCodeValue() {
+      if (harnessEditor) return harnessEditor.getValue();
+      const ta = document.getElementById('f-harness-code');
+      return ta ? ta.value : '';
+    }
+    function setHarnessCode(value) {
+      const ta = document.getElementById('f-harness-code');
+      if (ta) ta.value = value || '';
+      if (harnessEditor) harnessEditor.setValue(value || '');
+    }
+    function syncHarnessMonacoLanguage() {
+      if (!harnessEditor || !window.monaco) return;
+      window.monaco.editor.setModelLanguage(harnessEditor.getModel(), harnessMonacoLang());
+    }
+    function layoutHarnessMonaco() {
+      if (harnessEditor && harnessEditor.layout) {
+        requestAnimationFrame(() => harnessEditor.layout());
+      }
+    }
+    function initHarnessMonaco() {
+      const mount = document.getElementById('f-harness-monaco');
+      const ta = document.getElementById('f-harness-code');
+      if (!mount || !ta || !MONACO_VS_URL) return;
+      const langSel = document.getElementById('f-harness-lang');
+      if (langSel) langSel.addEventListener('change', syncHarnessMonacoLanguage);
+      const box = document.getElementById('tc-harness');
+      if (box) box.addEventListener('toggle', () => { if (box.open) layoutHarnessMonaco(); });
+      const loader = document.createElement('script');
+      loader.src = MONACO_VS_URL.replace(/\/?$/, '/') + 'loader.js';
+      loader.onload = function () {
+        if (!window.require) return;
+        window.require.config({ paths: { vs: MONACO_VS_URL } });
+        window.require(['vs/editor/editor.main'], function () {
+          const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+          harnessEditor = window.monaco.editor.create(mount, {
+            value: ta.value,
+            language: harnessMonacoLang(),
+            theme: darkQuery.matches ? 'vs-dark' : 'vs',
+            automaticLayout: true,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            fontSize: 13,
+            wordWrap: 'on',
+          });
+          harnessEditor.onDidChangeModelContent(function () {
+            ta.value = harnessEditor.getValue();
+          });
+          if (darkQuery.addEventListener) {
+            darkQuery.addEventListener('change', () => {
+              window.monaco.editor.setTheme(darkQuery.matches ? 'vs-dark' : 'vs');
+            });
+          }
+          layoutHarnessMonaco();
+        });
+      };
+      loader.onerror = function () { mount.hidden = true; ta.hidden = false; };
+      document.head.appendChild(loader);
+    }
+    function collectHarness() {
+      const code = harnessCodeValue();
+      const lang = document.getElementById('f-harness-lang');
+      return {
+        language_id: lang ? lang.value : '',
+        language: lang && lang.selectedOptions[0] ? (lang.selectedOptions[0].dataset.key || '') : '',
+        harness_code: code,
+        skip_precompile: !!(document.getElementById('f-harness-skip') || {}).checked,
+        run_student_main: !!(document.getElementById('f-harness-main') || {}).checked,
+        delete: !code.trim(),
+      };
+    }
+    function fillHarness(h) {
+      fillHarnessLanguages();
+      const lang = document.getElementById('f-harness-lang');
+      const skip = document.getElementById('f-harness-skip');
+      const main = document.getElementById('f-harness-main');
+      const box = document.getElementById('tc-harness');
+      if (!h) {
+        if (lang) lang.value = '';
+        setHarnessCode('');
+        if (skip) skip.checked = false;
+        if (main) main.checked = false;
+        syncHarnessMonacoLanguage();
+        return;
+      }
+      if (lang) {
+        if (h.language_id) lang.value = String(h.language_id);
+        else if (h.language) {
+          const opt = [...lang.options].find(o => o.dataset.key === h.language);
+          if (opt) lang.value = opt.value;
+        }
+      }
+      setHarnessCode(h.harness_code || '');
+      syncHarnessMonacoLanguage();
+      if (skip) skip.checked = !!h.skip_precompile;
+      if (main) main.checked = !!h.run_student_main;
+      if (box && (h.harness_code || h.language_id)) box.open = true;
+      layoutHarnessMonaco();
+    }
+
+    /* ---------- Composite subquestions ---------- */
+    function addSub(type) {
+      const id = ++subSeq;
+      const wrap = document.createElement('div');
+      wrap.className = 'sub-q'; wrap.dataset.id = id; wrap.dataset.type = type;
+      wrap.innerHTML = `
+        <div class="sub-q-head">
+          <span class="sq-idx"></span>
+          <span class="sq-pills">${SUB_TYPES.map(t => `<span class="sq-pill ${t === type ? 'on' : ''}" data-t="${t}" onclick="setSubType(${id},'${t}')">${TYPE_META[t].title}</span>`).join('')}</span>
+          <span class="sq-spacer"></span>
+          <span class="sq-score">${gettext('Points')} <input type="number" value="5" min="0" step="0.5" oninput="renderPreview()"></span>
+          <button type="button" class="btn-icon" title="${gettext('Collapse')}" onclick="toggleSub(${id})">▾</button>
+          <button type="button" class="btn-icon" title="${gettext('Delete')}" onclick="this.closest('.sub-q').remove();renumberSubs();renderPreview();">×</button>
+        </div>
+        <div class="sub-q-body"></div>`;
+      document.getElementById('sub-list').appendChild(wrap);
+      buildSubBody(wrap, type);
+      renumberSubs(); RichEditor.init(); renderPreview();
+    }
+    function setSubType(id, type) {
+      const wrap = document.querySelector(`.sub-q[data-id="${id}"]`);
+      wrap.dataset.type = type;
+      wrap.querySelectorAll('.sq-pill').forEach(p => p.classList.toggle('on', p.dataset.t === type));
+      buildSubBody(wrap, type); RichEditor.init(); renderPreview();
+    }
+    function toggleSub(id) { document.querySelector(`.sub-q[data-id="${id}"]`).classList.toggle('collapsed'); }
+    function renumberSubs() { document.querySelectorAll('#sub-list .sub-q').forEach((w, i) => w.querySelector('.sq-idx').textContent = (i + 1) + '.'); }
+    function subEditorTpl(name, ph) {
+      return RichEditor.html(name, { compact: true, placeholder: ph });
+    }
+    function buildSubBody(wrap, type) {
+      const body = wrap.querySelector('.sub-q-body'); const id = wrap.dataset.id;
+      let h = `<div style="margin-bottom:.7rem;"><label style="display:block;font-weight:600;font-size:12px;margin-bottom:.3rem;">${gettext('Question')}</label>${subEditorTpl('sub-stem-' + id, gettext('Sub-question stem…'))}</div>`;
+      if (type === 'single' || type === 'multiple') {
+        h += `<label style="display:block;font-weight:600;font-size:12px;margin-bottom:.3rem;">${gettext('Options (select the correct answer)')}</label>
+          <div class="options-list sub-opts" id="sub-opts-${id}"></div>
+          <button type="button" class="btn-add-option" onclick="addSubOption(${id})">+ ${gettext('Add option')}</button>`;
+      } else if (type === 'truefalse') {
+        h += `<label style="display:block;font-weight:600;font-size:12px;margin-bottom:.3rem;">${gettext('Answer')}</label>
+          <div class="tf-choices"><label><input type="radio" name="sub-tf-${id}" value="true" checked onchange="renderPreview()"><span>${gettext('True')}</span></label><label><input type="radio" name="sub-tf-${id}" value="false" onchange="renderPreview()"><span>${gettext('False')}</span></label></div>`;
+      } else if (type === 'blank') {
+        h += `<label style="display:block;font-weight:600;font-size:12px;margin-bottom:.3rem;">${gettext('Answer (separate multiple with |)')}</label><input type="text" class="sub-blank" placeholder="${gettext('Expected answer')}" style="width:100%;padding:.4rem .6rem;border:1px solid #aaa;border-radius:4px;" oninput="renderPreview()">`;
+      } else if (type === 'short') {
+        h += `<label style="display:block;font-weight:600;font-size:12px;margin-bottom:.3rem;">${gettext('Reference answer')}</label>${subEditorTpl('sub-short-' + id, gettext('Reference answer…'))}`;
+      }
+      body.innerHTML = h;
+      if (type === 'single' || type === 'multiple') { addSubOption(id); addSubOption(id); }
+    }
+    function addSubOption(id) {
+      const wrap = document.querySelector(`.sub-q[data-id="${id}"]`);
+      const multi = wrap.dataset.type === 'multiple';
+      const row = document.createElement('div');
+      row.className = 'option-row';
+      row.innerHTML = `
+        <div class="option-marker"><input type="${multi ? 'checkbox' : 'radio'}" name="sub-correct-${id}" onchange="renderPreview()"></div>
+        <div><div class="option-top"><input class="option-input" placeholder="${gettext('Option text')}" oninput="renderPreview()"></div></div>
+        <div class="option-actions"><button type="button" class="btn-icon" onclick="this.closest('.option-row').remove();renderPreview();">×</button></div>`;
+      document.getElementById('sub-opts-' + id).appendChild(row);
+      renderPreview();
+    }
+
+    /* ---------- Partial-score / AI-judging configuration ---------- */
+    function roundHalf(v) {
+      return Math.round(Number(v) * 2) / 2;
+    }
+    function isHalfIncrement(v) {
+      const n = Number(v);
+      if (!isFinite(n)) return false;
+      return Math.abs(n * 2 - Math.round(n * 2)) < 1e-9;
+    }
+    /** Split *total* into *n* 0.5-grid values that sum exactly to total. */
+    function splitPointsHalf(total, n) {
+      if (n <= 0) return [];
+      const targetHalves = Math.round(roundHalf(total) * 2);
+      if (targetHalves <= 0) return Array(n).fill(0);
+      const base = Math.floor(targetHalves / n);
+      let rem = targetHalves - base * n;
+      const out = [];
+      for (let i = 0; i < n; i++) {
+        out.push((base + (rem > 0 ? 1 : 0)) / 2);
+        if (rem > 0) rem--;
+      }
+      return out;
+    }
+    function renderScoreConf() {
+      const partialRow = document.getElementById('partial-row');
+      const partialOn = document.getElementById('f-partial').checked;
+      const partialConf = document.getElementById('partial-conf');
+      const aiOn = document.getElementById('f-ai').checked;
+      // The grading table lives inside ai-conf now (above the rubric), so it
+      // follows the same checkbox without extra per-element bookkeeping.
+      document.getElementById('ai-conf').style.display = aiOn ? 'block' : 'none';
+      const aiHelp = document.getElementById('ai-help');
+      if (aiHelp) {
+        if (currentType === 'programming') {
+          aiHelp.textContent = gettext('Test cases still decide AC/WA and the student score. AI additionally scores the code against your rubric; students see those subtasks in realtime assignments, or after batch grading in exams. Only the latest submission is graded. Requires LITELLM_API_BASE.');
+        } else if (currentType === 'blank') {
+          aiHelp.textContent = gettext('When enabled, blanks are scored by the LLM against the grading table instead of exact match (falls back to exact match if the model is unavailable). Requires LITELLM_API_BASE.');
+        } else {
+          aiHelp.textContent = gettext('Sends the rubric and student answer to the configured LLM for automated scoring. Requires LITELLM_API_BASE to be set.');
+        }
+      }
+      if (aiOn) {
+        updateGradingTableState();
+        // Auto-populate grading table from blanks for fill-blank type (0.5 increments).
+        if (currentType === 'blank' && (document.getElementById('grading-tbody').querySelectorAll('tr:not(#grading-empty)').length === 0)) {
+          const blanks = document.querySelectorAll('#blank-answers .blank-answer');
+          if (blanks.length > 0) {
+            const totalPts = parseFloat(document.getElementById('f-points').value) || 1;
+            // Need at least 0.5 per blank on the grid; otherwise leave empty for manual edit.
+            if (blanks.length * 0.5 <= totalPts + 1e-9) {
+              const parts = splitPointsHalf(totalPts, blanks.length);
+              document.getElementById('grading-tbody').innerHTML = _gradingEmptyHTML();
+              gtableSeq = 0;
+              blanks.forEach((b, i) => addSubQuestion({
+                name: 'Blank ' + (i + 1),
+                max_points: parts[i],
+                strictness: 'normal'
+              }));
+            }
+          }
+        }
+      }
+
+      const subEl = document.getElementById('partial-sub');
+      if (subEl) {
+        if (currentType === 'programming') subEl.textContent = gettext('Partial score uses relative case weights (passed / total); weights need not equal problem Points');
+        else if (currentType === 'short') subEl.textContent = gettext('AI / keyword scoring awards a score between 0 and full points');
+        else if (currentType === 'blank') subEl.textContent = gettext('Each blank is scored separately; set points next to each blank under Answers.');
+      }
+
+      if (currentType === 'blank') {
+        partialConf.style.display = partialOn ? 'block' : 'none';
+        if (partialOn) {
+          partialConf.innerHTML = `<div style="font-size:12px;color:var(--muted);">${gettext('Per-blank points are enabled; set points for each blank under Answers above.')}</div>`;
+          document.querySelectorAll('#blank-answers .blank-pts').forEach(e => e.style.display = 'inline-flex');
+        } else {
+          document.querySelectorAll('#blank-answers .blank-pts').forEach(e => e.style.display = 'none');
+        }
+      } else if (currentType === 'short') {
+        partialConf.style.display = partialOn ? 'block' : 'none';
+        if (partialOn) {
+          partialConf.innerHTML = `<div style="font-size:12px;color:var(--muted);">${gettext('Short-answer partial scoring depends on <b>AI Feedback</b> or keyword matching (configure tiers in the AI Feedback Rubric below).')}</div>`;
+        }
+      } else if (currentType === 'programming') {
+        partialConf.style.display = partialOn ? 'block' : 'none';
+        if (partialOn) {
+          partialConf.innerHTML = `<div style="font-size:12px;color:var(--muted);">${gettext('Programming partial score uses relative case weights (passed / total). Set Weight per case below; they need not sum to problem Points. Batch subtasks supported.')}</div>`;
+        }
+      } else if (partialConf) {
+        partialConf.style.display = 'none';
+      }
+      if (currentType !== 'blank') {
+        document.querySelectorAll('#blank-answers .blank-pts').forEach(e => e.style.display = 'none');
+      }
+      renderPreview();
+    }
+
+    /* ---------- Preview: same TipTap/KaTeX HTML as the rich editor ---------- */
+    const PREVIEW_DEBOUNCE_MS = 80;
+    let _previewTimer = null;
+    const _previewHtml = Object.create(null); // key -> last rendered HTML
+
+    MarkdownPreview.configure({
+      url: PROBLEM_PREVIEW_URL,
+      batchUrl: PROBLEM_PREVIEW_BATCH_URL,
+      csrfToken: CSRF_TOKEN,
+    });
+
+    function htmlFromEditor(md) {
+      if (window.RichEditor && typeof RichEditor.mdToHtml === 'function') {
+        try { return RichEditor.mdToHtml(md || ''); } catch (e) { /* fall through */ }
+      }
+      return '';
+    }
+
+    function collectPreviewMarkdown() {
+      const parts = [];
+      parts.push({ key: 'stem', md: RichEditor.getMarkdown('stem') || '' });
+      if (currentType === 'single' || currentType === 'multiple') {
+        document.querySelectorAll('#options .option-row').forEach((op, i) => {
+          parts.push({ key: 'opt-' + i, md: getOptionText(op) || '' });
+        });
+      } else if (currentType === 'compound') {
+        document.querySelectorAll('#sub-list .sub-q').forEach((w) => {
+          const id = w.dataset.id;
+          const type = w.dataset.type;
+          parts.push({ key: 'sub-stem-' + id, md: RichEditor.getMarkdown('sub-stem-' + id) || '' });
+          if (type === 'single' || type === 'multiple') {
+            document.querySelectorAll('#sub-opts-' + id + ' .option-row').forEach((op, i) => {
+              parts.push({ key: 'sub-' + id + '-opt-' + i, md: getOptionText(op) || '' });
+            });
+          }
+        });
+      }
+      return parts;
+    }
+
+    function paintPreviewFromCache() {
+      const pv = document.getElementById('preview-body');
+      let stem = _previewHtml['stem'] || '';
+      let html = `<div class="pv-stem content-description rte-display">${stem || '<span style="color:#bbb;">' + gettext('Statement preview…') + '</span>'}</div>`;
+      if (currentType === 'single' || currentType === 'multiple') {
+        html += renderOptsPreviewFromCache('#options', currentType === 'multiple', 'opt-');
+      } else if (currentType === 'truefalse') {
+        const val = document.querySelector('input[name="tf"]:checked')?.value;
+        html += `<div class="pv-options">
+          <div class="pv-option"><span class="mk ${val === 'true' ? 'on' : ''}"></span>${gettext('True')}</div>
+          <div class="pv-option"><span class="mk ${val === 'false' ? 'on' : ''}"></span>${gettext('False')}</div></div>`;
+      } else if (currentType === 'short') {
+        html += `<div class="pv-answerbox"></div><div class="pv-answerlabel">${gettext('Answer:')}</div>`;
+      } else if (currentType === 'file') {
+        const inst = (document.getElementById('f-file-instructions').value || '').trim();
+        if (inst) html += `<div class="pv-answerlabel">${escapeHtml(inst)}</div>`;
+        html += `<div class="pv-answerbox"></div>`;
+        const ext = (document.getElementById('f-file-ext').value || '').trim();
+        const mb = document.getElementById('f-file-size').value;
+        const bits = [];
+        if (ext) bits.push(interpolate(gettext('Allowed types: %s'), [ext]));
+        if (Number(mb) > 0) bits.push(interpolate(gettext('Max size: %s MB'), [mb]));
+        html += `<div class="pv-answerlabel">${gettext('Students upload a file here.')}` +
+                `${bits.length ? ' ' + escapeHtml(bits.join(' · ')) : ''}</div>`;
+      } else if (currentType === 'blank') {
+        const ans = [...document.querySelectorAll('#blank-answers .blank-answer')]
+          .map(t => t.value.split('\n').map(s => s.trim()).filter(Boolean).join(' / ')).filter(Boolean);
+        html += `<div class="pv-answerlabel">${gettext('Answer:')} ${ans.length ? ans.join('; ') : '—'}</div>`;
+      } else if (currentType === 'compound') {
+        html += renderCompoundPreviewFromCache();
+      } else if (currentType === 'other') {
+        html += `<div class="pv-answerlabel" style="color:var(--muted);">${gettext('Other type: statement only; manual grading.')}</div>`;
+      }
+      pv.innerHTML = html;
+    }
+
+    /** Wait for async MathJax load, then typeset preview (no-Mathoid path). */
+    function typesetPreviewMath(el) {
+      if (!el) return;
+      function run() {
+        if (!(window.MathJax && typeof MathJax.typesetPromise === 'function')) return false;
+        const ready = (MathJax.startup && MathJax.startup.promise)
+          ? MathJax.startup.promise
+          : Promise.resolve();
+        ready.then(() => {
+          if (typeof MathJax.typesetClear === 'function') {
+            try { MathJax.typesetClear([el]); } catch (e) { /* ignore */ }
+          }
+          return MathJax.typesetPromise([el]);
+        }).catch(() => {});
+        return true;
+      }
+      if (run()) return;
+      let n = 0;
+      const t = setInterval(() => {
+        if (run() || ++n > 40) clearInterval(t);
+      }, 50);
+    }
+
+    function renderOptsPreviewFromCache(sel, multi, keyPrefix) {
+      let h = '<div class="pv-options">';
+      document.querySelectorAll(sel + ' .option-row').forEach((op, i) => {
+        const txt = _previewHtml[keyPrefix + i] || '';
+        const ok = op.querySelector('.option-marker input').checked;
+        h += `<div class="pv-option"><span class="mk ${multi ? 'sq' : ''} ${ok ? 'on' : ''}"></span><div class="pv-option-body">${txt || gettext('Option')}</div></div>`;
+      });
+      return h + '</div>';
+    }
+
+    function renderCompoundPreviewFromCache() {
+      let h = '';
+      document.querySelectorAll('#sub-list .sub-q').forEach((w, i) => {
+        const id = w.dataset.id, type = w.dataset.type;
+        const score = w.querySelector('.sq-score input').value;
+        const stem = _previewHtml['sub-stem-' + id] || '';
+        h += `<div class="pv-sub"><div class="pv-sub-t">${i + 1}. <span class="pv-badge">${TYPE_META[type].title}</span> <span style="float:right;color:var(--muted);font-size:12px;">${interpolate(gettext('%s pts'), [score])}</span></div>`;
+        h += `<div class="pv-stem content-description rte-display">${stem || '<span style="color:#bbb;">' + gettext('Sub-stem…') + '</span>'}</div>`;
+        if (type === 'single' || type === 'multiple') {
+          h += renderOptsPreviewFromCache('#sub-opts-' + id, type === 'multiple', 'sub-' + id + '-opt-');
+        } else if (type === 'truefalse') {
+          const v = w.querySelector(`input[name="sub-tf-${id}"]:checked`)?.value;
+          h += `<div class="pv-options"><div class="pv-option"><span class="mk ${v === 'true' ? 'on' : ''}"></span>${gettext('True')}</div><div class="pv-option"><span class="mk ${v === 'false' ? 'on' : ''}"></span>${gettext('False')}</div></div>`;
+        } else if (type === 'blank') {
+          const a = w.querySelector('.sub-blank').value;
+          h += `<div class="pv-answerlabel">${gettext('Answer:')} ${a || '—'}</div>`;
+        } else if (type === 'short') {
+          h += `<div class="pv-answerbox"></div>`;
+        }
+        h += '</div>';
+      });
+      return h || '<div class="pv-answerlabel" style="color:var(--muted);">' + gettext('No sub-questions yet.') + '</div>';
+    }
+
+    function renderPreview() {
+      clearTimeout(_previewTimer);
+      _previewTimer = setTimeout(() => {
+        collectPreviewMarkdown().forEach((part) => {
+          _previewHtml[part.key] = htmlFromEditor(part.md);
+        });
+        paintPreviewFromCache();
+      }, PREVIEW_DEBOUNCE_MS);
+    }
+
+    /* ---------- Advanced: profile / class pickers ---------- */
+    function selectedIds(sel) {
+      if (!sel) return [];
+      if (window.jQuery && jQuery(sel).data('select2')) {
+        return (jQuery(sel).val() || []).map(v => parseInt(v, 10)).filter(n => !Number.isNaN(n));
+      }
+      return [...sel.selectedOptions].map(o => parseInt(o.value, 10)).filter(n => !Number.isNaN(n));
+    }
+    function userChoiceLabel(u) {
+      if (!u) return '';
+      if (u.text) return u.text;
+      const username = u.username || '';
+      const name = (u.name || '').trim() || username;
+      return name ? (name + ' (' + username + ')') : username;
+    }
+    function ensureOption(sel, id, text, selected) {
+      if (!sel || id == null) return null;
+      let opt = [...sel.options].find(o => String(o.value) === String(id));
+      if (!opt) {
+        opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = text;
+        sel.appendChild(opt);
+      } else if (text) {
+        opt.textContent = text;
+      }
+      if (selected) opt.selected = true;
+      if (window.jQuery && jQuery(sel).data('select2')) {
+        jQuery(sel).trigger('change');
+      }
+      return opt;
+    }
+    function initSelect2Multi(sel, ajaxUrl, extraData) {
+      if (!window.jQuery || !jQuery.fn.select2 || !sel) return false;
+      const $el = jQuery(sel);
+      if ($el.data('select2')) return true;
+      $el.select2({
+        theme: SELECT2_THEME,
+        width: '100%',
+        placeholder: gettext('Search to add…'),
+        allowClear: true,
+        ajax: {
+          url: ajaxUrl,
+          dataType: 'json',
+          delay: 250,
+          data: function (params) {
+            const data = { term: params.term || '' };
+            if (typeof extraData === 'function') Object.assign(data, extraData() || {});
+            else if (extraData) Object.assign(data, extraData);
+            return data;
+          },
+          processResults: function (data) {
+            return { results: data.results || [], pagination: { more: !!data.more } };
+          },
+        },
+        minimumInputLength: 0,
+      });
+      return true;
+    }
+    function initProfilePickers() {
+      document.querySelectorAll('.profile-select2').forEach(sel => {
+        initSelect2Multi(sel, PROFILE_SELECT2_URL);
+      });
+      // Only pre-select the current user when creating a new problem.
+      if (!EDIT_CODE && CURRENT_PROFILE && CURRENT_PROFILE.id) {
+        ensureOption(document.getElementById('f-authors'), CURRENT_PROFILE.id, userChoiceLabel(CURRENT_PROFILE), true);
+      }
+    }
+    function bindEditorialCollapse() {
+      const box = document.getElementById('editorial-collapse');
+      if (!box) return;
+      box.addEventListener('toggle', () => {
+        if (!box.open || !window.jQuery) return;
+        const sel = document.getElementById('f-sol-authors');
+        if (sel) jQuery(sel).trigger('change.select2');
+      });
+    }
+    function initOrgPicker() {
+      const sel = document.getElementById('f-org');
+      if (!sel || !window.jQuery || !jQuery.fn.select2) return;
+      const $el = jQuery(sel);
+      if ($el.data('select2')) return;
+      $el.select2({
+        theme: SELECT2_THEME,
+        width: '100%',
+        placeholder: gettext('Select courses…'),
+        allowClear: true,
+      });
+    }
+    function initClassPicker() {
+      const sel = document.getElementById('f-classes');
+      const org = document.getElementById('f-org');
+      initSelect2Multi(sel, CLASS_SELECT2_URL, () => {
+        const ids = selectedIds(org);
+        return { organizations: ids.length ? ids.join(',') : '' };
+      });
+      if (org) {
+        const onOrgChange = () => {
+          if (window.jQuery && jQuery(sel).data('select2')) {
+            jQuery(sel).val(null).trigger('change');
+          } else if (sel) {
+            sel.textContent = '';
+          }
+        };
+        if (window.jQuery) jQuery(org).on('change', onOrgChange);
+        else org.addEventListener('change', onOrgChange);
+      }
+    }
+    function translationLangSelectHtml() {
+      const sel = document.createElement('select');
+      sel.className = 'tr-lang';
+      {% for code, name in ui_languages %}
+      { const o = document.createElement('option'); o.value = '{{ code }}'; o.textContent = '{{ name }} ({{ code }})'; sel.appendChild(o); }
+      {% endfor %}
+      return sel;
+    }
+    function addTranslationRow(data) {
+      const body = document.getElementById('f-translations-body');
+      const addRow = body.querySelector('#f-translations-add').closest('tr');
+      const tr = document.createElement('tr');
+      tr.className = 'tr-row';
+      const tdLang = document.createElement('td'); tdLang.style.width = '120px';
+      const lang = translationLangSelectHtml();
+      if (data && data.language) lang.value = data.language;
+      tdLang.appendChild(lang);
+      const tdName = document.createElement('td'); tdName.style.width = '160px';
+      const name = document.createElement('input'); name.type = 'text'; name.className = 'tr-name';
+      name.placeholder = '{{ _("Translated name") }}';
+      if (data && data.name) name.value = data.name;
+      tdName.appendChild(name);
+      const tdDesc = document.createElement('td');
+      const desc = document.createElement('textarea'); desc.rows = 2; desc.className = 'tr-desc';
+      desc.placeholder = '{{ _("Translated description") }}'; desc.style.width = '100%';
+      if (data && data.description) desc.value = data.description;
+      tdDesc.appendChild(desc);
+      const tdDel = document.createElement('td'); tdDel.style.width = '40px';
+      const del = document.createElement('input'); del.type = 'checkbox'; del.className = 'tr-del';
+      tdDel.appendChild(del);
+      tr.appendChild(tdLang); tr.appendChild(tdName); tr.appendChild(tdDesc); tr.appendChild(tdDel);
+      body.insertBefore(tr, addRow);
+    }
+    function collectTranslations() {
+      return [...document.querySelectorAll('#f-translations-body tr.tr-row')].map(tr => ({
+        language: tr.querySelector('.tr-lang').value,
+        name: tr.querySelector('.tr-name').value.trim(),
+        description: tr.querySelector('.tr-desc').value.trim(),
+        delete: tr.querySelector('.tr-del').checked,
+      })).filter(row => !row.delete && (row.name || row.description));
+    }
+    function judgeLangSelectHtml(selected, className) {
+      const sel = document.createElement('select');
+      sel.className = className || 'll-lang';
+      (JUDGE_LANGUAGES || []).forEach(l => {
+        const o = document.createElement('option');
+        o.value = l.key;
+        o.textContent = l.name;
+        sel.appendChild(o);
+      });
+      if (selected) sel.value = selected;
+      return sel;
+    }
+    function addLangLimitRow(data) {
+      const body = document.getElementById('lang-limit-body');
+      if (!body) return;
+      const addRow = body.querySelector('#lang-limit-add').closest('tr');
+      const tr = document.createElement('tr');
+      tr.className = 'll-row';
+      const tdLang = document.createElement('td'); tdLang.style.width = '140px';
+      tdLang.appendChild(judgeLangSelectHtml(data && data.language, 'll-lang'));
+      const tdTime = document.createElement('td');
+      const time = document.createElement('input'); time.type = 'number'; time.step = '0.1';
+      time.className = 'll-time'; time.style.width = '100px';
+      if (data && data.time_limit != null) time.value = data.time_limit;
+      else time.value = '1';
+      tdTime.appendChild(time);
+      const tdMem = document.createElement('td');
+      const mem = document.createElement('input'); mem.type = 'number';
+      mem.className = 'll-mem'; mem.style.width = '120px';
+      if (data && data.memory_limit != null) mem.value = data.memory_limit;
+      else mem.value = '262144';
+      tdMem.appendChild(mem);
+      const tdDel = document.createElement('td'); tdDel.style.width = '40px';
+      const del = document.createElement('input'); del.type = 'checkbox'; del.className = 'll-del';
+      tdDel.appendChild(del);
+      tr.appendChild(tdLang); tr.appendChild(tdTime); tr.appendChild(tdMem); tr.appendChild(tdDel);
+      body.insertBefore(tr, addRow);
+    }
+    function collectLangLimits() {
+      return [...document.querySelectorAll('#lang-limit-body tr.ll-row')].map(tr => ({
+        language: tr.querySelector('.ll-lang').value,
+        time_limit: tr.querySelector('.ll-time').value,
+        memory_limit: tr.querySelector('.ll-mem').value,
+        delete: tr.querySelector('.ll-del').checked,
+      })).filter(row => !row.delete && row.language && row.time_limit !== '' && row.memory_limit !== '');
+    }
+    function addTemplateRow(data) {
+      const body = document.getElementById('template-body');
+      if (!body) return;
+      const addRow = body.querySelector('#template-add').closest('tr');
+      const tr = document.createElement('tr');
+      tr.className = 'pt-row';
+      const tdLang = document.createElement('td'); tdLang.style.width = '120px';
+      tdLang.appendChild(judgeLangSelectHtml(data && data.language, 'pt-lang'));
+      const tdCode = document.createElement('td');
+      const code = document.createElement('textarea'); code.rows = 3; code.className = 'pt-code';
+      code.style.width = '100%'; code.style.fontFamily = 'monospace';
+      if (data && data.code != null) code.value = data.code;
+      tdCode.appendChild(code);
+      const tdDel = document.createElement('td'); tdDel.style.width = '40px';
+      const del = document.createElement('input'); del.type = 'checkbox'; del.className = 'pt-del';
+      tdDel.appendChild(del);
+      tr.appendChild(tdLang); tr.appendChild(tdCode); tr.appendChild(tdDel);
+      body.insertBefore(tr, addRow);
+    }
+    function collectTemplates() {
+      return [...document.querySelectorAll('#template-body tr.pt-row')].map(tr => ({
+        language: tr.querySelector('.pt-lang').value,
+        code: tr.querySelector('.pt-code').value,
+        delete: tr.querySelector('.pt-del').checked,
+      })).filter(row => !row.delete && row.language && (row.code || '').trim());
+    }
+    function addClarificationRow(data) {
+      const body = document.getElementById('clarification-body');
+      if (!body) return;
+      const addRow = body.querySelector('#clarification-add').closest('tr');
+      const tr = document.createElement('tr');
+      tr.className = 'cl-row';
+      if (data && data.id) tr.dataset.id = data.id;
+      const tdDesc = document.createElement('td');
+      const desc = document.createElement('textarea'); desc.rows = 2; desc.className = 'cl-desc';
+      desc.placeholder = '{{ _("In-contest / problem clarification…") }}';
+      desc.style.width = '100%';
+      if (data && data.description) desc.value = data.description;
+      tdDesc.appendChild(desc);
+      const tdDel = document.createElement('td'); tdDel.style.width = '40px';
+      const del = document.createElement('input'); del.type = 'checkbox'; del.className = 'cl-del';
+      tdDel.appendChild(del);
+      tr.appendChild(tdDesc); tr.appendChild(tdDel);
+      body.insertBefore(tr, addRow);
+    }
+    function collectClarifications() {
+      return [...document.querySelectorAll('#clarification-body tr.cl-row')].map(tr => ({
+        id: tr.dataset.id || '',
+        description: tr.querySelector('.cl-desc').value.trim(),
+        delete: tr.querySelector('.cl-del').checked,
+      })).filter(row => !row.delete && row.description);
+    }
+    function collectAdvanced() {
+      return {
+        is_manually_managed: !!(document.getElementById('f-manual') || {}).checked,
+        date: (document.getElementById('f-date') || {}).value || '',
+        authors: selectedIds(document.getElementById('f-authors')),
+        curators: selectedIds(document.getElementById('f-curators')),
+        testers: selectedIds(document.getElementById('f-testers')),
+        banned_users: selectedIds(document.getElementById('f-banned-users')),
+        classes: selectedIds(document.getElementById('f-classes')),
+        license_id: (document.getElementById('f-license') || {}).value || '',
+        submission_source_visibility_mode: (document.getElementById('f-src-vis') || {}).value || 'F',
+        is_full_markup: !!(document.getElementById('f-full-markup') || {}).checked,
+        view_test_cases: !!(document.getElementById('f-view-cases') || {}).checked,
+        view_tester: !!(document.getElementById('f-view-tester') || {}).checked,
+        ai_hints_enabled: !!(document.getElementById('f-ai-hints') || {}).checked,
+        og_image: (document.getElementById('f-og-image') || {}).value || '',
+        summary: (document.getElementById('f-summary') || {}).value || '',
+        short_circuit: !!(document.getElementById('f-short-circuit') || {}).checked,
+        edit_reason: ((document.getElementById('f-edit-reason') || {}).value || '').trim(),
+        clarifications: collectClarifications(),
+        solution: {
+          is_public: !!(document.getElementById('f-sol-public') || {}).checked,
+          publish_on: (document.getElementById('f-sol-publish') || {}).value || '',
+          authors: selectedIds(document.getElementById('f-sol-authors')),
+          content: (typeof RichEditor !== 'undefined' && RichEditor.getMarkdown)
+            ? (RichEditor.getMarkdown('editorial') || '').trim() : '',
+        },
+        translations: collectTranslations(),
+      };
+    }
+    function hydrateAdvanced(d) {
+      if (!d) return;
+      const setChk = (id, v) => { const el = document.getElementById(id); if (el) el.checked = !!v; };
+      const setVal = (id, v) => { const el = document.getElementById(id); if (el && v != null) el.value = v; };
+      setChk('f-manual', d.is_manually_managed);
+      setVal('f-date', d.date || '');
+      setVal('f-src-vis', d.submission_source_visibility_mode || 'F');
+      setChk('f-full-markup', d.is_full_markup);
+      setChk('f-view-cases', d.view_test_cases);
+      setChk('f-view-tester', d.view_tester);
+      setChk('f-ai-hints', d.ai_hints_enabled);
+      setVal('f-license', d.license_id || '');
+      setVal('f-og-image', d.og_image || '');
+      setVal('f-summary', d.summary || '');
+      setChk('f-short-circuit', d.short_circuit);
+      setVal('f-edit-reason', '');
+      (d.authors || []).forEach(u => ensureOption(document.getElementById('f-authors'), u.id, userChoiceLabel(u), true));
+      (d.curators || []).forEach(u => ensureOption(document.getElementById('f-curators'), u.id, userChoiceLabel(u), true));
+      (d.testers || []).forEach(u => ensureOption(document.getElementById('f-testers'), u.id, userChoiceLabel(u), true));
+      (d.banned_users || []).forEach(u => ensureOption(document.getElementById('f-banned-users'), u.id, userChoiceLabel(u), true));
+      (d.classes || []).forEach(c => ensureOption(document.getElementById('f-classes'), c.id, c.name, true));
+      if (d.solution) {
+        setChk('f-sol-public', d.solution.is_public);
+        setVal('f-sol-publish', d.solution.publish_on || '');
+        (d.solution.authors || []).forEach(u => ensureOption(document.getElementById('f-sol-authors'), u.id, userChoiceLabel(u), true));
+        if (typeof RichEditor !== 'undefined' && RichEditor.setMarkdown) {
+          try { RichEditor.setMarkdown('editorial', d.solution.content || ''); } catch (e) { /* mount may lag */ }
+        }
+      }
+      if (d.translations && d.translations.length) {
+        document.querySelectorAll('#f-translations-body tr.tr-row').forEach(tr => tr.remove());
+        d.translations.forEach(row => addTranslationRow(row));
+      }
+      document.querySelectorAll('#lang-limit-body tr.ll-row').forEach(tr => tr.remove());
+      (d.language_limits || []).forEach(row => addLangLimitRow(row));
+      document.querySelectorAll('#template-body tr.pt-row').forEach(tr => tr.remove());
+      (d.templates || []).forEach(row => addTemplateRow(row));
+      document.querySelectorAll('#clarification-body tr.cl-row').forEach(tr => tr.remove());
+      (d.clarifications || []).forEach(row => addClarificationRow(row));
+    }
+
+    /* ---------- Collect / validate / save ---------- */
+    function collectData() {
+      const data = {
+        action: 'save',
+        type: currentType, typeLabel: TYPE_META[currentType].title,
+        name: document.getElementById('f-name').value.trim(),
+        organizations: selectedIds(document.getElementById('f-org')),
+        group_id: document.getElementById('f-group').value,
+        points: document.getElementById('f-points').value,
+        is_public: document.getElementById('f-public').checked,
+        partial: currentType === 'multiple'
+          || !!(document.getElementById('f-partial') && document.getElementById('f-partial').checked)
+          || !!(document.getElementById('f-partial-code') && document.getElementById('f-partial-code').checked),
+        ai: document.getElementById('f-ai').checked,
+        rubric: (document.getElementById('f-rubric') || {}).value || '',
+        gradingTable: collectGradingTable(),
+        difficulty: currentDifficulty,
+        // Manual tags only; type/difficulty badges are visual helpers, not stored tags.
+        problemTypes: currentManualTags(),
+        description: RichEditor.getMarkdown('stem'),
+        ...collectAdvanced(),
+      };
+      if (!EDIT_CODE) {
+        const codeInput = document.getElementById('f-code');
+        data.code = codeInput ? codeInput.value.trim() : '';
+        data.code_auto = codeInput ? codeInput.dataset.autoGen === '1' : true;
+      }
+      if (currentType === 'single' || currentType === 'multiple') {
+        data.multiple = currentType === 'multiple';
+        data.options = [...document.querySelectorAll('#options .option-row')].map(op => ({ text: getOptionText(op).trim(), correct: op.querySelector('.option-marker input').checked }));
+        if (currentType === 'multiple') {
+          data.mcqScoring = (document.querySelector('input[name="mcq-scoring"]:checked') || {}).value || 'proportional';
+          const under = document.getElementById('f-mcq-underselect-points');
+          const raw = under ? String(under.value || '').trim() : '';
+          data.mcqUnderselectPoints = raw === '' ? null : Number(raw);
+        }
+      } else if (currentType === 'truefalse') {
+        data.tfAnswer = document.querySelector('input[name="tf"]:checked').value;
+      } else if (currentType === 'short') {
+        data.shortAnswer = RichEditor.getMarkdown('short');
+      } else if (currentType === 'file') {
+        data.fileExtensions = document.getElementById('f-file-ext').value.trim();
+        data.fileMaxSizeMb = document.getElementById('f-file-size').value;
+        data.fileInstructions = document.getElementById('f-file-instructions').value;
+      } else if (currentType === 'blank') {
+        data.blanks = [...document.querySelectorAll('#blank-answers .blank-answer-row')].map(row => {
+          const answers = ((row.querySelector('.blank-answer') || {}).value || '').trim();
+          const ptsEl = row.querySelector('.blank-pts input');
+          const raw = ptsEl ? String(ptsEl.value || '').trim() : '';
+          return { answers: answers, points: raw === '' ? 1 : Number(raw) };
+        }).filter(b => b.answers);
+        data.trimWhitespace = (document.getElementById('f-blank-trim') || {}).checked !== false;
+        data.caseSensitive = !!(document.getElementById('f-blank-case') || {}).checked;
+      } else if (currentType === 'compound') {
+        data.subs = [...document.querySelectorAll('#sub-list .sub-q')].map(w => ({ type: w.dataset.type, score: w.querySelector('.sq-score input').value, stem: RichEditor.getMarkdown('sub-stem-' + w.dataset.id) }));
+      } else if (currentType === 'programming') {
+        data.time_limit = document.getElementById('f-time').value;
+        data.memory_limit = document.getElementById('f-mem').value;
+        data.languages = [...document.querySelectorAll('#f-langs .lang-cb:checked')].map(c => c.value);
+        data.checker = (document.getElementById('tc-checker') || {}).value || '';
+        data.testcases = collectTestCases();
+        data.zip_mode = zipFiles.length > 0;
+        data.harness = collectHarness();
+        data.language_limits = collectLangLimits();
+        data.templates = collectTemplates();
+      }
+      return data;
+    }
+    const UNSUPPORTED_TYPES = ['compound', 'other'];
+    function validate(d) {
+      if (!d.name) return '{{ _("Please enter a problem name.") }}';
+      if (!d.problemTypes || !d.problemTypes.length) return '{{ _("Please select a problem tag.") }}';
+      if (UNSUPPORTED_TYPES.includes(d.type)) {
+        return '{{ _("This question type is under development and cannot be saved yet.") }}';
+      }
+      if (d.type === 'programming' && !CAN_CREATE_CODE) return '{{ _("You do not have permission to create programming problems.") }}';
+      if (['single', 'multiple', 'truefalse', 'blank', 'short'].includes(d.type) && !CAN_CREATE_MCQ) {
+        return '{{ _("You do not have permission to create this problem type.") }}';
+      }
+      if (d.type === 'file' && !CAN_CREATE_FILE) {
+        return '{{ _("You do not have permission to create this problem type.") }}';
+      }
+      if (!d.points || Number(d.points) < 0) return 'Please enter a valid point value.';
+      if (d.type !== 'compound' && d.type !== 'other' && !d.description) return 'Please enter a problem description.';
+      if (d.type === 'single' || d.type === 'multiple') {
+        const valid = d.options.filter(o => o.text);
+        if (valid.length < 2) return 'At least 2 options are required.';
+        const correct = d.options.filter(o => o.correct && o.text).length;
+        if (correct < 1) return 'Please select at least one correct answer.';
+        if (d.type === 'single' && correct > 1) return 'Single-choice questions may only have one correct answer.';
+      }
+      if (d.type === 'short' && !d.shortAnswer) return 'Please provide a reference answer.';
+      if (d.type === 'blank' && (!d.blanks.length || !d.blanks.some(function (b) {
+        if (!b) return false;
+        if (typeof b === 'string') return !!b.trim();
+        var answers = b.answers;
+        if (Array.isArray(answers)) return answers.some(function (x) { return String(x || '').trim(); });
+        return !!(answers && String(answers).trim());
+      }))) return 'Please provide at least one fill-in-the-blank answer.';
+      if (d.type === 'file' && !(Number(d.fileMaxSizeMb) > 0)) return 'Please enter a maximum file size greater than zero.';
+      if (d.type === 'compound' && (!d.subs || !d.subs.length)) return 'Please add at least one sub-problem.';
+      // AI grading requires a grading table
+      if (d.ai && d.gradingTable && d.gradingTable.length) {
+        for (var i = 0; i < d.gradingTable.length; i++) {
+          var pts = Number(d.gradingTable[i].max_points) || 0;
+          if (pts < 0.5) return 'Each sub-question must have at least 0.5 points. (Row ' + (i + 1) + ' has ' + pts + ')';
+          if (!isHalfIncrement(pts)) return 'Sub-question points must be in 0.5 increments. (Row ' + (i + 1) + ' has ' + pts + ')';
+        }
+        const total = Number(d.points);
+        const sum = d.gradingTable.reduce((s, q) => s + (Number(q.max_points) || 0), 0);
+        if (Math.abs(sum - total) > 0.01)
+          return 'Grading Table points sum (' + sum.toFixed(1) + ') must equal Total Points (' + total + ')';
+      }
+      return null;
+    }
+    function validateForImportFormatting(d) {
+      if (!d.name) return '{{ _("Please enter a problem name.") }}';
+      if (!d.problemTypes || !d.problemTypes.length) return '{{ _("Please select a problem tag.") }}';
+      if (UNSUPPORTED_TYPES.includes(d.type)) {
+        return '{{ _("This question type is under development and cannot be formatted yet.") }}';
+      }
+      if (d.type === 'programming' && !CAN_CREATE_CODE) {
+        return '{{ _("You do not have permission to create programming problems.") }}';
+      }
+      if (['single', 'multiple', 'truefalse', 'blank', 'short'].includes(d.type) && !CAN_CREATE_MCQ) {
+        return '{{ _("You do not have permission to create this problem type.") }}';
+      }
+      if (d.type !== 'compound' && d.type !== 'other' && !d.description) {
+        return '{{ _("Please enter a problem description.") }}';
+      }
+      return null;
+    }
+    function showToast(msg, ok) {
+      const t = document.getElementById('save-toast');
+      if (!t) return;
+      t.textContent = msg;
+      t.classList.toggle('err', !ok);
+      t.classList.toggle('ok', !!ok);
+      t.style.removeProperty('background');
+      t.style.removeProperty('color');
+      t.style.display = 'block';
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => { t.style.display = 'none'; }, ok ? 1500 : 2500);
+    }
+    document.querySelectorAll('.messages li').forEach(function (li) {
+      showToast(li.textContent, true);
+    });
+    function resetForm() {
+      document.getElementById('f-name').value = '';
+      document.querySelectorAll('.rich-editor[data-editor]').forEach((ed) => {
+        const name = ed.getAttribute('data-editor');
+        if (window.RichEditor && name) RichEditor.setMarkdown(name, '');
+        else {
+          const ta = ed.querySelector('textarea');
+          if (ta) ta.value = '';
+        }
+      });
+      document.getElementById('options').innerHTML = '';
+      document.getElementById('blank-answers').innerHTML = '';
+      { const t = document.getElementById('f-blank-trim'); if (t) t.checked = true;
+        const c = document.getElementById('f-blank-case'); if (c) c.checked = false; }
+      { const ai = document.getElementById('f-ai'); if (ai) ai.checked = false; }
+      { const tb = document.getElementById('tc-body'); if (tb) tb.innerHTML = ''; }
+      pendingZipFile = null;
+      zipFiles = [];
+      fillHarness(null);
+      document.getElementById('sub-list').innerHTML = '';
+      document.getElementById('grading-tbody').innerHTML = _gradingEmptyHTML();
+      optionSeq = blankSeq = tcSeq = subSeq = 0; draftSaved = false;
+      selectType(currentType);
+    }
+    async function prepareSaveRequest(data) {
+      const cases = data.testcases || [];
+      const zipMode = !!data.zip_mode;
+      if (data.type === 'programming' && pendingZipFile) {
+        data.testcases = cases.map(tc => ({
+          input_file: tc.input_file || '',
+          output_file: tc.output_file || '',
+          points: tc.points,
+          pretest: tc.pretest,
+        }));
+        const fd = new FormData();
+        fd.append('payload', JSON.stringify(data));
+        fd.append('testcase_zip', pendingZipFile, pendingZipFile.name || 'data.zip');
+        return { headers: { 'X-CSRFToken': CSRF_TOKEN }, body: fd };
+      }
+      if (zipMode && data.testcases) {
+        data.testcases = cases.map(tc => ({
+          input_file: tc.input_file || '',
+          output_file: tc.output_file || '',
+          points: tc.points,
+          pretest: tc.pretest,
+        }));
+      }
+      return {
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+        body: JSON.stringify(data),
+      };
+    }
+
+    function submitForm(action) {
+      console.log('[save] submitForm called, action=' + action);
+      function reportImportSaveError(message) {
+        if (IMPORT_EDITOR_MODE) {
+          window.parent.postMessage({kind: 'problem-import-save-error', message: message}, window.location.origin);
+        }
+      }
+      var data;
+      var confirmedImportReview = false;
+      try {
+        data = collectData();
+        data.action = action;
+        if (IMPORT_EDITOR_MODE) {
+          const confirmType = document.getElementById('import-confirm-type');
+          const confirmData = document.getElementById('import-confirm-data');
+          const confirmConfig = document.getElementById('import-confirm-config');
+          data.confirm_question_type = confirmType && confirmType.checked ? '1' : '';
+          data.confirm_data_load = confirmData && confirmData.checked ? '1' : '';
+          data.confirm_unrecognized_configurations = confirmConfig && confirmConfig.checked ? '1' : '';
+          confirmedImportReview = !!(
+            data.confirm_question_type || data.confirm_data_load || data.confirm_unrecognized_configurations
+          );
+        }
+        if (EDIT_CODE) data.edit_code = EDIT_CODE;
+        var err = IMPORT_EDITOR_MODE && (action === 'save' || action === 'format')
+          ? validateForImportFormatting(data)
+          : validate(data);
+        if (err) { console.log('[save] validation error:', err); showToast(err, false); reportImportSaveError(err); return; }
+      } catch (ex) {
+        console.error('[add-problem] collectData/validate failed:', ex);
+        var message = '{{ _("Page error:") }} ' + ((ex && ex.message) || ex);
+        showToast(message, false); reportImportSaveError(message);
+        return;
+      }
+      console.log('[save] validation passed, sending... type=' + data.type + ' ai=' + data.ai + ' gradingTable=' + (data.gradingTable ? data.gradingTable.length + ' rows' : 'null'));
+      showToast('{{ _("Saving…") }}', true);
+      prepareSaveRequest(data).then(function(req) {
+        return fetch(SAVE_URL, { method: 'POST', headers: req.headers, body: req.body });
+      }).then(function(r) {
+        return r.text().then(function(txt) {
+          var body = null;
+          try { body = JSON.parse(txt); } catch (_) {}
+          return { ok: r.ok, status: r.status, body: body, txt: txt };
+        });
+      }).then(function(res) {
+        console.log('[save] server response:', { ok: res.ok, status: res.status, hasBody: !!res.body, hasRedirect: res.body && !!res.body.redirect, error: res.body && res.body.error });
+        if (!res.body) {
+          console.error('[add-problem] non-JSON response', res.status, res.txt);
+          var responseMessage = '{{ _("Save failed (server returned") }} ' + res.status + ')';
+          showToast(responseMessage, false); reportImportSaveError(responseMessage);
+          return;
+        }
+        if (!res.ok) {
+          var errorMessage = res.body.error || res.body.message || '{{ _("Save failed") }}';
+          showToast(errorMessage, false); reportImportSaveError(errorMessage); return;
+        }
+        if (IMPORT_EDITOR_MODE) {
+          if (action === 'save') {
+            const status = document.getElementById('import-save-status');
+            if (status) status.textContent = '{{ _("Draft saved.") }}';
+            showToast('{{ _("Draft saved.") }}', true);
+            window.parent.postMessage({kind: 'problem-import-saved', item: res.body.item}, window.location.origin);
+            if (confirmedImportReview) {
+              const reviewStillNeeded = res.body.item && (
+                res.body.item.name_needs_review || res.body.item.type_needs_review ||
+                res.body.item.data_needs_review || res.body.item.config_needs_review
+              );
+              if (reviewStillNeeded) {
+                if (status) status.textContent = '{{ _("Review is still required before this confirmation can pass.") }}';
+                showToast('{{ _("Fix the listed configuration issues, then confirm again.") }}', false);
+              } else {
+                if (status) status.textContent = '{{ _("Confirmation recorded.") }}';
+                showToast('{{ _("Confirmation recorded.") }}', true);
+              }
+            }
+            return;
+          }
+          const actionUrl = action === 'format' ? IMPORT_FORMAT_URL : IMPORT_CREATE_URL;
+          const pendingMessage = action === 'format'
+            ? '{{ _("Formatting question with LLM…") }}'
+            : '{{ _("Creating problem…") }}';
+          const status = document.getElementById('import-save-status');
+          if (status) status.textContent = pendingMessage;
+          showToast(pendingMessage, true);
+          fetch(actionUrl, {
+            method: 'POST',
+            headers: {'X-CSRFToken': CSRF_TOKEN, 'X-Requested-With': 'XMLHttpRequest'},
+          }).then(function(actionResponse) {
+            return actionResponse.json().then(function(actionBody) {
+              return {ok: actionResponse.ok, body: actionBody};
+            });
+          }).then(function(actionResult) {
+            if (!actionResult.ok || !actionResult.body.ok) {
+              showToast(actionResult.body.message || '{{ _("Request failed") }}', false);
+              return;
+            }
+            if (actionResult.body.item) {
+              window.parent.postMessage({kind: 'problem-import-saved', item: actionResult.body.item}, window.location.origin);
+            }
+            if (action === 'format') {
+              showToast('{{ _("Question formatted. Review the updated configuration.") }}', true);
+              window.location.reload();
+            } else {
+              const parentUrl = new URL(window.parent.location.href);
+              parentUrl.searchParams.set('item', IMPORT_ITEM_ID);
+              window.parent.location.href = parentUrl.toString();
+            }
+          }).catch(function() {
+            showToast('{{ _("Request failed") }}', false);
+          });
+          return;
+        }
+        showToast(res.body.message || ('{{ _("Saved") }} ' + res.body.code), true);
+        if (FROM_ASSIGNMENT && window.opener && !window.opener.closed && res.body.id) {
+          try {
+            window.opener.postMessage({
+              kind: 'assignment-problem-created',
+              problem: { id: res.body.id, code: res.body.code, name: res.body.name || '', format: res.body.format || '', points: res.body.points }
+            }, window.location.origin);
+          } catch (e) { /* opener gone */ }
+          if (action !== 'another' && action !== 'continue') {
+            setTimeout(function() { window.close(); }, 400);
+            return;
+          }
+        }
+        if (res.body.redirect) {
+          var next = res.body.redirect;
+          if (FROM_ASSIGNMENT && action === 'another') {
+            next += (next.indexOf('?') === -1 ? '?' : '&') + 'from=assignment';
+          }
+          setTimeout(function() { location.href = next; }, 600);
+        } else resetForm();
+      }).catch(function(err) {
+        console.error('[add-problem] network/fetch error:', err);
+        var networkMessage = '{{ _("Network error — please check your connection and try again.") }}';
+        showToast(networkMessage, false); reportImportSaveError(networkMessage);
+      });
+    }
+    /* Buttons use onclick directly — no form submit listener needed. */
+    if (IMPORT_EDITOR_MODE) {
+      window.addEventListener('message', function(event) {
+        if (event.origin === window.location.origin && event.data && event.data.kind === 'problem-import-save') {
+          submitForm('save');
+        }
+      });
+    }
+
+    /* ── Rich-text image drag resizing (reused from add.html). ── */
+    (function initImageResize() {
+      const handle = document.createElement('div'); handle.className = 'img-resize-handle'; document.body.appendChild(handle);
+      let selImg = null, resizing = false, startX = 0, startW = 0, ratio = 1;
+      function positionHandle() { if (!selImg) { handle.style.display = 'none'; return; } const r = selImg.getBoundingClientRect(); handle.style.display = 'block'; handle.style.left = (window.scrollX + r.right - 7) + 'px'; handle.style.top = (window.scrollY + r.bottom - 7) + 'px'; }
+      function selectImg(img) { if (selImg && selImg !== img) selImg.classList.remove('img-selected'); selImg = img; img.classList.add('img-selected'); positionHandle(); }
+      function deselectImg() { if (selImg) selImg.classList.remove('img-selected'); selImg = null; handle.style.display = 'none'; }
+      document.addEventListener('click', (e) => { if (e.target.tagName === 'IMG' && e.target.closest('.rich-editor-body')) selectImg(e.target); else if (e.target !== handle && !resizing) deselectImg(); });
+      handle.addEventListener('mousedown', (e) => { if (!selImg) return; e.preventDefault(); resizing = true; startX = e.clientX; const rect = selImg.getBoundingClientRect(); startW = rect.width; ratio = rect.height / rect.width || 1; document.body.style.userSelect = 'none'; });
+      document.addEventListener('mousemove', (e) => { if (!resizing || !selImg) return; const w = Math.max(40, Math.round(startW + (e.clientX - startX))); selImg.style.width = w + 'px'; selImg.style.height = Math.round(w * ratio) + 'px'; positionHandle(); });
+      document.addEventListener('mouseup', () => { if (!resizing) return; resizing = false; document.body.style.userSelect = ''; const area = selImg && selImg.closest('.rich-editor-body'); if (area) area.dispatchEvent(new Event('input')); });
+      window.addEventListener('scroll', positionHandle, true); window.addEventListener('resize', positionHandle);
+    })();
+
+    /* ---------- Editing an existing problem: populate the form from backend data. ---------- */
+    function loadEditData(d) {
+      const radio = document.querySelector(`input[name="qtype"][value="${d.type}"]`);
+      if (radio) radio.checked = true;
+      selectType(d.type);
+
+      document.getElementById('f-name').value = d.name || '';
+      if (d.organizations && d.organizations.length) {
+        const org = document.getElementById('f-org');
+        if (org) {
+          d.organizations.forEach(id => ensureOption(org, id, null, true));
+          if (window.jQuery && jQuery(org).data('select2')) {
+            jQuery(org).val(d.organizations.map(String)).trigger('change');
+          }
+        }
+      }
+      if (d.group_id) { const g = document.getElementById('f-group'); if (g) g.value = String(d.group_id); }
+      const pts = document.getElementById('f-points'); if (pts && d.points != null) pts.value = d.points;
+      const pub = document.getElementById('f-public'); if (pub && !pub.disabled) pub.checked = !!d.is_public;
+      setPartialChecked(!!d.partial);
+      const aiCb = document.getElementById('f-ai'); if (aiCb) aiCb.checked = !!d.ai;
+      const rub = document.getElementById('f-rubric'); if (rub) rub.value = d.rubric || '';
+      if (d.gradingTable && d.gradingTable.length) restoreGradingTable(d.gradingTable);
+      else renderScoreConf(); // triggers grading table init if AI is on
+
+      RichEditor.setMarkdown('stem', d.description || '');
+
+      if (d.difficulty) {
+        const dr = document.querySelector(`input[name="difficulty"][value="${d.difficulty}"]`);
+        if (dr) { dr.checked = true; setDifficulty(d.difficulty); }
+      }
+      // Knowledge tags only. Difficulty and question type stay on their own controls.
+      const autoLabels = new Set([
+        ...Object.values(TYPE_META).map(m => m.tag),
+        ...Object.values(DIFF_LABEL),
+      ]);
+      (d.problemTypes || []).forEach(full => {
+        if (!full || autoLabels.has(full)) return;
+        const box = document.getElementById('f-types');
+        const el = document.createElement('span');
+        el.className = 'ptype-tag';
+        fillPtypeTag(el, full, { removable: true });
+        box.insertBefore(el, box.querySelector('.ptype-add'));
+      });
+
+      if (d.type === 'single' || d.type === 'multiple') {
+        const list = document.getElementById('options'); list.innerHTML = ''; optionSeq = 0;
+        (d.options || []).forEach(o => {
+          addOption(o.text || '');
+          const rows = list.querySelectorAll('.option-row');
+          rows[rows.length - 1].querySelector('.option-marker input').checked = !!o.correct;
+        });
+        refreshOptionMarkers();
+        if (d.type === 'multiple') {
+          const mode = d.mcqScoring || 'proportional';
+          const radio = document.querySelector(`input[name="mcq-scoring"][value="${mode}"]`);
+          if (radio) radio.checked = true;
+          const under = document.getElementById('f-mcq-underselect-points');
+          if (under) under.value = (d.mcqUnderselectPoints != null && d.mcqUnderselectPoints !== '') ? d.mcqUnderselectPoints : '';
+        }
+      } else if (d.type === 'truefalse') {
+        const tf = document.querySelector(`input[name="tf"][value="${d.tfAnswer || 'true'}"]`);
+        if (tf) tf.checked = true;
+      } else if (d.type === 'blank') {
+        const list = document.getElementById('blank-answers'); list.innerHTML = ''; blankSeq = 0;
+        (d.blanks || []).forEach(ans => {
+          addBlank();
+          const rows = list.querySelectorAll('.blank-answer-row');
+          const row = rows[rows.length - 1];
+          const text = (ans && typeof ans === 'object') ? (ans.answers || '') : (ans || '');
+          const pts = (ans && typeof ans === 'object') ? ans.points : null;
+          row.querySelector('.blank-answer').value = text;
+          const ptsInput = row.querySelector('.blank-pts input');
+          if (ptsInput && pts != null && pts !== '') ptsInput.value = pts;
+        });
+        if (!(d.blanks || []).length) addBlank();
+        const trimCb = document.getElementById('f-blank-trim'); if (trimCb) trimCb.checked = d.trimWhitespace !== false;
+        const caseCb = document.getElementById('f-blank-case'); if (caseCb) caseCb.checked = !!d.caseSensitive;
+      } else if (d.type === 'short') {
+        RichEditor.setMarkdown('short', d.shortAnswer || '');
+      } else if (d.type === 'file') {
+        const ext = document.getElementById('f-file-ext'); if (ext) ext.value = d.fileExtensions || '';
+        const size = document.getElementById('f-file-size');
+        if (size && d.fileMaxSizeMb != null) size.value = d.fileMaxSizeMb;
+        const inst = document.getElementById('f-file-instructions'); if (inst) inst.value = d.fileInstructions || '';
+      } else if (d.type === 'programming') {
+        const tl = document.getElementById('f-time'); if (tl && d.time_limit != null) tl.value = d.time_limit;
+        const ml = document.getElementById('f-mem'); if (ml && d.memory_limit != null) ml.value = d.memory_limit;
+        (d.languages || []).forEach(k => {
+          const cb = document.querySelector(`#f-langs .lang-cb[value="${k}"]`);
+          if (cb) cb.checked = true;
+        });
+        const chk = document.getElementById('tc-checker');
+        if (chk) chk.value = d.checker || '';
+        zipFiles = usableZipPaths(d.zip_files || []);
+        pendingZipFile = null;
+        if (zipFiles.length) {
+          setZipStatus(interpolate(gettext('Loaded %s files. Pick input and output for each case.'), [zipFiles.length]));
+        }
+        const tb = document.getElementById('tc-body');
+        if (tb) {
+          tb.innerHTML = '';
+          tcSeq = 0;
+          (d.testcases || []).forEach(tc => {
+            addTestCase({
+              input: zipFiles.length ? '' : (tc.input || ''),
+              output: zipFiles.length ? '' : (tc.output || ''),
+              input_file: tc.input_file || '',
+              output_file: tc.output_file || '',
+              points: tc.points != null ? tc.points : 0,
+              pretest: !!tc.pretest,
+              fromZip: zipFiles.length > 0,
+            });
+          });
+        }
+        fillHarness(d.harness);
+      }
+      hydrateAdvanced(d);
+      renderScoreConf();
+      renderPreview();
+    }
+
+    RichEditor.configure({
+      fileUploadUrl: FILE_UPLOAD_URL,
+      searchUsersUrl: SEARCH_USERS_URL,
+      csrfToken: CSRF_TOKEN,
+      onChange: renderPreview,
+      messages: {
+        fileUploadFailed: '{{ _("File upload failed.") }}',
+        fileUploadFailedAuth: '{{ _("File upload failed. Make sure you are signed in.") }}',
+      },
+    });
+    RichEditor.mount();
+    setDifficulty(currentDifficulty);
+    initOrgPicker();
+    initProfilePickers();
+    initClassPicker();
+    fillHarnessLanguages();
+    initHarnessMonaco();
+    bindEditorialCollapse();
+
+    (function bindAdvancedFilePick() {
+      const input = document.getElementById('f-md-upload');
+      const btn = document.getElementById('f-md-upload-btn');
+      const nameEl = document.getElementById('f-md-upload-name');
+      if (!input || !btn || !nameEl) return;
+      const noneLabel = gettext('No file selected');
+      btn.addEventListener('click', () => input.click());
+      input.addEventListener('change', () => {
+        const f = input.files && input.files[0];
+        nameEl.textContent = f ? f.name : noneLabel;
+      });
+    })();
+
+    if (EDIT_DATA) {
+      loadEditData(EDIT_DATA);
+    } else {
+      (function initDefaultType() {
+        let t = 'single';
+        if (!CAN_CREATE_MCQ && CAN_CREATE_CODE) t = 'programming';
+        else if (CAN_CREATE_MCQ && !CAN_CREATE_CODE) t = 'single';
+        else if (CAN_CREATE_MCQ && CAN_CREATE_CODE) t = 'single';
+        const radio = document.querySelector(`input[name="qtype"][value="${t}"]`);
+        if (radio) { radio.checked = true; selectType(t); }
+      })();
+    }
+
+    // --- Grading Table ------------------------------------------------
+    var gtableSeq = 0;
+
+    function _gradingEmptyHTML() {
+      return '<tr id="grading-empty" style="display:none"><td colspan="4" style="font-size:11px;color:var(--muted);padding:8px 6px;">Click <b>Auto-generate</b> to let the AI analyse the problem and suggest sub-questions, or add rows manually below.</td></tr>';
+    }
+
+    function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    function updateGradingTableState() {
+      const tbody = document.getElementById('grading-tbody');
+      const btn = document.getElementById('btn-ai-decompose');
+      const emptyRow = document.getElementById('grading-empty');
+      // Only count data rows, not the empty-state placeholder row.
+      const dataRows = tbody.querySelectorAll('tr:not(#grading-empty)');
+      const isEmpty = dataRows.length === 0;
+      btn.disabled = !isEmpty;
+      if (emptyRow) emptyRow.style.display = isEmpty ? '' : 'none';
+    }
+
+    function collectGradingTable() {
+      const rows = document.querySelectorAll('#grading-tbody tr:not(#grading-empty)');
+      const items = [];
+      rows.forEach(row => {
+        const nameEl = row.querySelector('.gt-name');
+        const ptsEl = row.querySelector('.gt-points');
+        const active = row.querySelector('.gt-strictness .active');
+        if (!nameEl) return;
+        const name = nameEl.value.trim();
+        if (!name) return;
+        items.push({
+          name: name,
+          max_points: (function(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; })(ptsEl.value),
+          strictness: active ? active.dataset.level : 'normal',
+        });
+      });
+      return items.length ? items : null;
+    }
+
+    function addSubQuestion(item) {
+      gtableSeq++;
+      if (item) {
+        // AI-generated or restored: keep existing name, leave blank if missing
+        if (!item.name) item.name = '';
+      } else {
+        // Manual add: blank name, user fills in
+        item = { name: '', max_points: 1, strictness: 'normal' };
+      }
+      const tr = document.createElement('tr');
+      const strictness = item.strictness || 'normal';
+      const levels = ['strict', 'normal', 'lenient'];
+      const labels = { strict: 'Strict', normal: 'Normal', lenient: 'Lenient' };
+      const pills = levels.map(l =>
+        `<button type="button" class="gt-pill ${l === strictness ? 'active' : ''}"
+                 data-level="${l}" onclick="setStrictness(this,'${l}')">${labels[l]}</button>`
+      ).join('');
+      const pts = Math.max(0.5, roundHalf(item.max_points || 1));
+      tr.innerHTML =
+        `<td><input class="gt-name" value="${escHtml(item.name)}" placeholder="e.g. Analyse time complexity" style="width:100%;"></td>
+         <td><input class="gt-points" type="number" step="0.5" min="0.5" value="${pts}"
+                    style="width:70px;" onchange="this.value=Math.max(0.5, roundHalf(this.value))"></td>
+         <td class="gt-strictness">${pills}</td>
+         <td><button type="button" class="btn-del-row" onclick="removeSubQuestion(this)">×</button></td>`;
+      document.getElementById('grading-tbody').appendChild(tr);
+      updateGradingTableState();
+    }
+
+    function removeSubQuestion(btn) {
+      btn.closest('tr').remove();
+      updateGradingTableState();
+    }
+
+    function setStrictness(btn, level) {
+      btn.parentElement.querySelectorAll('.gt-pill').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+    }
+
+    function restoreGradingTable(items) {
+      document.getElementById('grading-tbody').innerHTML = _gradingEmptyHTML();
+      gtableSeq = 0;
+      items.forEach(item => addSubQuestion(item));
+      updateGradingTableState();
+    }
+
+    function runAIDecompose() {
+      const desc = (RichEditor.getMarkdown('stem') || '').trim();
+      const pts = Number(document.getElementById('f-points').value) || 1;
+      if (!desc) { showToast('Please write the problem description first.', false); return; }
+      const status = document.getElementById('decompose-status');
+      const btn = document.getElementById('btn-ai-decompose');
+      status.style.display = 'inline'; status.textContent = 'Analyzing\u2026';
+      btn.disabled = true;
+      fetch(AI_DECOMPOSE_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+        body: JSON.stringify({ description: desc, total_points: pts }),
+      }).then(r => {
+        if (!r.ok) {
+          if (r.status >= 500) throw new Error('server_error');
+          return r.json().then(data => { throw new Error(data.error || 'bad_request'); });
+        }
+        return r.json();
+      }).then(data => {
+        status.style.display = 'none';
+        if (!data.sub_questions || !data.sub_questions.length) {
+          showToast('The AI could not identify separable sub-questions. Please add them manually.', false);
+          updateGradingTableState();
+          return;
+        }
+        document.getElementById('grading-tbody').innerHTML = _gradingEmptyHTML();
+        gtableSeq = 0;
+        data.sub_questions.forEach(q => addSubQuestion(q));
+        showToast('Generated ' + data.sub_questions.length + ' sub-question(s).', true);
+      }).catch(err => {
+        status.style.display = 'none';
+        btn.disabled = false;
+        if (err && err.message === 'server_error') {
+          showToast('The AI service is temporarily unavailable. Please try again later.', false);
+        } else if (err && err.message && err.message !== 'bad_request') {
+          showToast(err.message, false);
+        } else {
+          showToast('Unable to reach the AI service. Please check your connection and try again.', false);
+        }
+      });
+    }
+  </script>
+  </div>
+{% endblock %}

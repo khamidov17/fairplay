@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{# Chrome-less layout for embedding the test_data editor inside the create_v2 problem editor (iframe). #}
+
+{% block meta %}
+    {{ super() }}
+    <style>
+        nav#navigation, #nav-shadow, footer, #announcement, #contest-info { display: none !important; }
+        #page-container { padding: 0 !important; margin: 0 !important; }
+        #page-container > br { display: none !important; }
+        main#content { margin: 0 !important; padding: 12px !important; width: auto !important; max-width: none !important; box-shadow: none !important; border: none !important; border-radius: 0 !important; }
+        #content-body { margin: 0 !important; }
+        body { background: #fff !important; min-width: 0 !important; }
+    </style>
+{% endblock %}
+
+{% block title_row %}{% endblock %}
+{% block title_ruler %}{% endblock %}

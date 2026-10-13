@@ -1,0 +1,1049 @@
+{% extends "common-content.html" %}
+
+{% block meta %}
+    <meta name="description" content="The {{ SITE_NAME }}'s contest list - past, present, and future.">
+{% endblock %}
+
+{% block js_media %}
+    <script type="text/javascript">
+        document.addEventListener('DOMContentLoaded', function() {
+            // ── Live countdowns (same as the legacy list page) ──
+            if (window.jQuery && typeof count_down === 'function') {
+                jQuery('.time-remaining').each(function () {
+                    count_down(jQuery(this));
+                });
+            }
+
+            // ── Filter state ──
+            var state = {
+                org: [],
+                cls: [],
+                tags: [],
+                keywords: [{% for term in search_terms %}'{{ term|escapejs }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+                order: '{{ (sort_by or '-start_time')|escapejs }}',
+                group: '{{ group|escapejs }}'
+            };
+
+            // ── Multi-select toggle ──
+            window.toggleMenu = function(id) {
+                document.querySelectorAll('.multi-select').forEach(function(el) {
+                    if (el.id !== id) {
+                        el.classList.remove('open');
+                        var m = el.querySelector('.multi-select-menu');
+                        if (m) m.hidden = true;
+                    }
+                });
+                var root = document.getElementById(id);
+                var menu = root.querySelector('.multi-select-menu');
+                var open = root.classList.toggle('open');
+                menu.hidden = !open;
+            };
+
+            // Close dropdowns on outside click
+            document.addEventListener('click', function(e) {
+                if (!e.target.closest('.multi-select')) {
+                    document.querySelectorAll('.multi-select').forEach(function(el) {
+                        el.classList.remove('open');
+                        var m = el.querySelector('.multi-select-menu');
+                        if (m) m.hidden = true;
+                    });
+                }
+                if (!e.target.closest('#sort-dropdown')) {
+                    var menu = document.getElementById('sort-menu');
+                    if (menu) menu.hidden = true;
+                }
+            });
+
+            // ── Refresh multi-select labels ──
+            function refreshMultiLabel(selectId, labelId) {
+                var labels = Array.from(document.querySelectorAll('#' + selectId + ' .multi-select-option input:checked'))
+                    .map(function(i) {
+                        var spans = i.closest('label').querySelectorAll('span');
+                        return spans[spans.length - 1].textContent.trim();
+                    });
+                var label = document.getElementById(labelId);
+                if (labels.length) {
+                    var text = labels.length === 1 ? labels[0] : (labels[0] + ' +' + (labels.length - 1));
+                    label.textContent = text;
+                    label.title = labels.join(', ');
+                    label.classList.remove('multi-select-label-empty');
+                } else {
+                    label.textContent = label.dataset.emptyLabel;
+                    label.classList.add('multi-select-label-empty');
+                    label.title = '';
+                }
+            }
+
+            window.refreshOrgLabel = function() { refreshMultiLabel('org-multi-select', 'org-multi-label'); };
+            window.refreshClassLabel = function() { refreshMultiLabel('class-multi-select', 'class-multi-label'); };
+            window.refreshTagLabel = function() { refreshMultiLabel('tag-multi-select', 'tag-multi-label'); };
+
+            var suppressAuthorChange = false;
+
+            function authorSelect() {
+                return document.getElementById('filter-author');
+            }
+
+            function selectedAuthorIds() {
+                var el = authorSelect();
+                if (!el) return [];
+                if (window.jQuery) {
+                    var val = jQuery(el).val() || [];
+                    return (Array.isArray(val) ? val : [val]).map(String).filter(Boolean);
+                }
+                return Array.from(el.selectedOptions).map(function(o) { return String(o.value); });
+            }
+
+            function selectedAuthorChips() {
+                var el = authorSelect();
+                if (!el) return [];
+                if (window.jQuery && jQuery(el).data('select2')) {
+                    return (jQuery(el).select2('data') || []).map(function(d) {
+                        return { id: String(d.id), text: d.text };
+                    });
+                }
+                return Array.from(el.selectedOptions).map(function(o) {
+                    return { id: String(o.value), text: (o.textContent || '').trim() || String(o.value) };
+                });
+            }
+
+            function clearAuthorFilter() {
+                var el = authorSelect();
+                if (!el) return;
+                suppressAuthorChange = true;
+                if (window.jQuery) {
+                    jQuery(el).val(null).trigger('change');
+                } else {
+                    Array.from(el.options).forEach(function(o) { o.selected = false; });
+                }
+                suppressAuthorChange = false;
+            }
+
+            function removeAuthorValue(value) {
+                var el = authorSelect();
+                if (!el || !window.jQuery) return;
+                var cur = jQuery(el).val() || [];
+                if (!Array.isArray(cur)) cur = [cur];
+                jQuery(el).val(cur.filter(function(v) { return String(v) !== String(value); })).trigger('change');
+            }
+
+            // Course → Class cascade: selected courses show the union of their
+            // classes; with no course selected, every class stays listed.
+            var classCatalog = Array.from(document.querySelectorAll('#class-multi-select .multi-select-option')).map(function(label) {
+                var input = label.querySelector('input');
+                var spans = label.querySelectorAll('span');
+                return {
+                    value: input ? input.value : '',
+                    org: input ? (input.getAttribute('data-org') || '') : '',
+                    name: spans.length ? spans[spans.length - 1].textContent.trim() : (input ? input.value : ''),
+                };
+            });
+            window.rebuildClassOptions = function() {
+                var menu = document.querySelector('#class-multi-select .multi-select-menu');
+                if (!menu) return;
+                var orgs = checkedValues('#org-multi-select');
+                var keep = {};
+                checkedValues('#class-multi-select').forEach(function(v) { keep[v] = true; });
+                while (menu.firstChild) menu.removeChild(menu.firstChild);
+                classCatalog.forEach(function(item) {
+                    if (orgs.length && orgs.indexOf(item.org) === -1) return;
+                    var label = document.createElement('label');
+                    label.className = 'multi-select-option';
+                    var input = document.createElement('input');
+                    input.type = 'checkbox';
+                    input.value = item.value;
+                    input.setAttribute('data-org', item.org);
+                    if (keep[item.value]) input.checked = true;
+                    input.addEventListener('change', function() {
+                        refreshClassLabel();
+                        applyClientFilter();
+                    });
+                    var span = document.createElement('span');
+                    span.textContent = item.name;
+                    label.appendChild(input);
+                    label.appendChild(span);
+                    menu.appendChild(label);
+                });
+                refreshClassLabel();
+            };
+
+            // ── Status single-select label (radio, native single-select) ──
+            window.refreshStatusLabel = function() {
+                var checked = document.querySelector('input[name="time-filter"]:checked');
+                var label = document.getElementById('status-multi-label');
+                if (!checked || !label) return;
+                var spans = checked.closest('label').querySelectorAll('span');
+                label.textContent = spans[spans.length - 1].textContent.trim();
+            };
+
+            // ── Sort dropdown ──
+            window.toggleSort = function() {
+                var menu = document.getElementById('sort-menu');
+                menu.hidden = !menu.hidden;
+            };
+
+            // ── Get checked values ──
+            function checkedValues(sel) {
+                return Array.from(document.querySelectorAll(sel + ' input:checked')).map(function(i) { return i.value; });
+            }
+
+            // ── Get current client-side filter state ──
+            function clientState() {
+                var timeRadio = document.querySelector('input[name="time-filter"]:checked');
+                return {
+                    orgs: checkedValues('#org-multi-select'),
+                    classes: checkedValues('#class-multi-select'),
+                    tags: checkedValues('#tag-multi-select'),
+                    authors: selectedAuthorIds(),
+                    keywords: state.keywords.slice(),
+                    time: timeRadio ? timeRadio.value : ''
+                };
+            }
+
+            // ── Build URL params for the current filter state ──
+            function currentParams() {
+                var st = clientState();
+                var params = new URLSearchParams();
+                if (st.orgs.length) params.set('org', st.orgs.join(','));
+                if (st.classes.length) params.set('class', st.classes.join(','));
+                if (st.tags.length) params.set('tag', st.tags.join(','));
+                if (st.authors && st.authors.length) params.set('author', st.authors.join(','));
+                if (st.keywords.length) {
+                    st.keywords.forEach(function(term) { params.append('search', term); });
+                }
+                if (st.time) params.set('time', st.time);
+                if (state.order !== '-start_time') params.set('order', state.order);
+                if (state.group !== 'course') params.set('group', state.group);
+                return params;
+            }
+
+            // ── Server reload (used by sort / group switch) ──
+            window.applyFilters = function() {
+                var params = currentParams();
+                var newUrl = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
+                window.location.href = newUrl;
+            };
+
+            // ── Instant client-side filtering (no reload) ──
+            var countSuffix = (function() {
+                var el = document.querySelector('.progress-label');
+                return el ? el.textContent.replace(/^\d+\s*/, '') : ' assignments';
+            })();
+            var serverTotal = (function() {
+                var el = document.querySelector('.progress-label');
+                var m = el ? el.textContent.match(/^(\d+)/) : null;
+                return m ? parseInt(m[1], 10) : 0;
+            })();
+
+            window.applyClientFilter = function() {
+                var st = clientState();
+                var filtering = st.orgs.length || st.classes.length || st.tags.length ||
+                    (st.authors && st.authors.length) || st.keywords.length || st.time !== '';
+
+                var visible = 0;
+                document.querySelectorAll('.cl-row').forEach(function(row) {
+                    var show = true;
+                    if (st.time && row.dataset.status !== st.time) show = false;
+                    if (show && st.orgs.length) {
+                        var rowOrgs = (row.dataset.orgs || '').split(',');
+                        if (!st.orgs.some(function(o) { return rowOrgs.indexOf(o) !== -1; })) show = false;
+                    }
+                    if (show && st.classes.length) {
+                        var rowClasses = (row.dataset.classes || '').split(',');
+                        if (!st.classes.some(function(c) { return rowClasses.indexOf(c) !== -1; })) show = false;
+                    }
+                    if (show && st.tags.length) {
+                        var rowTags = (row.dataset.tags || '').split(',');
+                        if (!st.tags.every(function(t) { return rowTags.indexOf(t) !== -1; })) show = false;
+                    }
+                    if (show && st.authors && st.authors.length) {
+                        var rowAuthors = (row.dataset.authors || '').split(',');
+                        if (!st.authors.some(function(a) { return rowAuthors.indexOf(a) !== -1; })) show = false;
+                    }
+                    if (show && st.keywords.length) {
+                        var hay = (row.dataset.search || '').toLowerCase();
+                        if (!st.keywords.every(function(term) {
+                            return hay.indexOf(String(term).toLowerCase()) !== -1;
+                        })) show = false;
+                    }
+                    row.style.display = show ? '' : 'none';
+                    if (show) visible++;
+                });
+
+                var countEl = document.querySelector('.progress-label');
+                var emptyEl = document.getElementById('cl-empty-client');
+
+                if (!filtering) {
+                    // No active filters: restore the server-rendered state.
+                    document.querySelectorAll('.cl-row').forEach(function(r) { r.style.display = ''; });
+                    document.querySelectorAll('.cl-section').forEach(function(s) { s.style.display = ''; });
+                    if (countEl) countEl.textContent = serverTotal + ' ' + countSuffix;
+                    if (emptyEl) emptyEl.hidden = true;
+                    var q2 = currentParams().toString();
+                    history.replaceState(null, '', location.pathname + (q2 ? '?' + q2 : ''));
+                    renderActiveFilters();
+                    return;
+                }
+
+                document.querySelectorAll('.cl-section').forEach(function(sec) {
+                    var hasVisible = Array.prototype.some.call(sec.querySelectorAll('.cl-row'), function(r) {
+                        return r.style.display !== 'none';
+                    });
+                    sec.style.display = hasVisible ? '' : 'none';
+                });
+
+                if (countEl) countEl.textContent = visible + ' ' + countSuffix;
+                if (emptyEl) emptyEl.hidden = !(visible === 0);
+
+                var q = currentParams().toString();
+                history.replaceState(null, '', location.pathname + (q ? '?' + q : ''));
+                renderActiveFilters();
+            };
+
+            var timeLabels = {
+                ongoing: {{ _('Ongoing')|htmltojs }},
+                upcoming: {{ _('Upcoming')|htmltojs }},
+                active: {{ _('Active')|htmltojs }},
+                past: {{ _('Past')|htmltojs }}
+            };
+            var removeChipLabel = {{ _('Remove')|htmltojs }};
+
+            function renderActiveFilters() {
+                var list = document.getElementById('active-filters');
+                if (!list) return;
+                list.querySelectorAll('.chip').forEach(function(el) { el.remove(); });
+                var st = clientState();
+                function addChip(field, value, label) {
+                    var chip = document.createElement('span');
+                    chip.className = 'chip';
+                    chip.appendChild(document.createTextNode(label));
+                    var btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.setAttribute('data-field', field);
+                    btn.setAttribute('data-value', value);
+                    btn.setAttribute('aria-label', removeChipLabel);
+                    btn.innerHTML = '&times;';
+                    chip.appendChild(btn);
+                    list.appendChild(chip);
+                }
+                st.orgs.forEach(function(v) { addChip('org', v, v); });
+                st.classes.forEach(function(v) { addChip('class', v, v); });
+                st.tags.forEach(function(v) { addChip('tag', v, v); });
+                if (st.time) addChip('time', st.time, timeLabels[st.time] || st.time);
+                selectedAuthorChips().forEach(function(item) {
+                    addChip('author', item.id, item.text || item.id);
+                });
+                st.keywords.forEach(function(term) { addChip('search', term, term); });
+                var placeholder = list.querySelector('.chip-placeholder');
+                var hasAny = !!(st.orgs.length || st.classes.length || st.tags.length || st.time ||
+                    (st.authors && st.authors.length) || st.keywords.length);
+                if (placeholder) placeholder.hidden = hasAny;
+            }
+
+            // ── Keyword search: Enter commits one term; no live submit while typing ──
+            dkuojBindKeywordEnter(document.getElementById('f-q'), function(term) {
+                if (state.keywords.indexOf(term) === -1) state.keywords.push(term);
+                applyClientFilter();
+            });
+
+            var chipList = document.getElementById('active-filters');
+            if (chipList) {
+                chipList.addEventListener('click', function(e) {
+                    var btn = e.target.closest('button[data-field]');
+                    if (!btn || !chipList.contains(btn)) return;
+                    var field = btn.getAttribute('data-field');
+                    var value = btn.getAttribute('data-value');
+                    if (field === 'search') {
+                        state.keywords = state.keywords.filter(function(k) { return k !== value; });
+                    } else if (field === 'time') {
+                        document.querySelectorAll('input[name="time-filter"]').forEach(function(c) {
+                            c.checked = (c.value === '');
+                        });
+                        refreshStatusLabel();
+                    } else if (field === 'author') {
+                        removeAuthorValue(value);
+                        return;
+                    } else {
+                        var rootId = field === 'org' ? 'org-multi-select'
+                            : (field === 'class' ? 'class-multi-select' : 'tag-multi-select');
+                        document.querySelectorAll('#' + rootId + ' input[type=checkbox]').forEach(function(cb) {
+                            if (cb.value === value) cb.checked = false;
+                        });
+                        if (field === 'org') refreshOrgLabel();
+                        else if (field === 'class') refreshClassLabel();
+                        else refreshTagLabel();
+                    }
+                    applyClientFilter();
+                });
+            }
+
+            // ── Clear all filters (instant, no reload) ──
+            window.clearFilters = function() {
+                document.querySelectorAll('#filter-form .multi-select input[type=checkbox]').forEach(function(c) {
+                    c.checked = false;
+                });
+                document.querySelectorAll('input[name="time-filter"]').forEach(function(c) {
+                    c.checked = (c.value === '');
+                });
+                refreshStatusLabel();
+                document.getElementById('f-q').value = '';
+                rebuildClassOptions();
+                refreshOrgLabel();
+                refreshClassLabel();
+                refreshTagLabel();
+                clearAuthorFilter();
+                state = { org: [], cls: [], tags: [], keywords: [], order: state.order, group: state.group };
+                applyClientFilter();
+            };
+
+            // ── Sort button clicks ──
+            document.querySelectorAll('#sort-menu button[data-sort]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    state.order = btn.dataset.sort;
+                    // Mirror exactly what the reloaded page will render, so the
+                    // label doesn't visibly jump (e.g. drop the "Sort:" prefix)
+                    // between the click and the navigation.
+                    document.getElementById('sort-label').textContent = '{{ _('Sort:') }} ' + btn.textContent.trim();
+                    document.getElementById('sort-menu').hidden = true;
+                    applyFilters();
+                });
+            });
+
+            // ── Group switch (By course / By status) ──
+            document.querySelectorAll('#group-by [data-group]').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    state.group = btn.dataset.group;
+                    document.querySelectorAll('#group-by [data-group]').forEach(function(b) {
+                        b.classList.toggle('active', b === btn);
+                    });
+                    applyFilters();
+                });
+            });
+
+            // ── Initialize labels from URL params ──
+            // Restore courses first, then rebuild class options so the class
+            // checkboxes exist before the class query is applied.
+            {% if request.GET.org %}
+                var orgVals = '{{ request.GET.org|escapejs }}'.split(',');
+                orgVals.forEach(function(v) {
+                    var cb = document.querySelector('#org-multi-select input[value="' + v + '"]');
+                    if (cb) cb.checked = true;
+                });
+                refreshOrgLabel();
+            {% endif %}
+            rebuildClassOptions();
+            {% if request.GET.class %}
+                var classVals = '{{ request.GET.class|escapejs }}'.split(',');
+                classVals.forEach(function(v) {
+                    var cb = document.querySelector('#class-multi-select input[value="' + v + '"]');
+                    if (cb) cb.checked = true;
+                });
+                refreshClassLabel();
+            {% endif %}
+            {% if request.GET.tag %}
+                var tagVals = '{{ request.GET.tag|escapejs }}'.split(',');
+                tagVals.forEach(function(v) {
+                    var cb = document.querySelector('#tag-multi-select input[value="' + v + '"]');
+                    if (cb) cb.checked = true;
+                });
+                refreshTagLabel();
+            {% endif %}
+            {% if can_see_problem_authors %}
+            if (window.jQuery && jQuery.fn.select2 && authorSelect()) {
+                function escapeRegExp(string) {
+                    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                }
+                function idAndTextMatcher(params, data) {
+                    if (jQuery.trim(params.term) === '') return data;
+                    var regex = new RegExp(escapeRegExp(params.term), 'i');
+                    return data.text.search(regex) >= 0 || String(data.id).search(regex) >= 0 ? data : null;
+                }
+                jQuery('#filter-author').select2({
+                    theme: '{{ DMOJ_SELECT2_THEME }}',
+                    multiple: true,
+                    width: '100%',
+                    placeholder: {{ _('All authors')|htmltojs }},
+                    matcher: idAndTextMatcher,
+                    templateSelection: function (data) {
+                        return data.text || data.id;
+                    },
+                    ajax: {
+                        url: '{{ url('author_filter_select2') }}',
+                        dataType: 'json',
+                        delay: 250,
+                        data: function (params) {
+                            return { term: params.term || '' };
+                        },
+                        processResults: function (data) {
+                            return { results: data.results || [], pagination: { more: !!data.more } };
+                        },
+                    },
+                }).on('change', function () {
+                    if (!suppressAuthorChange) applyClientFilter();
+                });
+            }
+            {% endif %}
+
+            // ── Pagination preserves filter params ──
+            document.querySelectorAll('.paginate-link').forEach(function(link) {
+                link.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    var search = window.location.search.replace(/[\?&]page=\d+/g, '');
+                    var sep = search ? '&' : '?';
+                    window.location.href = window.location.pathname + search + sep + 'page=' + this.dataset.page + '{{ page_suffix }}';
+                });
+            });
+
+            // ── Apply the filters from the URL on first load ──
+            applyClientFilter();
+
+            // Assignment delete: per-row confirmation modal, then POST.
+            var delForm = document.getElementById('assignment-delete-form');
+            var delKeys = document.getElementById('assignment-delete-keys');
+            var delModal = document.getElementById('assignment-delete-modal');
+            var delList = document.getElementById('assignment-delete-list');
+            var delCount = document.getElementById('assignment-delete-n');
+            var pendingDelete = [];
+            function closeAssignmentDeleteModal() {
+                if (delModal) delModal.hidden = true;
+                pendingDelete = [];
+            }
+            function openAssignmentDeleteModal(items) {
+                if (!delModal || !delForm || !items.length) return;
+                pendingDelete = items;
+                if (delCount) delCount.textContent = String(items.length);
+                if (delList) {
+                    delList.innerHTML = '';
+                    items.forEach(function(it) {
+                        var li = document.createElement('li');
+                        var label = it.name || it.key || '';
+                        if (it.name && it.key) label = it.name + '  ·  ' + it.key;
+                        li.textContent = label;
+                        delList.appendChild(li);
+                    });
+                }
+                delModal.hidden = false;
+            }
+            document.querySelectorAll('.js-del-assignment').forEach(function(btn) {
+                btn.addEventListener('click', function() {
+                    openAssignmentDeleteModal([{
+                        key: btn.getAttribute('data-key') || '',
+                        name: btn.getAttribute('data-name') || '',
+                    }]);
+                });
+            });
+            var delCancel = document.getElementById('assignment-delete-cancel');
+            if (delCancel) delCancel.addEventListener('click', closeAssignmentDeleteModal);
+            if (delModal) {
+                delModal.addEventListener('click', function(e) {
+                    if (e.target === delModal) closeAssignmentDeleteModal();
+                });
+            }
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape' && delModal && !delModal.hidden) closeAssignmentDeleteModal();
+            });
+            var delConfirm = document.getElementById('assignment-delete-confirm');
+            if (delConfirm) {
+                delConfirm.addEventListener('click', function() {
+                    if (!pendingDelete.length || !delForm || !delKeys) return closeAssignmentDeleteModal();
+                    delKeys.innerHTML = '';
+                    pendingDelete.forEach(function(it) {
+                        var input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'keys';
+                        input.value = it.key;
+                        delKeys.appendChild(input);
+                    });
+                    delForm.submit();
+                });
+            }
+        });
+    </script>
+{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'list' %}
+    {% include "contest/contest-list-tabs.html" %}
+{% endblock %}
+
+{% block body %}
+    {% include "messages.html" %}
+    {% set current_sort_label = {
+        '-start_time': _('Start time') ~ ' ↓',
+        'start_time': _('Start time') ~ ' ↑',
+        '-end_time': _('End time') ~ ' ↓',
+        'name': _('Name') ~ ' A–Z',
+        '-user_count': _('Participants') ~ ' ↓',
+    }.get(sort_by, _('Start time') ~ ' ↓') %}
+    {% set status_label = {
+        'ongoing': _('Ongoing'),
+        'upcoming': _('Upcoming'),
+        'active': _('Active'),
+        'past': _('Past'),
+    }.get(time_filter, _('All')) %}
+    {% macro sort_item(sort_value, label) %}
+        <li><button type="button" data-sort="{{ sort_value }}"{% if sort_by == sort_value %} class="active"{% endif %}>{{ label }}</button></li>
+    {% endmacro %}
+    {% macro assignment_row(contest, status, participation=None) %}
+        {% set org_names = contest.organizations.all()|map(attribute='name')|join(',') %}
+        {% set class_names = contest.classes.all()|map(attribute='name')|join(',') %}
+        {% set tag_names = contest.tags.all()|map(attribute='name')|join(',') %}
+        <article class="cl-row{% if can_see_problem_authors %} cl-row--with-author{% endif %}" data-key="{{ contest.key }}" data-status="{{ status }}"
+                 data-orgs="{{ org_names }}" data-classes="{{ class_names }}" data-tags="{{ tag_names }}"
+                 {% if can_see_problem_authors %}data-authors="{{ contest.authors.all()|map(attribute='id')|join(',') }}" {% endif %}
+                 data-search="{{ contest.name }} {{ contest.key }}">
+            <div>
+                <div class="cl-primary-line">
+                    <a class="cl-title" href="{{ url('contest_view', contest.key) }}">{{ contest.name }}</a>
+                </div>
+                <div class="cl-course-line">
+                    {% for org in contest.organizations.all() %}
+                        <span class="badge badge-org"><i class="fa fa-book"></i> {{ org.name }}</span>
+                    {% endfor %}
+                    {% for cls in contest.classes.all() %}
+                        <span class="badge badge-class"><i class="fa fa-users"></i> {{ cls.name }}</span>
+                    {% endfor %}
+                </div>
+                <div class="cl-meta">
+                    {% if status == 'active' %}
+                        <span class="badge badge-st-mine">{{ _('Active') }}</span>
+                    {% elif status == 'ongoing' %}
+                        <span class="badge badge-st-ongoing">{{ _('Ongoing') }}</span>
+                    {% elif status == 'upcoming' %}
+                        <span class="badge badge-st-upcoming">{{ _('Upcoming') }}</span>
+                    {% else %}
+                        <span class="badge badge-st-past">{{ _('Past') }}</span>
+                    {% endif %}
+                    {% if status in ('ongoing', 'past') and contest.is_rated %}
+                        <span class="badge badge-rated">{{ _('rated') }}</span>
+                    {% endif %}
+                    {% if contest.time_limit %}
+                        <span class="badge badge-duration" title="{{ _('Each student gets %(time)s from the moment they start; the assignment still closes at its end time.', time=contest.time_limit|timedelta('localized-no-seconds')) }}"><i class="fa fa-hourglass-half"></i> {{ _('Time limited') }} · {{ contest.time_limit|timedelta('localized-no-seconds') }}</span>
+                    {% endif %}
+                    {% if not contest.is_visible %}
+                        <span class="badge badge-st-past"><i class="fa fa-eye-slash"></i> {{ _('hidden') }}</span>
+                    {% endif %}
+                    {% for tag in contest.tags.all() %}
+                        <span class="badge badge-tag" style="background:{{ tag.color }}">{{ tag.name }}</span>
+                    {% endfor %}
+                </div>
+                <div class="cl-time">
+                    {% if status == 'active' %}
+                        {% if contest.time_limit and participation %}
+                            <span class="emph">{{ _('Window ends in') }} <span class="time-remaining" data-secs="{{ participation.time_remaining.total_seconds()|round|int }}">{{ as_countdown(participation.time_remaining) }}</span></span>
+                        {% elif contest.time_before_end %}
+                            <span class="emph">{{ _('Ends in') }} <span class="time-remaining" data-secs="{{ contest.time_before_end.total_seconds()|round|int }}">{{ as_countdown(contest.time_before_end) }}</span></span>
+                        {% endif %}
+                    {% elif status == 'ongoing' %}
+                        {% if contest.time_before_end %}
+                            <span class="emph">{{ _('Ends in') }} <span class="time-remaining" data-secs="{{ contest.time_before_end.total_seconds()|round|int }}">{{ as_countdown(contest.time_before_end) }}</span></span>
+                        {% endif %}
+                    {% elif status == 'upcoming' %}
+                        <span class="emph warn">{{ _('Starting in') }} <span class="time-remaining" data-secs="{{ contest.time_before_start.total_seconds()|round|int }}">{{ as_countdown(contest.time_before_start) }}</span></span>
+                    {% endif %}
+                    <br><span class="emph muted">{{ _('Availability:') }}</span> {{ contest.start_time|date(_("M j, Y, G:i")) }} — {{ contest.end_time|date(_("M j, Y, G:i")) }}
+                    {% if contest.time_limit %}
+                        <span class="emph muted">· {{ _('your window:') }} {{ contest.time_limit|timedelta('localized-no-seconds') }}</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% if can_see_problem_authors %}
+            <div class="cl-authors">
+                {% if contest.authors.all() %}
+                    {{ link_users(contest.authors.all(), named=True) }}
+                {% else %}
+                    —
+                {% endif %}
+                <span class="lbl">{{ _('Author') }}</span>
+            </div>
+            {% endif %}
+            <div class="cl-trailing">
+                <div class="cl-users">
+                    {% if status == 'upcoming' %}
+                        —
+                    {% else %}
+                        {% if contest.can_see_own_scoreboard(request.user) %}
+                            <a href="{{ url('contest_ranking', contest.key) }}">{{ contest.user_count }}</a>
+                        {% else %}
+                            {{ contest.user_count }}
+                        {% endif %}
+                        <span class="lbl">{{ _('Users') }}</span>
+                    {% endif %}
+                </div>
+                <div class="cl-actions">
+                {# Manage slot first (Delete → Edit → Clone → Grade), then Join.
+                   Both wrappers always render so row heights/columns stay aligned. #}
+                <div class="cl-manage-actions">
+                    {% if contest.is_deletable_by(request.user) %}
+                        <button type="button" class="row-action row-action-danger js-del-assignment"
+                                data-key="{{ contest.key }}"
+                                data-name="{{ contest.name }}"
+                                title="{{ _('Delete') }}" aria-label="{{ _('Delete') }}"><i class="fa fa-trash"></i></button>
+                    {% endif %}
+                    {% if contest.is_changeable_by(request.user) %}
+                        <a class="row-action" href="{{ url('contest_edit', contest.key) }}"
+                           title="{{ _('Edit') }}" aria-label="{{ _('Edit') }}"><i class="fa fa-pencil"></i></a>
+                    {% endif %}
+                    {% if contest.is_cloneable_by(request.user) %}
+                        <a class="row-action" href="{{ url('contest_clone', contest.key) }}"
+                           title="{{ _('Clone') }}" aria-label="{{ _('Clone') }}"><i class="fa fa-copy"></i></a>
+                    {% endif %}
+                    {% if contest.is_editable_by(request.user) %}
+                        <a class="row-action" href="{{ url('contest_grade', contest.key) }}"
+                           title="{{ _('Grade') }}" aria-label="{{ _('Grade') }}"><i class="fa fa-check-square-o"></i></a>
+                    {% endif %}
+                </div>
+                <div class="cl-join-actions">
+                    {% if status == 'active' %}
+                        {# Active participations use the same join entry as ongoing:
+                           Join re-attaches the existing (unexpired) participation
+                           without restarting the timer. #}
+                        {% if contest.is_live_joinable_by(request.user) %}
+                            <form action="{{ url('contest_join', contest.key) }}" method="post">
+                                {% csrf_token %}
+                                <button type="submit" class="button primary">{{ _('Join') }}</button>
+                            </form>
+                        {% elif contest.is_spectatable_by(request.user) %}
+                            <form action="{{ url('contest_join', contest.key) }}" method="post">
+                                {% csrf_token %}
+                                <button type="submit" class="button">{{ _('Spectate') }}</button>
+                            </form>
+                        {% endif %}
+                        {% if contest.can_see_own_scoreboard(request.user) %}
+                            <a class="button" href="{{ url('contest_ranking', contest.key) }}">{{ _('Rankings') }}</a>
+                        {% endif %}
+                    {% elif status == 'ongoing' %}
+                        {% if not request.user.is_authenticated %}
+                            {# Anonymous: still surface a Join entry so the card is not
+                               empty — clicking it sends the user through login first. #}
+                            <a class="button" href="{{ url('auth_login') }}?next={{ url('contest_view', contest.key) }}">{{ _('Join') }}</a>
+                        {% elif contest.is_live_joinable_by(request.user) %}
+                            <form action="{{ url('contest_join', contest.key) }}" method="post">
+                                {% csrf_token %}
+                                <button type="submit" class="button primary">{{ _('Join') }}</button>
+                            </form>
+                        {% elif contest.is_spectatable_by(request.user) %}
+                            <form action="{{ url('contest_join', contest.key) }}" method="post">
+                                {% csrf_token %}
+                                <button type="submit" class="button">{{ _('Spectate') }}</button>
+                            </form>
+                        {% endif %}
+                    {% elif status == 'upcoming' %}
+                        <button type="button" class="button ghost" disabled>{{ _('Remind') }}</button>
+                    {% else %}
+                        {% if not request.in_contest %}
+                            {% if contest.allow_virtual_participation %}
+                                <form action="{{ url('contest_join', contest.key) }}" method="post">
+                                    {% csrf_token %}
+                                    <button type="submit" class="button ghost">{{ _('Virtual') }}</button>
+                                </form>
+                            {% endif %}
+                        {% endif %}
+                    {% endif %}
+                </div>
+                </div>
+            </div>
+        </article>
+    {% endmacro %}
+
+    <form id="filter-form" class="contest-list-redesign problem-list-redesign oj-ui" onsubmit="event.preventDefault();">
+        {# ── Filter Card ── #}
+        <section class="card filter-card">
+            <div class="filter-row filter-row-conditions">
+                <label class="filter-label">{{ _('Filters') }}</label>
+                <div class="filter-controls">
+                    {# Organization multi-select #}
+                    <div class="filter-group">
+                        <span class="filter-group-label">{{ _('Course') }}</span>
+                        <div class="multi-select" id="org-multi-select">
+                            <button type="button" class="multi-select-trigger" onclick="toggleMenu('org-multi-select')">
+                                <span id="org-multi-label" class="multi-select-text multi-select-label-empty" data-empty-label="{{ _('All courses') }}">{{ _('All courses') }}</span>
+                                <span class="multi-select-caret">▾</span>
+                            </button>
+                            <div class="multi-select-menu" hidden>
+                                {% for org in organizations %}
+                                    <label class="multi-select-option">
+                                        <input type="checkbox" value="{{ org.name }}" onchange="refreshOrgLabel(); rebuildClassOptions(); applyClientFilter();">
+                                        <span>{{ org.name }}</span>
+                                    </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+
+                    {# Class multi-select #}
+                    <div class="filter-group">
+                        <span class="filter-group-label">{{ _('Class') }}</span>
+                        <div class="multi-select" id="class-multi-select">
+                            <button type="button" class="multi-select-trigger" onclick="toggleMenu('class-multi-select')">
+                                <span id="class-multi-label" class="multi-select-text multi-select-label-empty" data-empty-label="{{ _('All classes') }}">{{ _('All classes') }}</span>
+                                <span class="multi-select-caret">▾</span>
+                            </button>
+                            <div class="multi-select-menu" hidden>
+                                {% for cls in classes %}
+                                    <label class="multi-select-option">
+                                        <input type="checkbox" value="{{ cls.name }}" data-org="{{ cls.organization.name }}" onchange="refreshClassLabel(); applyClientFilter();">
+                                        <span>{{ cls.name }}</span>
+                                    </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+
+                    {# Status filter (single-select dropdown) #}
+                    <div class="filter-group">
+                        <span class="filter-group-label">{{ _('Status') }}</span>
+                        <div class="multi-select" id="status-multi-select">
+                            <button type="button" class="multi-select-trigger" onclick="toggleMenu('status-multi-select')">
+                                <span id="status-multi-label" class="multi-select-text" data-empty-label="{{ _('All') }}">{{ status_label }}</span>
+                                <span class="multi-select-caret">▾</span>
+                            </button>
+                            <div class="multi-select-menu" hidden>
+                                <label class="multi-select-option">
+                                    <input type="radio" name="time-filter" value=""{% if time_filter == '' %} checked{% endif %} onchange="refreshStatusLabel(); applyClientFilter();">
+                                    <span>{{ _('All') }}</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="radio" name="time-filter" value="ongoing"{% if time_filter == 'ongoing' %} checked{% endif %} onchange="refreshStatusLabel(); applyClientFilter();">
+                                    <span>{{ _('Ongoing') }}</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="radio" name="time-filter" value="upcoming"{% if time_filter == 'upcoming' %} checked{% endif %} onchange="refreshStatusLabel(); applyClientFilter();">
+                                    <span>{{ _('Upcoming') }}</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="radio" name="time-filter" value="active"{% if time_filter == 'active' %} checked{% endif %} onchange="refreshStatusLabel(); applyClientFilter();">
+                                    <span>{{ _('Active') }}</span>
+                                </label>
+                                <label class="multi-select-option">
+                                    <input type="radio" name="time-filter" value="past"{% if time_filter == 'past' %} checked{% endif %} onchange="refreshStatusLabel(); applyClientFilter();">
+                                    <span>{{ _('Past') }}</span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    {# Tag multi-select #}
+                    <div class="filter-group">
+                        <span class="filter-group-label">{{ _('Tag') }}</span>
+                        <div class="multi-select" id="tag-multi-select">
+                            <button type="button" class="multi-select-trigger" onclick="toggleMenu('tag-multi-select')">
+                                <span id="tag-multi-label" class="multi-select-text multi-select-label-empty" data-empty-label="{{ _('All tags') }}">{{ _('All tags') }}</span>
+                                <span class="multi-select-caret">▾</span>
+                            </button>
+                            <div class="multi-select-menu" hidden id="tag-menu">
+                                {% for tag in tags %}
+                                    <label class="multi-select-option">
+                                        <input type="checkbox" value="{{ tag.name }}" onchange="refreshTagLabel(); applyClientFilter();">
+                                        <span class="swatch" style="background:{{ tag.color }}"></span>
+                                        <span>{{ tag.name }}</span>
+                                    </label>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+
+                    {% if can_see_problem_authors %}
+                    <div class="filter-group filter-group-author">
+                        <span class="filter-group-label">{{ _('Author') }}</span>
+                        <select id="filter-author" multiple data-placeholder="{{ _('All authors') }}">
+                            {% for profile in selected_author_profiles %}
+                                <option value="{{ profile.id }}" selected>{{ profile_choice_label(profile) }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <div class="filter-row">
+                <label class="filter-label">{{ _('Keyword') }}</label>
+                <input type="text" id="f-q" class="input input-wide" value="" autocomplete="off"
+                       placeholder="{{ _('Type a keyword, then press Enter') }}">
+            </div>
+
+            <div class="filter-row selected-row">
+                <span class="filter-label">{{ _('Selected') }}</span>
+                <div class="chip-list" id="active-filters">
+                    <span class="chip-placeholder">{{ _('No filters applied') }}</span>
+                </div>
+                <a class="btn-text" href="javascript:clearFilters()">{{ _('Clear filters') }}</a>
+            </div>
+
+            <div class="filter-footer">
+                <span class="result-count" id="result-count">{{ _('%(count)d results', count=total_count) }}</span>
+            </div>
+        </section>
+
+        {# ── Toolbar ── #}
+        <section class="toolbar">
+            <div class="toolbar-left">
+                <div class="dropdown" id="sort-dropdown">
+                    <button type="button" class="sort-btn" onclick="toggleSort()">
+                        <i class="fa fa-sort"></i> <span id="sort-label">{{ _('Sort:') }} {{ current_sort_label }}</span>
+                    </button>
+                    <div class="dropdown-menu" id="sort-menu" hidden>
+                        <div class="dropdown-title">{{ _('Sort by') }}</div>
+                        <ul>
+                            {{ sort_item('-start_time', _('Start time') ~ ' ↓') }}
+                            {{ sort_item('start_time', _('Start time') ~ ' ↑') }}
+                            {{ sort_item('-end_time', _('End time') ~ ' ↓') }}
+                            {{ sort_item('name', _('Name') ~ ' A–Z') }}
+                            {{ sort_item('-user_count', _('Participants') ~ ' ↓') }}
+                        </ul>
+                    </div>
+                </div>
+                <div class="group-switch" id="group-by" role="group" aria-label="{{ _('Group by') }}">
+                    <button type="button" class="group-switch-btn{% if group == 'course' %} active{% endif %}" data-group="course" title="{{ _('Group assignments by course') }}">{{ _('By course') }}</button>
+                    <button type="button" class="group-switch-btn{% if group == 'status' %} active{% endif %}" data-group="status" title="{{ _('Group assignments by status') }}">{{ _('By status') }}</button>
+                </div>
+            </div>
+            <div class="toolbar-right">
+                <span class="progress-label">{{ total_count }} {{ _('assignments') }}</span>
+            </div>
+        </section>
+    </form>
+
+    {# ── Contest List ── #}
+    <div class="cl-list" id="contest-list">
+        {% if group == 'course' %}
+            {% if course_groups %}
+                {% for course_name, contests in course_groups.items() %}
+                    <div class="cl-section">
+                        <div class="cl-group-head">
+                            <span><i class="fa fa-book"></i> {{ course_name }}</span>
+                            <small>{{ contests|length }} {{ _('assignments') }}</small>
+                        </div>
+                        {% for contest in contests %}
+                            {{ assignment_row(contest, contest_statuses.get(contest.key, 'past')) }}
+                        {% endfor %}
+                    </div>
+                {% endfor %}
+
+                {# Pagination #}
+                {% if page_obj and page_obj.has_other_pages() %}
+                    <div class="cl-pagination">
+                        {% if page_obj.has_previous() %}
+                            <a href="#" data-page="{{ page_obj.previous_page_number() }}" class="btn btn-outline btn-sm paginate-link">
+                                <i class="fa fa-chevron-left"></i> {{ _('Previous') }}
+                            </a>
+                        {% endif %}
+                        <span class="page-info">
+                            {{ _('Page %(current)s of %(total)s', current=page_obj.number, total=page_obj.paginator.num_pages) }}
+                        </span>
+                        {% if page_obj.has_next() %}
+                            <a href="#" data-page="{{ page_obj.next_page_number() }}" class="btn btn-outline btn-sm paginate-link">
+                                {{ _('Next') }} <i class="fa fa-chevron-right"></i>
+                            </a>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            {% else %}
+                <div class="cl-empty">{{ _('There are no assignments.') }}</div>
+            {% endif %}
+        {% else %}
+        {# Active participations (user's current assignments) — always shown #}
+        {% if active_participations %}
+            <div class="cl-section">
+                <div class="cl-group-head">
+                    <span><i class="fa fa-play-circle"></i> {{ _('Active assignments') }}</span>
+                    <small>{{ active_participations|length }} {{ _('items') }}</small>
+                </div>
+                {% for participation in active_participations %}
+                    {{ assignment_row(participation.contest, 'active', participation) }}
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {# Ongoing contests #}
+        {% if current_contests %}
+            <div class="cl-section">
+                <div class="cl-group-head">
+                    <span><i class="fa fa-bolt"></i> {{ _('Ongoing') }}</span>
+                    <small>{{ current_contests|length }} {{ _('items') }}</small>
+                </div>
+                {% for contest in current_contests %}
+                    {{ assignment_row(contest, 'ongoing') }}
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {# Upcoming contests #}
+        {% if future_contests %}
+            <div class="cl-section">
+                <div class="cl-group-head">
+                    <span><i class="fa fa-clock-o"></i> {{ _('Upcoming') }}</span>
+                    <small>{{ future_contests|length }} {{ _('items') }}</small>
+                </div>
+                {% for contest in future_contests %}
+                    {{ assignment_row(contest, 'upcoming') }}
+                {% endfor %}
+            </div>
+        {% endif %}
+
+        {# Past contests #}
+        <div class="cl-section">
+            <div class="cl-group-head">
+                <span><i class="fa fa-check-circle-o"></i> {{ _('Past') }}</span>
+                <small>{{ past_contests|length }} {{ _('items') }}</small>
+            </div>
+            {% if past_contests %}
+                {% for contest in past_contests %}
+                    {{ assignment_row(contest, 'past') }}
+                {% endfor %}
+
+                {# Pagination #}
+                {% if page_obj and page_obj.has_other_pages() %}
+                    <div class="cl-pagination">
+                        {% if page_obj.has_previous() %}
+                            <a href="#" data-page="{{ page_obj.previous_page_number() }}" class="btn btn-outline btn-sm paginate-link">
+                                <i class="fa fa-chevron-left"></i> {{ _('Previous') }}
+                            </a>
+                        {% endif %}
+                        <span class="page-info">
+                            {{ _('Page %(current)s of %(total)s', current=page_obj.number, total=page_obj.paginator.num_pages) }}
+                        </span>
+                        {% if page_obj.has_next() %}
+                            <a href="#" data-page="{{ page_obj.next_page_number() }}" class="btn btn-outline btn-sm paginate-link">
+                                {{ _('Next') }} <i class="fa fa-chevron-right"></i>
+                            </a>
+                        {% endif %}
+                    </div>
+                {% endif %}
+            {% else %}
+                <div class="cl-empty">{{ _('There are no past assignments.') }}</div>
+            {% endif %}
+        </div>
+
+        {# Nothing matches the current filters. #}
+        {% if not active_participations and not current_contests and not future_contests and not past_contests %}
+            <div class="cl-empty">{{ _('There are no assignments.') }}</div>
+        {% endif %}
+        {% endif %}
+
+        {# Client-side empty state (status filter hides everything). #}
+        <div class="cl-empty" id="cl-empty-client" hidden>{{ _('There are no assignments.') }}</div>
+    </div>
+
+    {% if perms.judge.delete_contest %}
+    <form id="assignment-delete-form" method="post" action="{{ url('contest_bulk_delete') }}" hidden>
+        {% csrf_token %}
+        <input type="hidden" name="next" value="{{ request.get_full_path() }}">
+        <span id="assignment-delete-keys"></span>
+    </form>
+    <div class="modal-overlay" id="assignment-delete-modal" hidden>
+        <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="assignment-delete-title">
+            <h3 class="modal-title" id="assignment-delete-title">{{ _('Delete assignment(s)?') }}</h3>
+            <p class="modal-desc">{{ _('This permanently deletes the following assignment(s) and related participation data. This cannot be undone.') }}</p>
+            <p class="modal-count">{{ _('Selected:') }} <span id="assignment-delete-n">0</span></p>
+            <ul class="modal-list" id="assignment-delete-list"></ul>
+            <div class="modal-actions">
+                <button type="button" class="btn" id="assignment-delete-cancel">{{ _('Cancel') }}</button>
+                <button type="button" class="btn" id="assignment-delete-confirm">{{ _('Delete') }}</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,180 @@
+{% extends "base.html" %}
+
+{% block media %}
+    {{ form.media.css }}
+    <style>
+        .mcq-field { margin-bottom: 1em; }
+        .mcq-field label { font-weight: bold; display: block; margin-bottom: 0.3em; }
+        #mcq-option-table { width: 100%; border-collapse: collapse; }
+        #mcq-option-table td { padding: 4px; vertical-align: top; }
+        .mcq-option-row .drag-handle { cursor: move; padding: 6px; color: #888; }
+        .option-text { width: 100%; }
+        .mcq-correct-cell { white-space: nowrap; text-align: center; }
+    </style>
+{% endblock %}
+
+{% block js_media %}
+    {{ form.media.js }}
+    <script type="text/javascript">
+        $(function () {
+            var rows = $('#mcq-option-rows');
+            var totalForms = $('#id_options-TOTAL_FORMS');
+            function renumber() {
+                rows.children('.mcq-option-row').each(function (i) {
+                    $(this).find('input.option-order').val(i);
+                });
+            }
+
+            function enforceSingleSelect() {
+                if ($('#id_multiple_select').is(':checked')) return;
+                rows.find('input[type=checkbox][name$="-is_correct"]').on('change', function () {
+                    if (this.checked) {
+                        rows.find('input[type=checkbox][name$="-is_correct"]').not(this).prop('checked', false);
+                    }
+                });
+            }
+
+            $('#add-option').click(function (e) {
+                e.preventDefault();
+                var index = parseInt(totalForms.val(), 10);
+                var html = $('#empty-option-row').html().replace(/__prefix__/g, index);
+                rows.append(html);
+                totalForms.val(index + 1);
+                renumber();
+                enforceSingleSelect();
+            });
+
+            rows.on('click', '.remove-option', function (e) {
+                e.preventDefault();
+                var row = $(this).closest('.mcq-option-row');
+                var del = row.find('input[name$="-DELETE"]');
+                if (del.length) {
+                    del.prop('checked', true);
+                    row.hide();
+                } else {
+                    row.remove();
+                }
+                renumber();
+            });
+
+            if (rows.sortable) {
+                rows.sortable({handle: '.drag-handle', update: renumber});
+            }
+
+            $('#mcq-form').submit(renumber);
+            renumber();
+            enforceSingleSelect();
+
+        });
+    </script>
+{% endblock %}
+
+{% block body %}
+    <form id="mcq-form" action="" method="post" class="form-area">
+        {% csrf_token %}
+        {% include "messages.html" %}
+        {% if option_error %}
+            <ul class="errorlist"><li>{{ option_error }}</li></ul>
+        {% endif %}
+        {{ form.non_field_errors() }}
+        {{ config_form.non_field_errors() }}
+
+        <div class="mcq-field">
+            <label for="{{ form.name.id_for_label }}">{{ _('Name') }}</label>
+            {{ form.name.errors }}
+            {{ form.name }}
+        </div>
+
+        <div class="mcq-field">
+            <label for="{{ form.description.id_for_label }}">{{ _('Question prompt') }}</label>
+            {{ form.description.errors }}
+            {{ form.description }}
+        </div>
+
+        <div class="mcq-field">
+            <label>{{ _('Choices') }}</label>
+            {{ formset.management_form }}
+            {{ formset.non_form_errors() }}
+            <table id="mcq-option-table">
+                <thead>
+                    <tr>
+                        <th></th>
+                        <th>{{ _('Choice') }}</th>
+                        <th>{{ _('Correct') }}</th>
+                        <th></th>
+                    </tr>
+                </thead>
+                <tbody id="mcq-option-rows">
+                    {% for f in formset %}
+                        <tr class="mcq-option-row">
+                            <td class="drag-handle">&#9776;</td>
+                            <td>
+                                {{ f.id }}
+                                {{ f.order }}
+                                {{ f.text.errors }}
+                                {{ f.text }}
+                            </td>
+                            <td class="mcq-correct-cell">{{ f.is_correct }}</td>
+                            <td>
+                                <span style="display:none">{{ f.DELETE }}</span>
+                                <a href="#" class="remove-option">{{ _('Remove') }}</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {# A <template> keeps the <tr> valid; a <tr> directly inside a <div> is stripped by the
+               browser, which previously made "Add choice" produce broken/blank rows. #}
+            <template id="empty-option-row">
+                <tr class="mcq-option-row">
+                    <td class="drag-handle">&#9776;</td>
+                    <td>
+                        {{ formset.empty_form.id }}
+                        {{ formset.empty_form.order }}
+                        {{ formset.empty_form.text }}
+                    </td>
+                    <td class="mcq-correct-cell">{{ formset.empty_form.is_correct }}</td>
+                    <td>
+                        <span style="display:none">{{ formset.empty_form.DELETE }}</span>
+                        <a href="#" class="remove-option">{{ _('Remove') }}</a>
+                    </td>
+                </tr>
+            </template>
+            <p><a href="#" id="add-option" class="button small">{{ _('Add choice') }}</a></p>
+        </div>
+
+        <div class="mcq-field">
+            <label>{{ _('Settings') }}</label>
+            {{ config_form.multiple_select.errors }}
+            <div>{{ config_form.multiple_select }} {{ config_form.multiple_select.label }}</div>
+            {{ config_form.shuffle_options.errors }}
+            <div>{{ config_form.shuffle_options }} {{ config_form.shuffle_options.label }}</div>
+            <div>{{ form.partial }} {{ form.partial.label }}</div>
+            <div>{{ form.is_public }} {{ form.is_public.label }}</div>
+        </div>
+
+        <div class="mcq-field">
+            <label>{{ _('Visibility') }}</label>
+            <div>
+                <label for="{{ form.organizations.id_for_label }}">{{ form.organizations.label }}</label>
+                {{ form.organizations.errors }}
+                {{ form.organizations }}
+            </div>
+            <div>
+                <label for="{{ form.classes.id_for_label }}">{{ form.classes.label }}</label>
+                {{ form.classes.errors }}
+                {{ form.classes }}
+            </div>
+        </div>
+
+        <div class="mcq-field">
+            <label for="{{ form.points.id_for_label }}">{{ _('Points') }}</label>
+            {{ form.points.errors }}
+            {{ form.points }}
+        </div>
+
+        <div class="submit-bar">
+            <input type="submit" value="{{ _('Save') }}" class="button">
+        </div>
+    </form>
+{% endblock %}

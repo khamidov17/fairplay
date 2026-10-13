@@ -1,0 +1,34 @@
+{% if request.in_contest and request.participation %}
+    {% set _contest = request.participation.contest %}
+    {% set _spectate = request.participation.spectate %}
+    {% set _progress = participation_submit_progress(request.participation) %}
+    {% if _spectate %}
+        {% set _leave_label = _('Stop spectating') %}
+    {% elif _contest.seb_required %}
+        {% set _leave_label = _('Exit SEB') %}
+    {% else %}
+        {% set _leave_label = _('Leave') %}
+    {% endif %}
+    {% set _variant = leave_variant|default('tab') %}
+    {% set _extra = (' leaving-forever' if _contest.ended else '') ~ (' seb-exit' if _contest.seb_required and not _spectate else '') %}
+    <form action="{{ url('contest_leave', _contest.key) }}" method="post"
+          class="assignment-leave-form{% if _variant == 'tab' %} contest-join-pseudotab unselectable button{% endif %}"
+          data-submitted="{{ _progress.submitted }}"
+          data-total="{{ _progress.total }}"
+          data-unsubmitted="{{ _progress.unsubmitted }}"
+          data-submitted-names="{{ _progress.submitted_names|json }}"
+          data-unsubmitted-names="{{ _progress.unsubmitted_names|json }}"
+          {% if _spectate %}data-spectate="1"{% endif %}
+          {% if _contest.seb_required and not _spectate %}data-seb-exit="1"{% endif %}>
+        {% csrf_token %}
+        {% if _variant == 'toolbar' %}
+            <button type="submit" class="tool-btn leave-btn{{ _extra }}">
+                <i class="fa fa-sign-out"></i> {{ _leave_label }}
+            </button>
+        {% else %}
+            <button type="submit" class="leave-tab-btn{{ _extra }}">
+                <i class="fa fa-sign-out"></i> {{ _leave_label }}
+            </button>
+        {% endif %}
+    </form>
+{% endif %}

@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+
+{% block media %}
+    {{ form.media.css }}
+    <link rel="stylesheet" href="{{ static('vendor/katex.min.css') }}">
+    <link rel="stylesheet" href="{{ static('rich_editor.css') }}">
+    <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="(prefers-color-scheme: dark)">
+    <style>
+        .course-redesign .class-form-field .rich-editor {
+            height: 360px;
+            max-height: 360px;
+        }
+    </style>
+{% endblock %}
+
+{% block js_media %}
+    {{ form.media.js }}
+    <script src="{{ static('rich_editor.js') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}"></script>
+    <script type="text/javascript">
+        $(function () {
+            $('#instructor-verification-btn').on('click', function () {
+                $('#instructor-verification-modal').prop('hidden', false);
+            });
+            $('#instructor-verification-modal .js-close-modal').on('click', function () {
+                $('#instructor-verification-modal').prop('hidden', true);
+            });
+            if (typeof RichEditor !== 'undefined') {
+                var csrf = document.querySelector('[name=csrfmiddlewaretoken]');
+                RichEditor.configure({
+                    fileUploadUrl: '{{ url("editor_file_uploader") }}',
+                    csrfToken: csrf ? csrf.value : '',
+                });
+                function syncRichEditorSources() {
+                    document.querySelectorAll('textarea[data-rich-editor]').forEach(function (ta) {
+                        var name = ta.getAttribute('data-rich-editor');
+                        try { ta.value = RichEditor.getMarkdown(name) || ''; } catch (e) {}
+                    });
+                }
+                document.querySelectorAll('textarea[data-rich-editor]').forEach(function (ta) {
+                    var name = ta.getAttribute('data-rich-editor');
+                    var mount = document.createElement('div');
+                    mount.setAttribute('data-rich-mount', name);
+                    mount.setAttribute('data-compact', '');
+                    ta.parentNode.insertBefore(mount, ta);
+                    RichEditor.mount(ta.parentNode);
+                    ta.setAttribute('aria-hidden', 'true');
+                    ta.removeAttribute('required');
+                    ta.tabIndex = -1;
+                    ta.classList.add('rich-editor-source');
+                    if (ta.value) {
+                        try { RichEditor.setMarkdown(name, ta.value); } catch (e) {}
+                    }
+                });
+                $('form.course-form').on('click', '[type=submit]', syncRichEditorSources);
+                $('form.course-form').on('submit', syncRichEditorSources);
+            }
+            $('#btn-import-csv').on('click', function () {
+                $('#id_member_csv').trigger('click');
+            });
+            $('#id_member_csv').on('change', function () {
+                var name = (this.files && this.files[0] && this.files[0].name) || '';
+                $('#csv-filename').text(name ? name : {{ _('No file chosen')|htmltojs }});
+                {% if form_mode == 'edit' and class %}
+                if (this.files && this.files[0]) {
+                    $('#class-csv-import-form').trigger('submit');
+                }
+                {% endif %}
+            });
+
+            {% if form_mode != 'edit' %}
+            var $name = $('#id_name');
+            var $year = $('#id_academic_year');
+            var $term = $('#id_term_session');
+            var $instructors = $('#id_instructor_names');
+            var userEditedName = false;
+            function suggestedClassName() {
+                var parts = [];
+                var year = ($year.val() || '').trim();
+                var term = ($term.val() || '').trim();
+                var instructors = ($instructors.val() || '').trim();
+                if (year) parts.push(year);
+                if (term) parts.push(term);
+                if (instructors) parts.push(instructors);
+                return parts.join(' ');
+            }
+            function syncClassName() {
+                if (userEditedName) return;
+                $name.val(suggestedClassName());
+            }
+            $name.on('input', function () {
+                userEditedName = ($name.val() || '').trim() !== suggestedClassName();
+            });
+            $year.add($term).on('change input', syncClassName);
+            $instructors.on('input change keyup paste', syncClassName);
+            syncClassName();
+            {% endif %}
+        });
+    </script>
+{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'course' %}
+    {% set title = _('Course') %}
+    {% set title_url = url('organization_list') %}
+    {% if form_mode == 'edit' and class %}
+        {% set title_crumbs = [
+            {'label': organization.short_name or organization.name, 'url': organization.get_absolute_url()},
+            {'label': class.name, 'url': class.get_absolute_url()},
+            {'label': _('Edit'), 'url': None},
+        ] %}
+    {% else %}
+        {% set title_crumbs = [
+            {'label': organization.short_name or organization.name, 'url': organization.get_absolute_url()},
+            {'label': _('Add class'), 'url': None},
+        ] %}
+    {% endif %}
+    {% include "organization/course-tabs.html" %}
+{% endblock %}
+
+{% block body %}
+<div class="course-redesign oj-ui">
+    <div class="course-form-wrap class-form-demo">
+        {% include "messages.html" %}
+        <form action="" method="post" class="course-form" enctype="multipart/form-data">
+            {% csrf_token %}
+            {% if form.non_field_errors() %}
+                <div class="form-errors">{{ form.non_field_errors() }}</div>
+            {% endif %}
+
+            <section class="class-form-module">
+                <h2>{{ _('Academic offering') }}</h2>
+                <div class="class-form-grid">
+                    <div class="class-form-field">
+                        <label for="{{ form.academic_year.id_for_label }}">{{ form.academic_year.label }}</label>
+                        {{ form.academic_year }}
+                        {{ form.academic_year.errors }}
+                    </div>
+                    <div class="class-form-field">
+                        <label for="{{ form.term_session.id_for_label }}">{{ form.term_session.label }}</label>
+                        {{ form.term_session }}
+                        {{ form.term_session.errors }}
+                    </div>
+                    <div class="class-form-field">
+                        <label for="{{ form.credits.id_for_label }}">{{ form.credits.label }}</label>
+                        {{ form.credits }}
+                        {{ form.credits.errors }}
+                    </div>
+                    <div class="class-form-field">
+                        <label for="{{ form.location.id_for_label }}">{{ form.location.label }}</label>
+                        {{ form.location }}
+                        {% if form.location.help_text %}<div class="helptext">{{ form.location.help_text }}</div>{% endif %}
+                        {{ form.location.errors }}
+                    </div>
+                    <div class="class-form-field">
+                        <label for="{{ form.start_date.id_for_label }}">{{ form.start_date.label }}</label>
+                        {{ form.start_date }}
+                        {{ form.start_date.errors }}
+                    </div>
+                    <div class="class-form-field">
+                        <label for="{{ form.end_date.id_for_label }}">{{ form.end_date.label }}</label>
+                        {{ form.end_date }}
+                        {{ form.end_date.errors }}
+                    </div>
+                </div>
+            </section>
+
+            <section class="class-form-module">
+                <h2>{{ _('Class identity') }}</h2>
+                <div class="class-form-grid">
+                    <div class="class-form-field full">
+                        <label for="{{ form.instructor_names.id_for_label }}">{{ form.instructor_names.label }} <span aria-hidden="true">*</span></label>
+                        {{ form.instructor_names }}
+                        {% if form.instructor_names.help_text %}<div class="helptext">{{ form.instructor_names.help_text }}</div>{% endif %}
+                        {{ form.instructor_names.errors }}
+                    </div>
+                    <div class="class-form-field full">
+                        <label for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+                        {{ form.name }}
+                        {% if form.name.help_text %}<div class="helptext">{{ form.name.help_text }}</div>{% endif %}
+                        {{ form.name.errors }}
+                    </div>
+                    <div class="class-form-field full">
+                        <label for="{{ form.description.id_for_label }}">{{ form.description.label }}</label>
+                        {{ form.description }}
+                        {{ form.description.errors }}
+                    </div>
+                </div>
+            </section>
+
+            <section class="class-form-module">
+                <h2>{{ _('People') }}</h2>
+                <div class="class-form-grid">
+                    <div class="class-form-field">
+                        <label for="{{ form.ta_names.id_for_label }}">{{ form.ta_names.label }}</label>
+                        {{ form.ta_names }}
+                        {% if form.ta_names.help_text %}<div class="helptext">{{ form.ta_names.help_text }}</div>{% endif %}
+                        {{ form.ta_names.errors }}
+                    </div>
+                    <div class="class-form-field full">
+                        <label for="{{ form.admins.id_for_label }}">{{ form.admins.label }}</label>
+                        {{ form.admins }}
+                        {% if form.admins.help_text %}<div class="helptext">{{ form.admins.help_text }}</div>{% endif %}
+                        {{ form.admins.errors }}
+                    </div>
+                    <div class="class-form-field full">
+                        <label for="{{ form.members.id_for_label }}">{{ form.members.label }}</label>
+                        {{ form.members }}
+                        {% if form.members.help_text %}<div class="helptext">{{ form.members.help_text }}</div>{% endif %}
+                        {{ form.members.errors }}
+                        {% if form_mode != 'edit' %}
+                        <div class="members-toolbar">
+                            <button type="button" class="button" id="btn-import-csv">
+                                <i class="fa fa-upload"></i> {{ _('Import CSV') }}
+                            </button>
+                            <span id="csv-filename" class="helptext">{{ _('No file chosen') }}</span>
+                            <div class="visually-hidden">{{ form.member_csv }}</div>
+                            {{ form.member_csv.errors }}
+                        </div>
+                        <div class="helptext" style="margin-top:0.45rem">
+                            {{ _('On create, the CSV is imported when you click Save class. Required header: NetID (or username), First name, Last Name, Email.') }}
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </section>
+
+            <section class="class-form-module">
+                <h2>{{ _('Access and status') }}</h2>
+                <div class="class-form-grid">
+                    <div class="class-form-field">
+                        <label for="{{ form.access_code.id_for_label }}">{{ form.access_code.label }}</label>
+                        {{ form.access_code }}
+                        {{ form.access_code.errors }}
+                    </div>
+                    <div class="class-form-field full checkbox-row">
+                        <label class="checkbox">
+                            {{ form.is_active }}
+                            <strong>{{ form.is_active.label }}</strong>
+                        </label>
+                        {{ form.is_active.errors }}
+                    </div>
+                </div>
+            </section>
+
+            <div class="course-form-actions">
+                <button type="submit" class="button">
+                    <i class="fa fa-save"></i> {{ _('Save class') }}
+                </button>
+                <a class="button" href="{% if class %}{{ class.get_absolute_url() }}{% else %}{{ organization.get_absolute_url() }}{% endif %}">{{ _('Cancel') }}</a>
+            </div>
+        </form>
+
+        {% if form_mode == 'edit' and class %}
+        <section class="class-form-module" style="margin-top:0.9rem">
+            <h2>{{ _('Import students') }}</h2>
+            <form id="class-csv-import-form" method="post"
+                  action="{{ url('class_import_members', organization.id, organization.slug, class.id, class.slug) }}"
+                  enctype="multipart/form-data" class="course-form">
+                {% csrf_token %}
+                <div class="class-form-grid">
+                    <div class="class-form-field full">
+                        <div class="helptext" style="margin:0 0 0.55rem">
+                            {{ _('Choose a Canvas roster CSV to import into this class immediately. Required header columns: NetID (or username), First name, Last Name, Email. Existing accounts are added to the class; new accounts are pre-registered with username=NetID and no local password (students sign in with Duke NetID SSO).') }}
+                        </div>
+                        <div class="members-toolbar">
+                            <button type="button" class="button" id="btn-import-csv">
+                                <i class="fa fa-upload"></i> {{ _('Import CSV') }}
+                            </button>
+                            <span id="csv-filename" class="helptext">{{ _('No file chosen') }}</span>
+                            <div class="visually-hidden">
+                                <input type="file" name="member_csv" id="id_member_csv" accept=".csv,text/csv">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </section>
+        {% endif %}
+    </div>
+</div>
+{% include "organization/instructor-verification-modal.html" %}
+{% endblock %}

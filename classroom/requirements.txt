@@ -1,0 +1,63 @@
+Django>=4.2,<5
+django_compressor>=3
+django-mptt>=0.13
+django-registration-redux>=2.10
+django-reversion>=5
+django-social-share
+django-sortedm2m>=3.1.0
+django-impersonate
+dmoj-wpadmin @ git+https://github.com/DMOJ/dmoj-wpadmin.git
+lxml
+lxml_html_clean
+Pygments
+mistune<2
+social-auth-core==4.3.0
+social-auth-app-django==5.0.0
+pytz
+django-statici18n
+pika
+redis
+websocket-client
+pymysql
+ua-parser
+pyyaml
+jinja2
+django_jinja>=2.5.0
+llist
+requests
+django-fernet-fields @ git+https://github.com/DMOJ/django-fernet-fields.git
+pyotp
+qrcode[pil]
+jsonfield @ git+https://github.com/DMOJ/jsonfield.git
+pymoss
+packaging<22
+celery
+ansi2html @ git+https://github.com/DMOJ/ansi2html.git
+sqlparse
+lupa
+netaddr
+webauthn<1
+bleach[css]
+django-admin-sortable2
+icalendar
+
+# This is a celery dependency whose latest major version is breaking everything.
+importlib-metadata<5
+
+# This is the requirements for Binghan-customization
+markdown
+markdown-katex
+
+# This is for generate docs
+pypandoc
+
+# This is for the AI hint function
+openai
+olefile
+
+# Submission file storage: S3-compatible primary + Box SFTP backup mirror.
+# Capped: box.py depends on SFTPStorage internals that can shift across minor versions.
+django-storages[s3,sftp]>=1.14.4,<1.15
+boto3
+botocore
+paramiko

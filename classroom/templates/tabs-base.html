@@ -1,0 +1,34 @@
+{% macro make_tab(name, fa, url, text, extra_class='') %}
+    <li class="tab{% if tab == name %} active{% endif %}{% if extra_class %} {{ extra_class }}{% endif %}">
+        {%- if url %}<a href="{{ url }}">{% else %}<span>{% endif -%}
+        <i class="tab-icon fa {{ fa }}"></i> {{ text }}
+        {%- if url %}</a>{% else %}</span>{% endif -%}
+    </li>
+{% endmacro %}
+
+<div class="tabs">
+    <h2>
+        {% if title_url %}
+            <a class="tabs-title-link" href="{{ title_url }}">{{ content_title or title }}</a>
+        {% else %}
+            {{ content_title or title }}
+        {% endif %}
+        {% if title_crumbs %}
+            {% for crumb in title_crumbs %}
+                <span class="tabs-title-crumb"> /
+                    {% if crumb.url %}
+                        <a class="tabs-title-link" href="{{ crumb.url }}">{{ crumb.label }}</a>
+                    {% else %}
+                        {{ crumb.label }}
+                    {% endif %}
+                </span>
+            {% endfor %}
+        {% elif title_crumb %}
+            <span class="tabs-title-crumb"> / {{ title_crumb }}</span>
+        {% endif %}
+    </h2>
+    {% block post_tab_spacer %}{% endblock %}
+    <ul>
+        {% block tabs %}{% endblock %}
+    </ul>
+</div>

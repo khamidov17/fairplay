@@ -1,0 +1,275 @@
+{% extends "submission/info-base.html" %}
+{% block media %}
+    {% if enable_comments and comment_form %}
+        {% include "comments/media-css.html" %}
+    {% endif %}
+{% endblock %}
+{% block js_media %}
+    <script type="text/javascript" src="{{ static('event.js') }}"></script>
+    {% if not submission.is_graded and last_msg and submission.results_visible_to(request.user) and submission.problem.submission_type != 'F' %}
+        <script type="text/javascript">
+            $(function () {
+                var blocked = false, request = false, terminalReceived = false;
+                var list = $('#test-cases');
+
+                function update() {
+                    if (blocked) {
+                        request = true;
+                        return;
+                    }
+                    request = false;
+                    blocked = true;
+                    $.ajax({
+                        url: '{{ url('submission_testcases_query') }}',
+                        data: {id: '{{ submission.id }}'}
+                    }).done(function (data) {
+                        list.empty().html(data).find('.toggle').each(function () {
+                            register_toggle($(this));
+                        });
+                        if (terminalReceived) {
+                            var resultEl = document.getElementById('submission-result');
+                            if (resultEl) {
+                                var result = resultEl.getAttribute('data-result');
+                                if (result && result !== 'AC' && result !== 'AB') {
+                                    $('#ai-hint-section').show();
+                                }
+                            }
+                        }
+                        setTimeout(function () {
+                            blocked = false;
+                            if (request)
+                                update();
+                        }, 500);
+                    }).fail(function (data) {
+                        console.log('Failed to update testcases!');
+                    });
+
+                    if ($(window).scrollTop() + $(window).height() > $(document).height() - 100)
+                        $("html, body").animate({scrollTop: $(document).height()}, 0);
+                }
+
+                var receiver = new EventReceiver(
+                    "{{ EVENT_DAEMON_LOCATION }}", "{{ EVENT_DAEMON_POLL_LOCATION }}",
+                    ['sub_{{ submission.id_secret }}'], {{ last_msg }}, function (message) {
+                        switch (message.type) {
+                            case 'aborted':
+                            case 'internal-error':
+                            case 'grading-end':
+                            case 'compile-error':
+                                terminalReceived = true;
+                                $('#abort-button').remove();
+                                $('#grading-label').remove();
+                            case 'test-case':
+                            case 'grading-begin':
+                            case 'processing':
+                                update();
+                        }
+                    }
+                )
+            });
+        </script>
+    {% endif %}
+    {% if not submission.is_graded and submission.problem.submission_type != 'F' %}
+        <script type="text/javascript">
+            $(function () {
+                $(document).keydown(function(e) {
+                    // Ctrl-Enter or Command-Enter
+                    if ((e.metaKey || e.ctrlKey) && e.which == 13) {
+                        $('#abort-button form').submit();
+                    }
+                });
+            });
+        </script>
+    {% endif %}
+    {% if enable_comments and comment_form %}
+        {% include "comments/media-js.html" %}
+    {% endif %}
+{% endblock %}
+
+{% block body %}
+    <br>
+    {% if submission.problem.submission_type == 'F' %}
+        {% if submission.upload %}
+            <div><a href="{{ url('submission_file_download', submission.id) }}">{{ _('Download uploaded file') }}</a></div>
+        {% endif %}
+        {% if not submission.is_graded %}
+            <div class="file-awaiting-grading">{{ _('Awaiting grading') }}</div>
+        {% endif %}
+    {% else %}
+        <div><a href="{{ url('submission_source', submission.id) }}">{{ _('View source') }}</a></div>
+    {% endif %}
+    {% if request.user == submission.user.user or perms.judge.resubmit_other %}
+        <div><a href="{{ url('problem_submit', submission.problem.code, submission.id) }}">{{ _('Resubmit') }}</a></div>
+    {% endif %}
+    {% if grade_desk_url %}
+        <div>
+            <a href="{{ grade_desk_url }}" class="sub-grade-link"
+               title="{{ _('Grade this submission in the grading desk') }}">{{ _('Grade') }}</a>
+        </div>
+    {% endif %}
+    {% if submission.problem.submission_type != 'F' and perms.judge.rejudge_submission and not submission.is_locked %}
+            {% compress js %}
+                <script type="text/javascript">
+                    window.confirm_and_rejudge = function (form) {
+                        if (confirm({{ _('Are you sure you want to rejudge?')|htmltojs }})) {
+                            form.submit();
+                        }
+                    };
+                </script>
+            {% endcompress %}
+            <div>
+                <form action="{{ url('submission_rejudge') }}" method="post">
+                    {% csrf_token %}
+                    <a href="#" onclick="confirm_and_rejudge(parentNode)">{{ _('Rejudge') }}</a>
+                    <input type="hidden" name="id" value="{{ submission.id }}">
+                    <input type="hidden" name="path" value="{{ url('submission_status', submission.id) }}">
+                </form>
+            </div>
+        {% endif %}
+
+    <br>
+    <hr class="half-hr">
+    <br>
+
+    {% if can_trigger_ai_grade %}
+    <div id="ai-grade-section" class="ai-hint-section" style="margin: 1em 0;">
+        <button id="ai-grade-btn" class="btn btn-info" type="button">
+            {{ _('View AI Feedback') }}
+            {% if not is_teacher %}
+            <span id="ai-grade-quota">
+                ({{ rate_remaining }} {{ _('use') }}{{ 's' if rate_remaining != 1 else '' }} {{ _('remaining this window') }})
+            </span>
+            {% endif %}
+        </button>
+        {% if not is_teacher %}
+        <i class="fa fa-question-circle" aria-hidden="true" style="cursor:help;color:var(--oj-text-muted);"
+           title="{{ _('AI grading is limited to %(limit)s runs per %(minutes)s-minute window per problem. You have %(left)s left in this window. Your overall quota is %(quota)s runs.', limit=rate_limit, minutes=rate_window_minutes, left=rate_remaining, quota=remaining) }}"></i>
+        {% endif %}
+        <p style="font-size:12px;color:var(--oj-text-muted);margin:0.4em 0 0;">
+            {% if is_teacher %}
+                {{ _('Run AI Feedback on this submission (teachers are not quota-limited).') }}
+            {% else %}
+                {{ _('AI Feedback uses your latest submission for this problem. Press the button to score this version.') }}
+            {% endif %}
+        </p>
+        <div id="ai-grade-result" style="display:none; margin-top: 0.75em; padding: 0.75em;
+             background: #f0f8ff; border-left: 4px solid #4a90d9;"></div>
+    </div>
+    <script type="text/javascript">
+    document.getElementById('ai-grade-btn').addEventListener('click', function () {
+        var btn = this;
+        btn.disabled = true;
+        btn.textContent = '{{ _('Thinking…') }}';
+        fetch('{{ url('submission_ai_grade', submission.id) }}', {
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}', 'X-Requested-With': 'XMLHttpRequest'},
+            credentials: 'same-origin',
+        }).then(function (r) { return r.json().then(function (data) { return {ok: r.ok, data: data}; }); })
+          .then(function (res) {
+            var box = document.getElementById('ai-grade-result');
+            box.style.display = 'block';
+            if (res.ok && res.data.ok) {
+                var quota = document.getElementById('ai-grade-quota');
+                if (quota && typeof res.data.rate_remaining === 'number') {
+                    quota.textContent = '(' + res.data.rate_remaining + ' use' +
+                        (res.data.rate_remaining === 1 ? '' : 's') +
+                        ' {{ _('remaining this window') }})';
+                }
+                box.textContent = '{{ _('AI Feedback finished. Reloading…') }}';
+                location.reload();
+            } else {
+                box.textContent = (res.data && res.data.error) || '{{ _('Request failed. Please try again.') }}';
+                btn.disabled = false;
+                btn.textContent = '{{ _('View AI Feedback') }}';
+            }
+        }).catch(function () {
+            document.getElementById('ai-grade-result').style.display = 'block';
+            document.getElementById('ai-grade-result').textContent = '{{ _('Request failed. Please try again.') }}';
+            btn.disabled = false;
+            btn.textContent = '{{ _('View AI Feedback') }}';
+        });
+    });
+    </script>
+    {% endif %}
+
+    {% if ai_hints_possible %}
+    <div id="ai-hint-section" class="ai-hint-section" style="margin: 1em 0;{% if not ai_hints_enabled %} display:none;{% endif %}">
+        <button id="ai-hint-btn" class="btn btn-info"
+                {% if ai_hints_remaining == 0 %}disabled{% endif %}>
+            {{ _('Get AI Hint') }}
+            <span id="ai-hint-quota">
+                ({{ ai_hints_remaining }} {{ _('use') }}{{ 's' if ai_hints_remaining != 1 else '' }} {{ _('remaining this window') }})
+            </span>
+        </button>
+        <div id="ai-hint-result" style="display:none; margin-top: 0.75em; padding: 0.75em;
+             background: #f0f8ff; border-left: 4px solid #4a90d9; white-space: pre-wrap;"></div>
+    </div>
+    <script>
+    document.getElementById('ai-hint-btn').addEventListener('click', function() {
+        var btn = this;
+        btn.disabled = true;
+        btn.childNodes[0].nodeValue = '{{ _('Loading\u2026') }} ';
+        fetch('{{ url('submission_ai_hint', submission.id) }}', {
+            method: 'POST',
+            headers: {'X-CSRFToken': '{{ csrf_token }}'},
+        })
+        .then(r => {
+            if (!r.ok) {
+                return r.json().then(data => {
+                    throw new Error(data.error || '{{ _('Server error') }} (' + r.status + ')');
+                });
+            }
+            return r.json();
+        })
+        .then(data => {
+            var box = document.getElementById('ai-hint-result');
+            if (data.hint) {
+                box.textContent = data.hint;
+                box.style.display = 'block';
+                document.getElementById('ai-hint-quota').textContent =
+                    '(' + data.remaining + ' use' + (data.remaining === 1 ? '' : 's') + ' remaining today)';
+                btn.childNodes[0].nodeValue = '{{ _('Get AI Hint') }} ';
+                btn.disabled = data.remaining === 0;
+            } else {
+                box.textContent = '{{ _('Error') }}: ' + (data.error || '{{ _('Empty response from AI. Please try again.') }}');
+                box.style.display = 'block';
+                btn.childNodes[0].nodeValue = '{{ _('Get AI Hint') }} ';
+                btn.disabled = false;
+            }
+        })
+        .catch(e => {
+            document.getElementById('ai-hint-result').textContent = '{{ _('Error') }}: ' + (e.message || '{{ _('Request failed. Please try again.') }}');
+            document.getElementById('ai-hint-result').style.display = 'block';
+            btn.childNodes[0].nodeValue = '{{ _('Get AI Hint') }} ';
+            btn.disabled = false;
+        });
+    });
+    </script>
+    {% endif %}
+
+    {% if submission.problem.submission_type != 'F' %}
+    <div id="test-cases">{% include "submission/status-testcases.html" %}</div>
+
+    {% if not submission.is_graded %}
+        {% if request.user == submission.user.user or perms.judge.abort_any_submission %}
+            <div id="abort-button">
+                <br>
+                <hr class="half-hr">
+                <br>
+                <form action="{{ url('submission_abort', submission.id) }}" method="post"
+                      title="{{ _('Press Ctrl-Enter or Command-Enter to abort.') }}">
+                    {% csrf_token %}
+                    <input style="float:left" type="submit" value="{{ _('Abort') }}" class="button">
+                    <br><br>
+                </form>
+            </div>
+        {% endif %}
+    {% endif %}
+    {% endif %}
+    {% if enable_comments %}
+        <br>
+        <hr class="half-hr">
+        <br>
+        {% include "comments/list.html" %}
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,84 @@
+{# Fill-in-the-blank submission UI: one text input per blank. #}
+<br>
+{% if request.in_contest and submission_limit %}
+    {% if submissions_left > 0 %}
+        <div class="alert alert-warning alert-dismissable">
+            <a class="close">x</a>
+            {% trans left=submissions_left -%}
+                You have {{ left }} submission left
+                {%- pluralize -%}
+                You have {{ left }} submissions left
+            {%- endtrans %}
+        </div>
+    {% else %}
+        <div class="alert alert-warning alert-dismissable">
+            <a class="close">x</a>
+            {{ _('You have 0 submissions left') }}
+        </div>
+    {% endif %}
+{% endif %}
+
+<form id="problem_submit" action="{{ submit_url|default('') }}" method="post" class="form-area">
+    {% csrf_token %}
+    {{ form.non_field_errors() }}
+    <div class="fill-blank-fields">
+        {% for field in form %}
+            <div class="fill-blank-row">
+                <label>{{ field.label }}</label>
+                {{ field.errors }}
+                {{ field }}
+            </div>
+        {% endfor %}
+    </div>
+
+    <hr>
+
+    <div class="submit-bar">
+        <input type="submit" value="{{ _('Submit!') }}" class="button"
+               {% if request.in_contest and submission_limit and not submissions_left %}disabled{% endif %}>
+    </div>
+</form>
+
+<style>
+    .inline-blank-ph {
+        display: inline-block; min-width: 40px; padding: 0 10px; margin: 0 3px;
+        border-bottom: 2px solid #44ad41; text-align: center;
+        color: #44ad41; font-weight: 600; vertical-align: baseline;
+    }
+</style>
+<script>
+    /* 把题面里的 {{blank}} 占位符渲染成带编号的占位（不可编辑，仅指示位置）。
+       学生仍在右侧「Blank N」输入框作答，编号一一对应。 */
+    (function () {
+        function init() {
+            var desc = document.querySelector('.content-description');
+            if (!desc) return;
+            var re = /\{\{\s*blank\s*\}\}/g;
+            var walker = document.createTreeWalker(desc, NodeFilter.SHOW_TEXT, null);
+            var nodes = [], node;
+            while ((node = walker.nextNode())) {
+                if (node.nodeValue.match(re)) nodes.push(node);
+            }
+            if (!nodes.length) return;
+            var idx = 0;
+            nodes.forEach(function (textNode) {
+                var frag = document.createDocumentFragment();
+                var parts = textNode.nodeValue.split(re);
+                parts.forEach(function (part, i) {
+                    if (part) frag.appendChild(document.createTextNode(part));
+                    if (i < parts.length - 1) {
+                        idx++;
+                        var ph = document.createElement('span');
+                        ph.className = 'inline-blank-ph';
+                        ph.textContent = '(' + idx + ')';
+                        ph.setAttribute('title', 'Blank ' + idx);
+                        frag.appendChild(ph);
+                    }
+                });
+                textNode.parentNode.replaceChild(frag, textNode);
+            });
+        }
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+        else init();
+    })();
+</script>

@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block js_media %}
+<script type="text/javascript">
+$(function () {
+    $('#instructor-verification-btn').on('click', function () {
+        $('#instructor-verification-modal').prop('hidden', false);
+    });
+    $('#instructor-verification-modal .js-close-modal').on('click', function () {
+        $('#instructor-verification-modal').prop('hidden', true);
+    });
+    $('#select-all-notes').on('change', function () {
+        $('.note-select').prop('checked', this.checked);
+    });
+    $('.js-note-bulk').on('click', function () {
+        $('#note-action').val($(this).data('action'));
+    });
+    $('#note-bulk-form').on('submit', function (e) {
+        if (!$('.note-select:checked').length) {
+            e.preventDefault();
+            alert({{ _('Select at least one message.')|htmltojs }});
+            return;
+        }
+        if (!$('#note-action').val()) {
+            e.preventDefault();
+            alert({{ _('Choose an action.')|htmltojs }});
+        }
+    });
+});
+</script>
+{% endblock %}
+
+{% block title_ruler %}{% endblock %}
+
+{% block title_row %}
+    {% set tab = 'notifications' %}
+    {% set title = _('Course') %}
+    {% set title_url = url('organization_list') %}
+    {% include "organization/course-tabs.html" %}
+{% endblock %}
+
+{% block body %}
+<div class="course-redesign oj-ui">
+    {% include "messages.html" %}
+
+    <div class="join-toolbar">
+        <form class="join-requests-filters" method="get" action="">
+            <div>
+                <label for="f-status">{{ _('Status') }}</label>
+                <select id="f-status" name="status" class="oj-select" onchange="this.form.submit()">
+                    <option value="unread" {% if status == 'unread' %}selected{% endif %}>{{ _('Unread') }}</option>
+                    <option value="read" {% if status == 'read' %}selected{% endif %}>{{ _('Read') }}</option>
+                    <option value="all" {% if status == 'all' %}selected{% endif %}>{{ _('All') }}</option>
+                </select>
+            </div>
+        </form>
+    </div>
+
+    {% if notifications %}
+        <form id="note-bulk-form" method="post" action="{{ url('organization_notifications') }}?status={{ status }}">
+            {% csrf_token %}
+            <input type="hidden" name="action" id="note-action" value="">
+            <div class="bulk-actions">
+                <button type="submit" class="button js-note-bulk" data-action="mark_read">{{ _('Mark read') }}</button>
+                <button type="submit" class="button js-note-bulk" data-action="mark_unread">{{ _('Mark unread') }}</button>
+            </div>
+            <table class="table join-table">
+                <thead>
+                    <tr>
+                        <th><input type="checkbox" id="select-all-notes"></th>
+                        <th>{{ _('Type') }}</th>
+                        <th>{{ _('Message') }}</th>
+                        <th>{{ _('From') }}</th>
+                        <th>{{ _('Time') }}</th>
+                        <th>{{ _('Open') }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for note in notifications %}
+                        <tr class="{% if note.is_unread %}note-unread{% endif %}">
+                            <td><input type="checkbox" class="note-select" name="notification_ids" value="{{ note.id }}"></td>
+                            <td>
+                                {% if note.kind == 'instructor_verify' %}{{ _('Instructor verification') }}
+                                {% elif note.kind == 'course_join' %}{{ _('Course join') }}
+                                {% elif note.kind == 'class_join' %}{{ _('Class join') }}
+                                {% else %}{{ note.kind }}{% endif %}
+                            </td>
+                            <td>
+                                <div class="note-title">{{ note.title }}</div>
+                                {% if note.body %}
+                                    <div class="note-body">{{ note.body }}</div>
+                                {% endif %}
+                                {% if note.kind == 'instructor_verify' %}
+                                    <div class="note-hint">{{ _('Review instructor applications in Instructor verification.') }}</div>
+                                {% endif %}
+                            </td>
+                            <td>{% if note.actor %}{{ note.actor.username }}{% else %}—{% endif %}</td>
+                            <td>{{ note.created }}</td>
+                            <td>
+                                <a href="{{ note.resolve_link() }}">{{ _('Open') }}</a>
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </form>
+    {% else %}
+        <div class="empty">{{ _('No messages.') }}</div>
+    {% endif %}
+</div>
+
+{% include "organization/instructor-verification-modal.html" %}
+{% endblock %}
