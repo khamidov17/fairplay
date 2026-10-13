@@ -344,9 +344,8 @@
     function dkuojShowLeaveConfirm(form) {
         var overlay = document.getElementById('leave-confirm-overlay');
         if (!overlay) return true;
-        var isSeb = form.getAttribute('data-seb-exit') === '1';
-        var title = isSeb ? {{ _('Exit SEB?')|htmltojs }} : {{ _('Leave?')|htmltojs }};
-        var okLabel = isSeb ? {{ _('Exit SEB')|htmltojs }} : {{ _('Leave')|htmltojs }};
+        var title = {{ _('Leave?')|htmltojs }};
+        var okLabel = {{ _('Leave')|htmltojs }};
         overlay.classList.remove('is-notice');
         document.getElementById('leave-confirm-title').textContent = title;
         document.getElementById('leave-confirm-warn').textContent =
@@ -356,19 +355,13 @@
                 window.DKUOJ_MANUAL_SUBMIT_WARN
             {% endif %};
         var noteEl = document.getElementById('leave-confirm-note');
-        if (isSeb) {
-            noteEl.hidden = false;
-            noteEl.textContent = {{ _('You might not be able to re-enter this assignment.')|htmltojs }};
         {% if assignment_harvest_enabled() %}
-        } else {
             noteEl.hidden = false;
             noteEl.textContent = {{ _('Your saved answers are submitted automatically when the assignment closes.')|htmltojs }};
         {% else %}
-        } else {
             noteEl.hidden = true;
             noteEl.textContent = '';
         {% endif %}
-        }
         document.getElementById('leave-confirm-ok').textContent = okLabel;
         document.getElementById('leave-confirm-ok').classList.remove('leave-confirm-btn-primary');
         document.getElementById('leave-confirm-ok').classList.add('leave-confirm-btn-danger');
@@ -450,7 +443,7 @@
                 if (spec) dkuojOnLeaveContest(spec[1]);
                 return;
             }
-            if ($(form).hasClass('assignment-leave-form') || form.getAttribute('data-seb-exit') === '1') {
+            if ($(form).hasClass('assignment-leave-form')) {
                 event.preventDefault();
                 dkuojShowLeaveConfirm(form);
                 return false;

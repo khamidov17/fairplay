@@ -34,10 +34,6 @@ INSTRUCTOR_PERMISSION_CODENAMES = (
     'add_contest',
     # Org/private field access on assignments the user can already change.
     'create_private_contest',
-    # Lets instructors arm Safe Exam Browser on their own assignments. Without
-    # it the entire SEB card is hidden from them (ContestCreate._restricted_fields),
-    # so they could not even opt into the site default configuration.
-    'contest_seb_requirement',
 )
 TEACHER_PERMISSION_CODENAMES = INSTRUCTOR_PERMISSION_CODENAMES
 

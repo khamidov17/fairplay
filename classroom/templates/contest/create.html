@@ -268,7 +268,7 @@
         }
         .pcv2 a.btn-soft i { color: inherit; }
 
-        /* SEB card: visually consistent with fieldset.module */
+        /* Card: visually consistent with fieldset.module */
         .pcv2 .ac-card {
             background: var(--card-bg);
             border: 1px solid var(--admin-border);
@@ -750,11 +750,8 @@
                  'hide_problem_authors', 'allow_virtual_participation', 'allow_spectate', 'run_pretests_only',
                  'rate_all', 'tester_see_submissions', 'tester_see_scoreboard',
                  'show_short_display', 'is_private', 'is_organization_private',
-                 'limit_join_organizations', 'seb_required', 'allow_ai_hints',
-                 'allow_student_ai_grading', 'hide_sandbox_output',
-                 // Not a model field: the server resolves it to Contest.seb_preset
-                 // (the site default) so the client never names a preset id.
-                 'seb_use_default'].forEach(function(f) {
+                 'limit_join_organizations', 'allow_ai_hints',
+                 'allow_student_ai_grading', 'hide_sandbox_output'].forEach(function(f) {
                     data[f] = fd.has(f);
                 });
 
@@ -1339,8 +1336,7 @@
                 }
                 // Shortening advisory. Cutting the duration or pulling the
                 // deadline in is allowed, but every student who already joined
-                // loses their window as soon as the middleware next runs (and a
-                // SEB exam sends them to the quit URL). Warn inline before the
+                // loses their window as soon as the middleware next runs. Warn inline before the
                 // save rather than blocking it — the teacher may well mean it.
                 function syncShortenWarning() {
                     if (!hasParticipants) return;
@@ -1826,19 +1822,6 @@
                     });
                 });
             syncTagPills();
-
-            // --- SEB default configuration checkbox ---
-            // Anti-cheating is always the former "custom" surface: access code
-            // and SEB fields are shown independently. The High/Medium/Low/Custom
-            // preset radios are gone, so nothing here auto-toggles seb_required.
-            var sebDefault = document.getElementById('id_seb_use_default');
-            var sebManualRows = document.getElementById('seb-manual-rows');
-            function syncSebDefault() {
-                if (!sebDefault || !sebManualRows) return;
-                sebManualRows.style.display = sebDefault.checked ? 'none' : '';
-            }
-            if (sebDefault) sebDefault.addEventListener('change', syncSebDefault);
-            syncSebDefault();
 
             // Auto grade after end: Off unchecks → submit −1; On keeps minutes (≥0).
             var autoGradeCb = document.getElementById('id_auto_grade_after_end');
@@ -2646,40 +2629,6 @@
                 });
             }
 
-            // --- SEB .seb upload (⑤, edit mode only) ---
-            var sebBtn = document.getElementById('seb-upload-btn');
-            var sebInput = document.getElementById('seb-upload-input');
-            if (sebBtn && sebInput) {
-                sebBtn.addEventListener('click', function () {
-                    var file = sebInput.files[0];
-                    if (!file) return showToast({{ _('Choose a .seb file first.')|htmltojs }}, true);
-                    var token = document.querySelector('input[name="csrfmiddlewaretoken"]');
-                    var fd = new FormData();
-                    fd.append('seb_config_file', file);
-                    if (token) fd.append('csrfmiddlewaretoken', token.value);
-                    sebBtn.disabled = true;
-                    fetch({{ url('contest_seb_upload', contest.key)|tojson }}, {
-                        method: 'POST',
-                        body: fd,
-                        credentials: 'same-origin'
-                    })
-                    .then(function (r) { return r.json(); })
-                    .then(function (res) {
-                        if (res.ok) {
-                            showToast({{ _('SEB config uploaded.')|htmltojs }});
-                            // Reload so the new file link appears.
-                            setTimeout(function () { window.location.reload(); }, 800);
-                        } else {
-                            showToast(res.error || {{ _('Upload failed.')|htmltojs }}, true);
-                        }
-                    })
-                    .catch(function () {
-                        showToast({{ _('Upload failed.')|htmltojs }}, true);
-                    })
-                    .finally(function () { sebBtn.disabled = false; });
-                });
-            }
-
             // Edit-page Delete on the Save row: confirm, then POST contest_delete.
             var editorDelBtn = document.getElementById('editor-assignment-delete');
             var editorDelForm = document.getElementById('editor-assignment-delete-form');
@@ -2878,16 +2827,6 @@
                                 </label>
                             </div>
                             {% endif %}
-                            <div class="form-row">
-                                <label for="id_lock_site_during_participation">
-                                    {{ _('Lock the site during participation') }}{{ tip(_('While a student is in this assignment, only its pages, its problems and workspace, their own submissions in it, and logout work. The IDE page, other problems, comments, tickets, blogs and user pages are blocked. Automatic means on for Safe Exam Browser and Exam-format assignments.')) }}
-                                </label>
-                                <select id="id_lock_site_during_participation" name="lock_site_during_participation">
-                                    {% for value, label in (('auto', _('Automatic')), ('on', _('On')), ('off', _('Off'))) %}
-                                    <option value="{{ value }}"{% if prefill.lock_site_during_participation == value %} selected{% endif %}>{{ label }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
                             <div class="form-row form-row-check">
                                 <label>
                                     <input type="checkbox" id="id_allow_ai_hints" name="allow_ai_hints"{% if prefill.allow_ai_hints %} checked{% endif %}>
@@ -3096,20 +3035,13 @@
                     </fieldset>
 
                     <!-- ③ Anti-cheating -->
-                    {# Permission-gate the anti-cheat controls: access codes need judge.contest_access_code,
-                       SEB settings need judge.contest_seb_requirement. Restricted controls are hidden and the
-                       server skips them on save (see ContestCreate._restricted_fields), so a curator can never
-                       arm SEB or set a code they lack permission for. #}
+                    {# Access codes need judge.contest_access_code. The control is hidden without it and the
+                       server skips it on save (see ContestCreate._restricted_fields). #}
                     {% set can_edit_access_code = 'access_code' not in restricted_fields %}
-                    {% set can_edit_seb = 'seb_required' not in restricted_fields and 'seb_browser_exam_keys' not in restricted_fields and 'seb_config_keys' not in restricted_fields and 'seb_quit_url' not in restricted_fields %}
-                    {% if can_edit_access_code or can_edit_seb %}
+                    {% if can_edit_access_code %}
                     <fieldset class="module">
                         <h2>{{ _('Anti-cheating') }}</h2>
                         <div class="form-content">
-                            {# Always the former "custom" surface: access code and SEB are
-                               independent fields, saved as-is. High/Medium/Low/Custom presets
-                               are gone — nothing here auto-toggles seb_required. #}
-                            {% if can_edit_access_code %}
                             <div class="form-row" id="cheat-accesscode-row">
                                 <label>{{ _('Access code') }}{{ tip(_('An optional code to prompt participants before they are allowed to join the assignment. Leave it blank to disable.')) }}</label>
                                 <div class="field ac-inline">
@@ -3120,107 +3052,14 @@
                                     <button type="button" id="gen-access-code" class="btn-soft">{{ _('Generate') }}</button>
                                 </div>
                             </div>
-                            {% endif %}
 
-                            {% if can_edit_seb %}
-                            <div class="ac-card" id="cheat-seb-section">
-                                <div class="form-row">
-                                    <label>{{ _('SEB') }}</label>
-                                    <div class="field">
-                                        <label style="display:inline-flex;align-items:center;gap:0.35rem;font-weight:normal;margin-bottom:0.4rem;">
-                                            <input type="checkbox" id="id_seb_required" name="seb_required"{% if prefill.seb_required %} checked{% endif %}> {{ _('Require Safe Exam Browser') }}{{ tip(_('If enabled, non-staff participants can only access this assignment from inside Safe Exam Browser.')) }}
-                                        </label>
-                                        <div class="ac-help" style="margin-bottom:0.4rem;">
-                                            {{ _('Staff always bypass. At least one Browser Exam Key hash is required when SEB is on.') }}
-                                        </div>
-                                        {# The one-click path: point this assignment at the .seb configuration
-                                           published by the site administrator, so the instructor never has to
-                                           build one or transcribe key hashes. Ticking it hides the manual
-                                           fields below; unticking restores the fully custom path.
-
-                                           The card names seb_linked_preset when this contest already uses one
-                                           — that may be a different (or retired) preset than today's site
-                                           default, and re-pointing it would re-key every student mid-exam, so
-                                           the link is kept until unticked. Disable the checkbox ONLY when
-                                           there is nothing to express: no default published AND no existing
-                                           link. A disabled input is not submitted, which the server would
-                                           otherwise read as "unlink". #}
-                                        {% set seb_shown_preset = seb_linked_preset or seb_default_preset %}
-                                        <div class="ac-card" id="seb-default-row" style="margin-bottom:0.5rem;">
-                                            <label style="display:inline-flex;align-items:center;gap:0.35rem;font-weight:normal;margin-bottom:0.25rem;">
-                                                <input type="checkbox" id="id_seb_use_default" name="seb_use_default"
-                                                       {%- if not seb_shown_preset %} disabled{% endif %}
-                                                       {%- if prefill.seb_use_default %} checked{% endif %}>
-                                                {{ _('Use the default configuration') }}
-                                            </label>
-                                            {% if seb_shown_preset %}
-                                            <div class="ac-help">
-                                                <strong>{{ seb_shown_preset.name }}</strong>{% if seb_shown_preset.description %} — {{ seb_shown_preset.description }}{% endif %}
-                                                {% if seb_linked_preset and contest and seb_linked_preset_downloadable %}<a href="{{ url('seb_preset_config', seb_linked_preset.id) }}?contest={{ contest.key|urlencode }}">{{ _('Preview .seb') }}</a>{% endif %}
-                                            </div>
-                                            {% if seb_linked_preset and seb_linked_preset != seb_default_preset %}
-                                            <div class="ac-help">
-                                                {{ _('This assignment keeps the configuration it was set up with. To move it to the current site default, untick and save, then tick again and save.') }}
-                                            </div>
-                                            {% endif %}
-                                            {% else %}
-                                            <div class="ac-help">
-                                                {{ _('No default configuration has been published yet. Ask a site administrator to add one, or fill in the fields below yourself.') }}
-                                            </div>
-                                            {% endif %}
-                                        </div>
-                                        <div id="seb-manual-rows">
-                                        <div class="form-row" style="margin-bottom:0.4rem;">
-                                            <label style="width:100px;">{{ _('Browser keys') }}</label>
-                                            <div class="field">
-                                                <textarea name="seb_browser_exam_keys" rows="2" placeholder="{{ _('One 64-char hash per line') }}">{{ prefill.seb_browser_exam_keys or '' }}</textarea>
-                                            </div>
-                                        </div>
-                                        <div class="form-row" style="margin-bottom:0.4rem;">
-                                            <label style="width:100px;">{{ _('Config keys') }}</label>
-                                            <div class="field">
-                                                <textarea name="seb_config_keys" rows="2" placeholder="{{ _('One 64-char hash per line (macOS)') }}">{{ prefill.seb_config_keys or '' }}</textarea>
-                                            </div>
-                                        </div>
-                                        <div class="form-row" style="margin-bottom:0.4rem;">
-                                            <label style="width:100px;">{{ _('Quit URL') }}</label>
-                                            <div class="field">
-                                                <input type="text" name="seb_quit_url" placeholder="{{ _('https://...') }}" value="{{ prefill.seb_quit_url or '' }}">
-                                            </div>
-                                        </div>
-                                        <div class="form-row" style="margin-bottom:0.4rem;">
-                                            <label style="width:100px;">{{ _('Config file') }}</label>
-                                            <div class="field">
-                                                {% if contest %}
-                                                    {% if contest.seb_config_file %}
-                                                    {# The stored name is a generated object key, not anything a
-                                                       human uploaded, so link the download rather than show it. #}
-                                                    <div class="ac-inline" style="margin-bottom:0.3rem;">
-                                                        <a href="{{ url('contest_seb_upload', contest.key) }}">{{ _('Download current .seb') }}</a>
-                                                        <span class="unit">{{ _('Upload below to replace.') }}</span>
-                                                    </div>
-                                                    {% endif %}
-                                                    <div class="ac-inline">
-                                                        <input type="file" id="seb-upload-input" accept=".seb">
-                                                        <button type="button" class="btn-soft" id="seb-upload-btn">{{ _('Upload .seb') }}</button>
-                                                    </div>
-                                                {% else %}
-                                                    <div class="ac-help">{{ _('Save the assignment first, then upload the .seb file here — or tick "use the default configuration" above and skip this entirely.') }}</div>
-                                                {% endif %}
-                                            </div>
-                                        </div>
-                                        </div>{# /#seb-manual-rows #}
-                                    </div>
-                                </div>
-                            </div>
-                            {% endif %}
                         </div>
                     </fieldset>
                     {% else %}
                     <fieldset class="module">
                         <h2>{{ _('Anti-cheating') }}</h2>
                         <div class="form-content">
-                            <div class="ac-help">{{ _('Anti-cheating settings (access code / Safe Exam Browser) are managed by administrators.') }}</div>
+                            <div class="ac-help">{{ _('The access code is managed by administrators.') }}</div>
                         </div>
                     </fieldset>
                     {% endif %}
@@ -3445,7 +3284,7 @@
                                 </div>
                             </details>
 
-                            <!-- Access (access_code / organizations / classes live above; SEB in Anti-cheating) -->
+                            <!-- Access (access_code / organizations / classes live above) -->
                             <details class="adv-sub" open>
                                 <summary>{{ _('Access') }} <span class="chev"></span></summary>
                                 <div class="fold-body">

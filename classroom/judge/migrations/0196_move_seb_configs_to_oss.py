@@ -16,9 +16,17 @@ from django.conf import settings
 from django.core.files import File
 from django.db import migrations
 
-from judge.storage import generate_seb_config_key, submission_storage
+from judge.storage import submission_storage
 
 logger = logging.getLogger('judge.storage')
+
+
+def _seb_config_key(scope, original_name):
+    # Frozen copy of the removed judge.storage.generate_seb_config_key (see 0195).
+    import importlib
+    return importlib.import_module('judge.migrations.0195_seb_config_oss_storage')._seb_config_key(
+        scope, original_name)
+
 
 # Keys minted by generate_seb_config_key: seb_configs/YYYY/MM/<scope>/<uuid>.seb
 NEW_KEY_RE = re.compile(r'^seb_configs/\d{4}/\d{2}/')
@@ -40,7 +48,7 @@ def move_seb_configs_to_oss(apps, schema_editor):
             continue
         try:
             with open(source, 'rb') as fh:
-                stored = storage.save(generate_seb_config_key('contest-%d' % pk, name), File(fh))
+                stored = storage.save(_seb_config_key('contest-%d' % pk, name), File(fh))
         except Exception:
             # One unreadable file must not block the whole deploy; the row keeps
             # its old name and an admin can re-upload through the editor.

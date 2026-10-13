@@ -16,8 +16,6 @@ from judge.models.problem import Problem
 from judge.models.profile import Class, Organization, Profile
 from judge.models.submission import Submission
 from judge.ratings import rate_contest
-from judge.storage import generate_seb_config_key, submission_storage
-from judge.utils.seb import first_invalid_seb_key, parse_seb_keys
 from judge.utils.unique_ids import next_prefixed_id
 
 __all__ = [
@@ -29,12 +27,6 @@ __all__ = [
 class MinValueOrNoneValidator(MinValueValidator):
     def compare(self, a, b):
         return a is not None and b is not None and super().compare(a, b)
-
-
-def seb_contest_config_upload_to(instance, filename):
-    """upload_to: opaque OSS key. Uploads only happen in edit mode, so the
-    contest already has a pk to shard by."""
-    return generate_seb_config_key('contest-%s' % (instance.pk or 0), filename)
 
 
 class ContestTag(models.Model):
@@ -275,67 +267,6 @@ class Contest(models.Model):
         help_text=_('When this assignment is active, students can use AI Hint on every attached '
                     "problem. Each problem's own AI Hint setting is unchanged outside this assignment."),
     )
-    seb_required = models.BooleanField(
-        verbose_name=_('require Safe Exam Browser'),
-        default=False,
-        help_text=_('If enabled, non-staff participants can only access this contest from inside Safe Exam Browser.'),
-    )
-    seb_browser_exam_keys = models.TextField(
-        verbose_name=_('allowed SEB Browser Exam Key hashes'),
-        blank=True,
-        default='',
-        help_text=_('One 64-char hex hash per line. Copy from the SEB Configuration Tool — one per '
-                    'supported platform/version. Lines may include trailing comments after the hash.'),
-    )
-    seb_config_keys = models.TextField(
-        verbose_name=_('allowed SEB Config Key hashes'),
-        blank=True,
-        default='',
-        help_text=_('One 64-char hex hash per line. Required for macOS clients (and any newer build '
-                    'that sends only the Config Key).'),
-    )
-    seb_config_file = models.FileField(
-        verbose_name=_('SEB config file (.seb)'),
-        storage=submission_storage,
-        upload_to=seb_contest_config_upload_to,
-        max_length=255,
-        blank=True,
-        null=True,
-        help_text=_('The .seb file students download or launch via sebs:// to enter this exam.'),
-    )
-    seb_quit_url = models.URLField(
-        verbose_name=_('SEB quit URL'),
-        blank=True,
-        default='',
-        help_text=_('Must match the Quit URL set inside the .seb file. Shown to students after final '
-                    'submission so SEB auto-closes. Leave blank to disable.'),
-    )
-    seb_preset = models.ForeignKey(
-        'judge.SEBConfigPreset',
-        verbose_name=_('SEB config preset'),
-        null=True,
-        blank=True,
-        on_delete=models.SET_NULL,
-        related_name='contests',
-        help_text=_('Inherit the .seb file, key hashes and quit URL from a staff-published configuration. '
-                    'Anything filled in above overrides the preset for this contest.'),
-    )
-    seb_require_browser_exam_key = models.BooleanField(
-        verbose_name=_('require SEB Browser Exam Key header'),
-        default=False,
-        help_text=_('Accept only the Browser Exam Key request header, not the Config Key header alone. '
-                    'Stronger, but the macOS SEB build sends only the Config Key, so leave this off if '
-                    'students use macOS. A preset with this option on also turns it on.'),
-    )
-    lock_site_during_participation = models.BooleanField(
-        verbose_name=_('lock the site during participation'),
-        null=True,
-        blank=True,
-        default=None,
-        help_text=_('While a student is in this assignment, allow only its own pages, its problems and '
-                    'workspace, their own submissions in it, and logout. Empty means automatic: on when '
-                    'Safe Exam Browser is required or the format is Exam.'),
-    )
 
     @classmethod
     def generate_unique_key(cls):
@@ -379,69 +310,6 @@ class Contest(models.Model):
         else:
             if not isinstance(label, str):
                 raise ValidationError('Contest problem label script: script should return a string.')
-
-        if self.seb_required:
-            seb_errors = {}
-            # Validated against the EFFECTIVE keys: a contest that inherits a
-            # preset needs nothing of its own, which is what lets an instructor
-            # arm SEB in a single save instead of uploading a .seb by hand.
-            if not self.seb_allowed_bek():
-                seb_errors['seb_browser_exam_keys'] = _(
-                    'At least one Browser Exam Key hash is required when Safe Exam Browser is enabled.')
-            if not self.seb_allowed_config_keys():
-                seb_errors['seb_config_keys'] = _(
-                    'At least one Config Key hash is required when Safe Exam Browser is enabled '
-                    '(the macOS SEB build only sends the Config Key).')
-            # Only this contest's own fields are hex-checked; the preset
-            # validates its own keys when staff save it.
-            for field in ('seb_browser_exam_keys', 'seb_config_keys'):
-                invalid = first_invalid_seb_key(getattr(self, field))
-                if invalid is not None:
-                    seb_errors[field] = _('"%s" is not a 64-character hex hash.') % invalid
-            seb_errors.update(self._seb_mixed_source_errors())
-            if seb_errors:
-                raise ValidationError(seb_errors)
-
-    def _seb_source_of(self, own_value, preset_attr):
-        """Which record supplies a SEB setting: this contest, the preset, or nothing.
-
-        Every SEB accessor is "own value, else preset" — a replace, never a union.
-        """
-        if own_value:
-            return 'contest'
-        if self.seb_preset_id and getattr(self.seb_preset, preset_attr):
-            return 'preset'
-        return None
-
-    def _seb_mixed_source_errors(self):
-        """Reject a .seb from one record with key hashes from another.
-
-        The keys authenticate the exact file students receive, so drawing the two
-        from different records locks out every platform whose key is wrong —
-        silently, since a stale Config Key is invisible on Windows (which matches
-        on the Browser Exam Key first) and fatal on macOS (which sends only the
-        Config Key).
-        """
-        file_source = self._seb_source_of(self.seb_config_file, 'config_file')
-        if file_source is None:
-            return {}
-        where = {'contest': _('this assignment'), 'preset': _('the shared configuration')}
-        errors = {}
-        for field, own, preset_attr, label in (
-            ('seb_browser_exam_keys', self._parse_seb_keys(self.seb_browser_exam_keys),
-             'browser_exam_keys', _('Browser Exam Key')),
-            ('seb_config_keys', self._parse_seb_keys(self.seb_config_keys),
-             'config_keys', _('Config Key')),
-        ):
-            key_source = self._seb_source_of(own, preset_attr)
-            if key_source is not None and key_source != file_source:
-                errors[field] = _(
-                    'The .seb file comes from %(file_from)s but the %(label)s hashes come from '
-                    '%(keys_from)s. The hashes authenticate the exact file students receive, so this '
-                    'combination locks them out — on macOS silently, since it authenticates with the '
-                    'Config Key alone. Use the file and the hashes from the same place.',
-                ) % {'file_from': where[file_source], 'label': label, 'keys_from': where[key_source]}
-        return errors
 
     def is_in_contest(self, user):
         if user.is_authenticated:
@@ -655,9 +523,8 @@ class Contest(models.Model):
         if not user.is_authenticated:
             return False
 
-        # Can be populated using annotate for performance in list views. Spectators are
-        # included (SEB-2): a spectator skips the SEB gate, so they may only spectate,
-        # never sit the assignment as a live participant.
+        # Can be populated using annotate for performance in list views. Editors, testers and
+        # spectators may only spectate, never sit the assignment as a live participant.
         editor_or_tester = getattr(self, 'editor_or_tester', None)
         if editor_or_tester is None:
             pid = user.profile.id
@@ -807,85 +674,6 @@ class Contest(models.Model):
             return False
         return self.is_changeable_by(user)
 
-    _parse_seb_keys = staticmethod(parse_seb_keys)
-
-    # Every SEB accessor below resolves this contest's own value first and falls
-    # back to the linked preset, so a contest can inherit a staff-published
-    # configuration wholesale yet still override any single part of it.
-    def seb_allowed_bek(self):
-        return self._parse_seb_keys(self.seb_browser_exam_keys) or \
-            (self.seb_preset.allowed_bek() if self.seb_preset_id else [])
-
-    def seb_allowed_config_keys(self):
-        return self._parse_seb_keys(self.seb_config_keys) or \
-            (self.seb_preset.allowed_config_keys() if self.seb_preset_id else [])
-
-    @property
-    def seb_effective_config_file(self):
-        if self.seb_config_file:
-            return self.seb_config_file
-        return self.seb_preset.config_file if self.seb_preset_id else None
-
-    @property
-    def seb_effective_quit_url(self):
-        if self.seb_quit_url:
-            return self.seb_quit_url
-        return self.seb_preset.quit_url if self.seb_preset_id else ''
-
-    def seb_requires_browser_exam_key(self):
-        if self.seb_require_browser_exam_key:
-            return True
-        return bool(self.seb_preset_id and self.seb_preset.require_browser_exam_key)
-
-    def request_matches_seb(self, request):
-        from judge.utils.seb import request_matches_seb
-        return request_matches_seb(request, self.seb_allowed_bek(), self.seb_allowed_config_keys(),
-                                   require_bek=self.seb_requires_browser_exam_key())
-
-    @property
-    def locks_site_during_participation(self):
-        """Whether a live participant is confined to this assignment's pages (exam surface lock)."""
-        if self.lock_site_during_participation is not None:
-            return self.lock_site_during_participation
-        return bool(self.seb_required or self.format_name == 'exam')
-
-    def seb_config_participant_to_be(self, user):
-        """Whether ``user`` is on this contest's roster (may sit it), ignoring staff roles.
-
-        A class-restricted contest needs class membership, an organization-private one
-        without classes needs organization membership, a private one needs the user in
-        ``private_contestants``, and ``limit_join_organizations`` must also hold. A contest
-        with no roster at all (public) can be joined by anyone who can see it.
-        """
-        if not user.is_authenticated:
-            return False
-        try:
-            self.access_check(user)
-        except (self.Inaccessible, self.PrivateContest):
-            return False
-        profile = user.profile
-        if self.is_private and not self.private_contestants.filter(id=profile.id).exists():
-            return False
-        if self.is_organization_private:
-            if self.classes.exists():
-                if not self.classes.filter(id__in=profile.classes.all()).exists():
-                    return False
-            elif not self.organizations.filter(id__in=profile.organizations.all()).exists():
-                return False
-        if self.limit_join_organizations and \
-                not self.join_organizations.filter(id__in=profile.organizations.all()).exists():
-            return False
-        return True
-
-    def user_bypasses_seb(self, user):
-        if not user.is_authenticated:
-            return False
-        if user.has_perm('judge.edit_all_contest'):
-            return True
-        pid = user.profile.id
-        return (pid in self.editor_ids or pid in self.tester_ids or
-                pid in self.spectator_ids or self.is_viewable_by_org_admin(user))
-
     @classmethod
     def get_visible_contests(cls, user):
         if not user.is_authenticated:
@@ -949,7 +737,6 @@ class Contest(models.Model):
             ('contest_problem_label', _('Edit contest problem label script')),
             ('lock_contest', _('Change lock status of contest')),
             ('override_performance_ceiling', _('Override performance ceiling of contest')),
-            ('contest_seb_requirement', _('Configure Safe Exam Browser requirement on contests')),
         )
         verbose_name = _('contest')
         verbose_name_plural = _('contests')

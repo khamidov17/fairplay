@@ -37,19 +37,7 @@
     {% if request.user.is_authenticated %}
         {% if contest.started or is_editor or is_tester %}
             {% set in_contest = contest.is_in_contest(request.user) %}
-            {% set seb_block_join = seb_required and not seb_user_bypasses and not seb_request_valid and not in_contest %}
-            {% if seb_block_join %}
-                <div class="contest-join-pseudotab unselectable" style="display:flex; gap:8px; align-items:center;">
-                    {% if seb_launch.sebs_url %}
-                        <a class="button" href="{{ seb_launch.sebs_url }}"
-                           data-seb-token-url="{{ seb_launch.token_url }}">{{ _('Launch in SEB') }}</a>
-                    {% endif %}
-                    {% if seb_launch.download_url %}
-                        <a class="button" href="{{ seb_launch.download_url }}">{{ _('Download config file') }}</a>
-                    {% endif %}
-                </div>
-                {% include "contest/seb-launch-js.html" %}
-            {% elif contest.ended %}
+            {% if contest.ended %}
                 {# Allow users to leave the virtual contest #}
                 {% if in_contest %}
                     <form action="{{ url('contest_leave', contest.key) }}" method="post"
@@ -76,16 +64,12 @@
                           data-unsubmitted="{{ _progress.unsubmitted }}"
                           data-submitted-names="{{ _progress.submitted_names|json }}"
                           data-unsubmitted-names="{{ _progress.unsubmitted_names|json }}"
-                          {% if request.participation.spectate %}data-spectate="1"{% endif %}
-                          {% if contest.seb_required and not request.participation.spectate %}data-seb-exit="1"{% endif %}>
+                          {% if request.participation.spectate %}data-spectate="1"{% endif %}>
                         {% csrf_token %}
                         <input type="submit"
-                               {% if contest.seb_required and not request.participation.spectate %}class="seb-exit"{% endif %}
                                value="
                             {%- if request.participation.spectate %}
                                 {{- _('Stop spectating') -}}
-                            {% elif contest.seb_required %}
-                                {{- _('Exit SEB') -}}
                             {% else %}
                                 {{- _('Leave contest') -}}
                             {% endif %}">

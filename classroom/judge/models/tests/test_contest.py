@@ -1041,7 +1041,7 @@ class ContestTestCase(CommonDataMixin, TestCase):
 
 
 class P1ContestAccessTestCase(CommonDataMixin, TestCase):
-    """SEB-2 (spectators never live-join) and the course-teacher breadth risk (REVIEW.md 5)."""
+    """Spectators never live-join (SEB-2), and the course-teacher breadth risk (REVIEW.md 5)."""
 
     @classmethod
     def setUpTestData(cls):
@@ -1049,7 +1049,7 @@ class P1ContestAccessTestCase(CommonDataMixin, TestCase):
         from judge.models import Class
         from judge.models.tests.util import create_organization
         cls.spectator = create_user(username='p1_spectator')
-        cls.seb_exam = create_contest(key='p1_seb_exam', seb_required=True, spectators=('p1_spectator',))
+        cls.exam = create_contest(key='p1_exam', spectators=('p1_spectator',))
 
         cls.course = create_organization(name='p1_course', admins=('staff_organization_admin',))
         cls.klass = Class.objects.create(organization=cls.course, name='P1 Course Class', slug='p1-course-class')
@@ -1069,18 +1069,18 @@ class P1ContestAccessTestCase(CommonDataMixin, TestCase):
         )
 
     def test_spectator_cannot_live_join(self):
-        self.assertTrue(self.seb_exam.is_accessible_by(self.spectator))
-        self.assertFalse(self.seb_exam.is_live_joinable_by(self.spectator))
-        self.assertTrue(self.seb_exam.is_spectatable_by(self.spectator))
+        self.assertTrue(self.exam.is_accessible_by(self.spectator))
+        self.assertFalse(self.exam.is_live_joinable_by(self.spectator))
+        self.assertTrue(self.exam.is_spectatable_by(self.spectator))
         # Annotated list views use the same rule.
-        contest = Contest.objects.get(id=self.seb_exam.id)
+        contest = Contest.objects.get(id=self.exam.id)
         self.assertFalse(contest.is_live_joinable_by(self.spectator))
 
     def test_spectator_cannot_live_join_through_view(self):
         self.client.force_login(self.spectator)
-        self.client.post('/contest/%s/join' % self.seb_exam.key)
+        self.client.post('/contest/%s/join' % self.exam.key)
         self.assertFalse(ContestParticipation.objects.filter(
-            contest=self.seb_exam, user=self.spectator.profile, virtual=ContestParticipation.LIVE).exists())
+            contest=self.exam, user=self.spectator.profile, virtual=ContestParticipation.LIVE).exists())
 
     def test_unpublished_assignment_hidden_from_course_teachers(self):
         for user in (self.joined_teacher, self.class_instructor):
@@ -1143,102 +1143,6 @@ class MinValueOrNoneValidatorTestCase(SimpleTestCase):
 
         with self.assertRaises(ValidationError):
             MinValueOrNoneValidator(100)(0)
-
-
-class ContestSEBTestCase(CommonDataMixin, TestCase):
-    @classmethod
-    def setUpTestData(self):
-        super().setUpTestData()
-        self.users.update({
-            'seb_editor': create_user(username='seb_editor'),
-            'seb_tester': create_user(username='seb_tester'),
-            'seb_spectator': create_user(username='seb_spectator'),
-            'seb_edit_all': create_user(
-                username='seb_edit_all',
-                user_permissions=('edit_all_contest',),
-            ),
-        })
-
-        self.seb_contest = create_contest(
-            key='seb',
-            seb_required=True,
-            seb_browser_exam_keys='a' * 64,
-            seb_config_keys='b' * 64,
-            authors=('seb_editor',),
-            testers=('seb_tester',),
-            spectators=('seb_spectator',),
-        )
-
-        self.seb_org_contest = create_contest(
-            key='seborg',
-            seb_required=True,
-            seb_browser_exam_keys='a' * 64,
-            seb_config_keys='b' * 64,
-            is_organization_private=True,
-            organizations=('open',),
-        )
-
-    def test_parse_seb_keys(self):
-        self.assertEqual(Contest._parse_seb_keys(''), [])
-        self.assertEqual(Contest._parse_seb_keys('\n  \n'), [])
-        self.assertEqual(
-            Contest._parse_seb_keys('%s  # Windows 3.7\n\n%s comment\n' % ('A' * 64, 'b' * 64)),
-            ['a' * 64, 'b' * 64],
-        )
-
-    def test_seb_allowed_keys(self):
-        self.assertEqual(self.seb_contest.seb_allowed_bek(), ['a' * 64])
-        self.assertEqual(self.seb_contest.seb_allowed_config_keys(), ['b' * 64])
-
-    def test_user_bypasses_seb(self):
-        contest = self.seb_contest
-        self.assertFalse(contest.user_bypasses_seb(self.users['anonymous']))
-        self.assertFalse(contest.user_bypasses_seb(self.users['normal']))
-        self.assertTrue(contest.user_bypasses_seb(self.users['seb_editor']))
-        self.assertTrue(contest.user_bypasses_seb(self.users['seb_tester']))
-        self.assertTrue(contest.user_bypasses_seb(self.users['seb_spectator']))
-        self.assertTrue(contest.user_bypasses_seb(self.users['seb_edit_all']))
-        self.assertTrue(contest.user_bypasses_seb(self.users['superuser']))
-
-    def test_org_admin_bypasses_seb(self):
-        self.assertTrue(self.seb_org_contest.user_bypasses_seb(self.users['staff_organization_admin']))
-        self.assertFalse(self.seb_org_contest.user_bypasses_seb(self.users['normal']))
-        # admin of an unrelated organization does not bypass
-        self.assertFalse(self.seb_contest.user_bypasses_seb(self.users['staff_organization_admin']))
-
-    def test_seb_clean_requires_keys(self):
-        contest = create_contest(key='sebclean')
-        contest.seb_required = True
-        contest.seb_browser_exam_keys = ''
-        contest.seb_config_keys = ''
-        with self.assertRaisesRegex(ValidationError, 'Browser Exam Key hash is required'):
-            contest.full_clean()
-        contest.seb_browser_exam_keys = 'c' * 64
-        with self.assertRaisesRegex(ValidationError, 'Config Key hash is required'):
-            contest.full_clean()
-        contest.seb_config_keys = 'd' * 64
-        contest.full_clean()
-
-    def test_seb_clean_rejects_malformed_keys(self):
-        contest = create_contest(key='sebcleanhex')
-        contest.seb_required = True
-        contest.seb_browser_exam_keys = 'not-a-hash'
-        contest.seb_config_keys = 'd' * 64
-        with self.assertRaisesRegex(ValidationError, 'not a 64-character hex hash'):
-            contest.full_clean()
-        contest.seb_browser_exam_keys = 'c' * 64
-        contest.seb_config_keys = 'd' * 63  # too short
-        with self.assertRaisesRegex(ValidationError, 'not a 64-character hex hash'):
-            contest.full_clean()
-        contest.seb_config_keys = '%s  # trailing comments are fine' % ('D' * 64)
-        contest.full_clean()
-
-    def test_seb_clean_not_required_when_disabled(self):
-        contest = create_contest(key='sebcleanoff')
-        contest.seb_required = False
-        contest.seb_browser_exam_keys = ''
-        contest.seb_config_keys = ''
-        contest.full_clean()
 
 
 class ContestProblemDisplayNameTestCase(CommonDataMixin, TestCase):

@@ -243,7 +243,7 @@ class ContestCreateViewTestCase(CommonDataMixin, TestCase):
         super().setUpTestData()
         cls.users.update({
             # Full contest editor: edit_all_contest plus the granular permissions
-            # the Django admin gates behind (visibility, access codes, SEB,
+            # the Django admin gates behind (visibility, access codes,
             # ratings, org scoping...). Without them, ContestCreate._restricted_fields
             # correctly refuses to write those fields — so tests asserting
             # is_visible / organizations are saved must grant them.
@@ -252,7 +252,7 @@ class ContestCreateViewTestCase(CommonDataMixin, TestCase):
                 is_staff=True,
                 user_permissions=(
                     'add_contest', 'edit_own_contest', 'edit_all_contest', 'contest_rating',
-                    'lock_contest', 'contest_access_code', 'contest_seb_requirement',
+                    'lock_contest', 'contest_access_code',
                     'create_private_contest', 'change_contest_visibility',
                     'contest_problem_label', 'override_performance_ceiling',
                 ),

@@ -72,7 +72,7 @@ class ContestEditPreservesSubmissionsTestCase(GradeTestBase):
             'allow_virtual_participation': True, 'run_pretests_only': False,
             'rate_all': False, 'tester_see_submissions': False, 'tester_see_scoreboard': False,
             'show_short_display': False, 'is_private': False, 'is_organization_private': False,
-            'limit_join_organizations': False, 'seb_required': False,
+            'limit_join_organizations': False,
             'format_name': 'default', 'scoreboard_visibility': 'V', 'points_precision': 3,
             'authors': [editor.profile.id], 'curators': [], 'testers': [], 'spectators': [],
             'organizations': [], 'classes': [], 'join_organizations': [], 'tags': [],

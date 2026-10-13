@@ -22,7 +22,7 @@ from judge.utils.safe_json import script_json
 from judge.utils.user_search import apply_profile_choice_labels, profile_choice_label
 from judge.utils.views import NoBatchDeleteMixin
 from judge.widgets import AdminAceWidget, AdminHeavySelect2MultipleWidget, AdminHeavySelect2Widget, \
-    AdminMartorWidget, AdminSelect2MultipleWidget, AdminSelect2Widget, PrivateFileInput
+    AdminMartorWidget, AdminSelect2MultipleWidget, AdminSelect2Widget
 
 
 class AdminHeavySelect2Widget(AdminHeavySelect2Widget):
@@ -138,9 +138,6 @@ class ContestForm(ModelForm):
             'view_contest_scoreboard': AdminHeavySelect2MultipleWidget(data_view='profile_select2'),
             'view_contest_submissions': AdminHeavySelect2MultipleWidget(data_view='profile_select2'),
             'description': AdminMartorWidget(attrs={'data-markdownfy-url': reverse_lazy('contest_preview')}),
-            # The .seb file lives in private object storage with no linkable URL;
-            # the stock widget would 500 this form on any contest that has one.
-            'seb_config_file': PrivateFileInput,
         }
 
 
@@ -299,7 +296,7 @@ class ContestAdmin(NoBatchDeleteMixin, SortableAdminBase, VersionAdmin):
         (_('Settings'), {'fields': ('is_visible', 'use_clarifications', 'hide_problem_tags', 'hide_problem_authors',
                                     'show_short_display', 'run_pretests_only', 'locked_after', 'scoreboard_visibility',
                                     'points_precision', 'allow_virtual_participation', 'allow_spectate',
-                                    'hide_sandbox_output', 'lock_site_during_participation')}),
+                                    'hide_sandbox_output')}),
         (_('Scheduling'), {'fields': ('start_time', 'end_time', 'time_limit')}),
         (_('Details'), {'fields': ('description', 'og_image', 'logo_override_image', 'tags', 'summary')}),
         (_('Format'), {'fields': ('format_name', 'format_config', 'problem_label_script')}),
@@ -310,14 +307,6 @@ class ContestAdmin(NoBatchDeleteMixin, SortableAdminBase, VersionAdmin):
                                   'performance_ceiling_override', 'rate_exclude')}),
         (_('Access'), {'fields': ('access_code', 'private_contestants', 'organizations', 'classes',
                                   'join_organizations', 'view_contest_scoreboard', 'view_contest_submissions')}),
-        (_('Safe Exam Browser'), {
-            'fields': ('seb_required', 'seb_preset', 'seb_browser_exam_keys', 'seb_config_keys',
-                       'seb_config_file', 'seb_quit_url', 'seb_require_browser_exam_key'),
-            'description': _('Restrict the contest to clients running Safe Exam Browser. '
-                             'Staff (editors, testers, spectators, org admins) always bypass. '
-                             'Pick a preset to inherit a published configuration; the fields below '
-                             'override it per contest.'),
-        }),
         (_('Justice'), {'fields': ('banned_users',)}),
     )
     list_display = ('key', 'name', 'is_visible', 'is_rated', 'locked_after', 'start_time', 'end_time', 'time_limit',
@@ -466,9 +455,6 @@ class ContestAdmin(NoBatchDeleteMixin, SortableAdminBase, VersionAdmin):
             readonly += ['locked_after']
         if not request.user.has_perm('judge.contest_access_code'):
             readonly += ['access_code']
-        if not request.user.has_perm('judge.contest_seb_requirement'):
-            readonly += ['seb_required', 'seb_preset', 'seb_browser_exam_keys', 'seb_config_keys',
-                         'seb_config_file', 'seb_quit_url', 'seb_require_browser_exam_key']
         if not request.user.has_perm('judge.create_private_contest'):
             readonly += ['private_contestants', 'organizations']
             if not request.user.has_perm('judge.change_contest_visibility'):

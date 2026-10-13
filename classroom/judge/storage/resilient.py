@@ -85,20 +85,6 @@ def generate_problem_import_key(draft_id, original_name, now=None):
     return 'import_test_data/%04d/%02d/%d/%s%s' % (now.year, now.month, draft_id or 0, uuid.uuid4().hex, ext)
 
 
-def generate_seb_config_key(scope, original_name, now=None):
-    """Object key for Safe Exam Browser ``.seb`` configs (same store as submission files).
-
-    ``scope`` separates staff-published presets from per-contest uploads; it is
-    sanitised because it reaches an object key (Box strips odd characters from
-    names, and a caller-supplied '/' would silently reshape the hierarchy)."""
-    now = now or timezone.now()
-    ext = posixpath.splitext(original_name)[1].lower()
-    if not _EXT_RE.fullmatch(ext):
-        ext = ''
-    scope = re.sub(r'[^a-z0-9_-]', '', str(scope).lower())[:40] or 'misc'
-    return 'seb_configs/%04d/%02d/%s/%s%s' % (now.year, now.month, scope, uuid.uuid4().hex, ext)
-
-
 class ResilientStorage(Storage):
     """Composite storage: every write goes to the primary and is queued for an async
     mirror to the backup; reads fall back to the backup when the primary is sick.

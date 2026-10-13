@@ -13,10 +13,7 @@ from unittest.mock import patch
 
 from django.contrib.admin.models import ADDITION, CHANGE, LogEntry
 from django.contrib.contenttypes.models import ContentType
-from django.core.cache import cache
 from django.core.exceptions import ValidationError
-from django.core.files.base import ContentFile
-from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
 from django.test import Client, TestCase, override_settings
 from django.urls import reverse
@@ -24,24 +21,9 @@ from django.utils import timezone
 
 from judge.models import (
     Class, Contest, ContestParticipation, ContestTag, Organization,
-    SEBConfigPreset, StoredFileRecord,
 )
-from judge.models.seb import DEFAULT_PRESET_CACHE_KEY
 from judge.models.tests.util import CommonDataMixin, create_contest, create_problem, create_user
 from judge.views.contests import ContestCreate
-
-PRESET_BEK = 'e' * 64
-PRESET_CFG = 'f' * 64
-
-
-def _create_preset(**kwargs):
-    """The site-default SEB configuration an instructor can adopt in one click."""
-    kwargs.setdefault('is_default', True)
-    preset = SEBConfigPreset(name='Editor default', browser_exam_keys=PRESET_BEK,
-                             config_keys=PRESET_CFG, **kwargs)
-    preset.config_file.save('editor_default.seb', ContentFile(b'SEB config'), save=False)
-    preset.save()
-    return preset
 
 
 class ContestEditorHelperTestCase(TestCase):
@@ -117,13 +99,13 @@ class ContestEditViewTestCase(CommonDataMixin, TestCase):
         super().setUpTestData()
         # A full contest editor: edit_all_contest plus every granular permission
         # the Django admin gates behind (contest_rating, lock_contest, access
-        # codes, SEB, visibility, private contests, label script, perf ceiling).
+        # codes, visibility, private contests, label script, perf ceiling).
         # Without them, ContestCreate._restricted_fields correctly refuses to
         # write those fields — see the permission-gating tests below.
         cls.editor = create_user(username='contest_editor', user_permissions=(
             'add_contest', 'edit_own_contest', 'edit_all_contest', 'contest_rating', 'lock_contest',
             'contest_access_code',
-            'contest_seb_requirement', 'create_private_contest', 'change_contest_visibility',
+            'create_private_contest', 'change_contest_visibility',
             'contest_problem_label', 'override_performance_ceiling',
         ))
         cls.curator = create_user(username='contest_curator', user_permissions=('edit_own_contest',))
@@ -163,13 +145,12 @@ class ContestEditViewTestCase(CommonDataMixin, TestCase):
             'allow_virtual_participation': True, 'allow_spectate': False, 'run_pretests_only': True,
             'rate_all': False, 'tester_see_submissions': False, 'tester_see_scoreboard': True,
             'show_short_display': False, 'is_private': False, 'is_organization_private': False,
-            'limit_join_organizations': False, 'seb_required': False,
+            'limit_join_organizations': False,
             'format_name': 'default', 'scoreboard_visibility': 'V', 'points_precision': 3,
             'format_config': '', 'access_code': '', 'problem_label_script': '',
             'og_image': '', 'logo_override_image': '', 'summary': '',
             'rating_floor': '', 'rating_ceiling': '', 'performance_ceiling_override': '',
-            'locked_after': '', 'seb_browser_exam_keys': '', 'seb_config_keys': '',
-            'seb_quit_url': '', 'description_extra': None,
+            'locked_after': '', 'description_extra': None,
             'authors': [], 'curators': [], 'testers': [], 'spectators': [],
             'organizations': [], 'classes': [], 'join_organizations': [], 'tags': [],
             'private_contestants': [], 'rate_exclude': [], 'view_contest_scoreboard': [],
@@ -258,29 +239,6 @@ class ContestEditViewTestCase(CommonDataMixin, TestCase):
         html = response.content.decode()
         self.assertRegex(html, r'id="id_hide_sandbox_output"[^>]*checked')
         self.assertNotIn('lock_non_code_part', html)
-
-    def test_post_roundtrips_lock_site_during_participation(self):
-        self.client.force_login(self.editor)
-        url = reverse('contest_edit', args=['editablecontest'])
-        response = self.client.get(url)
-        self.assertEqual(response.context['prefill']['lock_site_during_participation'], 'auto')
-        self.assertContains(response, 'id="id_lock_site_during_participation"')
-        for choice, stored in (('off', False), ('on', True), ('auto', None)):
-            with self.subTest(choice=choice):
-                response = self.client.post(
-                    url, data=json.dumps(self._full_payload(lock_site_during_participation=choice)),
-                    content_type='application/json',
-                )
-                self.assertEqual(response.status_code, 200, response.content)
-                self.contest.refresh_from_db()
-                self.assertIs(self.contest.lock_site_during_participation, stored)
-        # A client that does not send the field keeps the stored value.
-        self.contest.lock_site_during_participation = False
-        self.contest.save(update_fields=['lock_site_during_participation'])
-        response = self.client.post(url, data=json.dumps(self._full_payload()), content_type='application/json')
-        self.assertEqual(response.status_code, 200, response.content)
-        self.contest.refresh_from_db()
-        self.assertIs(self.contest.lock_site_during_participation, False)
 
     def test_get_echoes_using_profile_timezone(self):
         """The editor's Validity fields echo stored UTC in the profile timezone."""
@@ -488,36 +446,6 @@ class ContestEditViewTestCase(CommonDataMixin, TestCase):
         self.contest.refresh_from_db()
         self.assertFalse(self.contest.is_visible)
 
-    def test_curator_cannot_arm_seb_or_set_access_code(self):
-        # contest_seb_requirement / contest_access_code are separate permissions.
-        self.client.force_login(self.curator)
-        payload = self._full_payload(
-            seb_required=True, seb_browser_exam_keys='a' * 64,
-            access_code='sneaky',
-        )
-        response = self.client.post(
-            reverse('contest_edit', args=['editablecontest']),
-            data=json.dumps(payload), content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 200)
-        self.contest.refresh_from_db()
-        self.assertFalse(self.contest.seb_required)
-        self.assertEqual(self.contest.access_code, '')
-
-    def test_curator_cannot_adopt_default_seb_preset(self):
-        # seb_preset is gated by the same permission as the rest of the SEB
-        # fields, so the one-click checkbox is not a way around it.
-        _create_preset()
-        self.client.force_login(self.curator)
-        payload = self._full_payload(seb_required=True, seb_use_default=True)
-        response = self.client.post(
-            reverse('contest_edit', args=['editablecontest']),
-            data=json.dumps(payload), content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 200)
-        self.contest.refresh_from_db()
-        self.assertIsNone(self.contest.seb_preset)
-
     def test_curator_cannot_mark_rated_or_lock(self):
         # contest_rating / lock_contest are separate permissions.
         self.client.force_login(self.curator)
@@ -694,6 +622,20 @@ class ContestEditViewTestCase(CommonDataMixin, TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         mock_rescore.assert_not_called()
 
+    def test_curator_cannot_set_access_code(self):
+        # contest_access_code is a separate permission.
+        self.client.force_login(self.curator)
+        payload = self._full_payload(
+            access_code='sneaky',
+        )
+        response = self.client.post(
+            reverse('contest_edit', args=['editablecontest']),
+            data=json.dumps(payload), content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.contest.refresh_from_db()
+        self.assertEqual(self.contest.access_code, '')
+
 
 class ContestCreateNewFieldsTestCase(CommonDataMixin, TestCase):
     """Create mode: newly registered model fields + regression fixes."""
@@ -705,7 +647,7 @@ class ContestCreateNewFieldsTestCase(CommonDataMixin, TestCase):
         cls.editor = create_user(username='fields_editor', user_permissions=(
             'add_contest', 'edit_own_contest', 'edit_all_contest', 'contest_rating', 'lock_contest',
             'contest_access_code',
-            'contest_seb_requirement', 'create_private_contest', 'change_contest_visibility',
+            'create_private_contest', 'change_contest_visibility',
             'contest_problem_label', 'override_performance_ceiling',
         ))
         cls.user_a = create_user(username='fields_user_a')
@@ -716,9 +658,6 @@ class ContestCreateNewFieldsTestCase(CommonDataMixin, TestCase):
     def setUp(self):
         self.client = Client()
         self.client.force_login(self.editor)
-        # The default-preset pointer is cached outside the test transaction, so
-        # it would otherwise leak between tests.
-        cache.delete(DEFAULT_PRESET_CACHE_KEY)
 
     def test_create_defaults_vis_mode_course(self):
         response = self.client.get(reverse('contest_create'))
@@ -1136,22 +1075,6 @@ class ContestCreateNewFieldsTestCase(CommonDataMixin, TestCase):
         # Advanced Format: config sits with the existing label script.
         self.assertLess(after.find('id="id_format_config"'), after.find('id="id_problem_label_script"'))
 
-    def test_anti_cheat_has_no_level_presets(self):
-        html = self.client.get(reverse('contest_create')).content.decode()
-        ac = html[html.find('Anti-cheating'):html.find('id="advanced-btn"')]
-        self.assertNotIn('name="cheat_level"', html)
-        self.assertNotIn('High ≈ SEB exam', html)
-        self.assertNotIn('value="high"', ac)
-        self.assertNotIn('value="medium"', ac)
-        self.assertNotIn('value="low"', ac)
-        self.assertNotIn('value="custom"', ac)
-        self.assertNotIn('>High<', ac)
-        self.assertNotIn('>Medium<', ac)
-        self.assertNotIn('>Low<', ac)
-        self.assertNotIn('>Custom<', ac)
-        self.assertIn('id="id_access_code"', ac)
-        self.assertIn('id="id_seb_required"', ac)
-
     def test_advanced_help_tooltips_present(self):
         html = self.client.get(reverse('contest_create')).content.decode()
         before, advanced = html.split('class="advanced-hidden"', 1)
@@ -1164,67 +1087,6 @@ class ContestCreateNewFieldsTestCase(CommonDataMixin, TestCase):
         self.assertIn('Allow students to start a virtual participation after the assignment ends.', basic)
         self.assertIn('Spectator submissions do not count toward statistics or rankings.', basic)
         self.assertIn('A JSON object to serve as the configuration for the chosen assignment format module.', advanced)
-
-    def test_advanced_fields_round_trip(self):
-        response = self._post(
-            name='Adv RT', key='advrt',
-            format_name='icpc',
-            format_config='{"penalty": 20}',
-            allow_virtual_participation=False,
-            allow_spectate=True,
-            use_clarifications=False,
-            hide_problem_tags=True,
-            show_short_display=True,
-            summary='hello summary',
-            og_image='https://example.com/og.png',
-            logo_override_image='https://example.com/logo.png',
-            points_precision=2,
-            scoreboard_visibility='C',
-            access_code='secret42',
-            seb_required=False,
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        contest = Contest.objects.get(key='advrt')
-        self.assertEqual(contest.format_name, 'icpc')
-        self.assertEqual(contest.format_config, {'penalty': 20})
-        self.assertFalse(contest.allow_virtual_participation)
-        self.assertTrue(contest.allow_spectate)
-        self.assertFalse(contest.use_clarifications)
-        self.assertTrue(contest.hide_problem_tags)
-        self.assertTrue(contest.show_short_display)
-        self.assertEqual(contest.summary, 'hello summary')
-        self.assertEqual(contest.og_image, 'https://example.com/og.png')
-        self.assertEqual(contest.logo_override_image, 'https://example.com/logo.png')
-        self.assertEqual(contest.points_precision, 2)
-        self.assertEqual(contest.scoreboard_visibility, 'C')
-        self.assertEqual(contest.access_code, 'secret42')
-        self.assertFalse(contest.seb_required)
-
-        edit = self.client.get(reverse('contest_edit', args=['advrt']))
-        self.assertEqual(edit.status_code, 200)
-        prefill = edit.context['prefill']
-        self.assertEqual(prefill['format_name'], 'icpc')
-        self.assertFalse(prefill['allow_virtual_participation'])
-        self.assertTrue(prefill['allow_spectate'])
-        self.assertFalse(prefill['use_clarifications'])
-        self.assertTrue(prefill['hide_problem_tags'])
-        self.assertTrue(prefill['show_short_display'])
-        self.assertEqual(prefill['summary'], 'hello summary')
-        self.assertEqual(prefill['og_image'], 'https://example.com/og.png')
-        self.assertEqual(prefill['access_code'], 'secret42')
-        self.assertEqual(prefill['points_precision'], 2)
-        self.assertEqual(prefill['scoreboard_visibility'], 'C')
-        html = edit.content.decode()
-        before, advanced = html.split('class="advanced-hidden"', 1)
-        self.assertIn('id="id_format_name"', before)
-        self.assertIn('id="id_allow_virtual_participation"', before)
-        self.assertIn('id="id_allow_spectate"', before)
-        self.assertNotIn('id="id_format_config"', before)
-        self.assertNotIn('id="id_format_name"', advanced)
-        self.assertNotIn('id="id_allow_virtual_participation"', advanced)
-        self.assertNotIn('id="id_allow_spectate"', advanced)
-        self.assertIn('id="id_format_config"', advanced)
-        self.assertNotIn('name="cheat_level"', html)
 
     def test_join_organizations_multi_select_round_trip(self):
         org_a = Organization.objects.create(name='Join Org A', slug='join-org-a', is_open=True)
@@ -1467,170 +1329,6 @@ class ContestCreateNewFieldsTestCase(CommonDataMixin, TestCase):
         contest = Contest.objects.get(key='hideout')
         self.assertTrue(contest.hide_sandbox_output)
 
-    def test_seb_fields_saved(self):
-        # Keys must be valid 64-char hex hashes: model validation (full_clean)
-        # is now enforced on save, rejecting anything shorter.
-        bek = 'a' * 64
-        cek = 'b' * 64
-        response = self._post(
-            name='SEB', key='sebtest',
-            seb_required=True, seb_browser_exam_keys=bek + '\n' + cek, seb_config_keys=cek,
-            seb_quit_url='https://example.com/quit',
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        contest = Contest.objects.get(key='sebtest')
-        self.assertTrue(contest.seb_required)
-        self.assertEqual(contest.seb_browser_exam_keys, bek + '\n' + cek)
-        self.assertEqual(contest.seb_config_keys, cek)
-        self.assertEqual(contest.seb_quit_url, 'https://example.com/quit')
-
-    def test_seb_required_without_keys_returns_400(self):
-        # Regression: seb_required=True used to save with no keys (bricking the
-        # contest for every student); model validation now rejects it.
-        response = self._post(name='SEB Bad', key='sebbad', seb_required=True)
-        self.assertEqual(response.status_code, 400)
-
-    def test_seb_use_default_arms_contest_in_one_save(self):
-        # The whole point of the preset: no keys typed, no .seb uploaded, and
-        # the contest still passes Contest.clean() on the very first save.
-        preset = _create_preset()
-        response = self._post(name='SEB Default', key='sebdefault',
-                              seb_required=True, seb_use_default=True)
-        self.assertEqual(response.status_code, 200, response.content)
-        contest = Contest.objects.get(key='sebdefault')
-        self.assertEqual(contest.seb_preset, preset)
-        self.assertEqual(contest.seb_browser_exam_keys, '')
-        self.assertEqual(contest.seb_allowed_bek(), [PRESET_BEK])
-
-    def test_seb_use_default_without_a_default_returns_400(self):
-        response = self._post(name='SEB No Default', key='sebnodefault',
-                              seb_required=True, seb_use_default=True)
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('No default Safe Exam Browser configuration',
-                      json.loads(response.content)['error'])
-
-    def test_seb_use_default_ignores_inactive_preset(self):
-        _create_preset(is_active=False)
-        response = self._post(name='SEB Inactive', key='sebinactive',
-                              seb_required=True, seb_use_default=True)
-        self.assertEqual(response.status_code, 400)
-
-    def _edit_seb(self, contest, **overrides):
-        data = {
-            'name': contest.name, 'key': contest.key,
-            'start_time': contest.start_time.isoformat(),
-            'end_time': contest.end_time.isoformat(),
-            'seb_required': True,
-        }
-        data.update(overrides)
-        return self.client.post(
-            reverse('contest_edit', args=[contest.key]),
-            data=json.dumps(data), content_type='application/json',
-        )
-
-    def test_adopting_the_default_clears_the_contests_own_config(self):
-        """Ticking "use the default" must actually hand control to the preset.
-
-        Every SEB accessor prefers the contest's own value, and the editor hides
-        those fields once the box is ticked — so leaving them kept serving the
-        old upload with no visible reason why.
-        """
-        _create_preset()
-        self._post(name='SEB Own', key='sebown', seb_required=True,
-                   seb_browser_exam_keys='a' * 64, seb_config_keys='b' * 64,
-                   seb_quit_url='https://example.com/quit')
-        contest = Contest.objects.get(key='sebown')
-        contest.seb_config_file.save('own.seb', ContentFile(b'OLD UPLOAD'), save=True)
-        self.assertEqual(contest.seb_effective_config_file.read(), b'OLD UPLOAD')
-
-        response = self._edit_seb(contest, seb_use_default=True)
-        self.assertEqual(response.status_code, 200, response.content)
-        contest.refresh_from_db()
-
-        self.assertFalse(contest.seb_config_file)
-        self.assertEqual(contest.seb_browser_exam_keys, '')
-        self.assertEqual(contest.seb_config_keys, '')
-        self.assertEqual(contest.seb_quit_url, '')
-        # The preset now supplies the file AND the hashes that authenticate it.
-        self.assertEqual(contest.seb_effective_config_file.read(), b'SEB config')
-        self.assertEqual(contest.seb_allowed_bek(), contest.seb_preset.allowed_bek())
-        self.assertEqual(contest.seb_allowed_config_keys(), contest.seb_preset.allowed_config_keys())
-
-    def test_adopting_the_default_refuses_during_a_live_exam(self):
-        # Clearing the overrides re-keys the contest; doing that mid-exam would
-        # 403 every student already inside SEB.
-        _create_preset()
-        self._post(name='SEB Live', key='seblive', seb_required=True,
-                   seb_browser_exam_keys='a' * 64, seb_config_keys='b' * 64)
-        contest = Contest.objects.get(key='seblive')
-        now = timezone.now()
-        Contest.objects.filter(pk=contest.pk).update(
-            start_time=now - timedelta(hours=1), end_time=now + timedelta(hours=1))
-        contest.refresh_from_db()
-
-        response = self._edit_seb(contest, seb_use_default=True)
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertIn('in progress', response.content.decode())
-        contest.refresh_from_db()
-        self.assertEqual(contest.seb_browser_exam_keys, 'a' * 64)
-
-    def test_resave_keeps_existing_preset_when_default_changes(self):
-        # Publishing a newer default must not silently re-point an existing
-        # assignment: that changes its Config Key and 403s every student
-        # already inside SEB.
-        original = _create_preset()
-        self._post(name='SEB Keep', key='sebkeep', seb_required=True, seb_use_default=True)
-        contest = Contest.objects.get(key='sebkeep')
-        self.assertEqual(contest.seb_preset, original)
-
-        newer = SEBConfigPreset(name='Newer default', browser_exam_keys='1' * 64,
-                                config_keys='2' * 64, is_default=True)
-        newer.config_file.save('newer.seb', ContentFile(b'SEB config'), save=False)
-        newer.save()
-        self.assertEqual(SEBConfigPreset.get_default(), newer)
-
-        response = self._edit_seb(contest, seb_use_default=True)
-        self.assertEqual(response.status_code, 200, response.content)
-        contest.refresh_from_db()
-        self.assertEqual(contest.seb_preset, original)
-
-    def test_resave_keeps_preset_after_default_retired(self):
-        # A disabled checkbox is not submitted, so an unrelated save used to
-        # arrive as seb_use_default=False and silently drop the link. The
-        # control now stays enabled whenever a link exists.
-        preset = _create_preset()
-        self._post(name='SEB Retired', key='sebretired', seb_required=True, seb_use_default=True)
-        contest = Contest.objects.get(key='sebretired')
-
-        SEBConfigPreset.objects.filter(pk=preset.pk).update(is_active=False)
-        cache.delete(DEFAULT_PRESET_CACHE_KEY)
-        self.assertIsNone(SEBConfigPreset.get_default())
-
-        response = self._edit_seb(contest, seb_use_default=True)
-        self.assertEqual(response.status_code, 200, response.content)
-        contest.refresh_from_db()
-        self.assertEqual(contest.seb_preset, preset)
-
-    def test_seb_use_default_unset_clears_preset(self):
-        preset = _create_preset()
-        self._post(name='SEB Clear', key='sebclear', seb_required=True, seb_use_default=True)
-        contest = Contest.objects.get(key='sebclear')
-        self.assertEqual(contest.seb_preset, preset)
-        response = self.client.post(
-            reverse('contest_edit', args=['sebclear']),
-            data=json.dumps({
-                'name': 'SEB Clear', 'key': 'sebclear',
-                'start_time': contest.start_time.isoformat(),
-                'end_time': contest.end_time.isoformat(),
-                'seb_required': True, 'seb_use_default': False,
-                'seb_browser_exam_keys': 'c' * 64, 'seb_config_keys': 'd' * 64,
-            }),
-            content_type='application/json',
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        contest.refresh_from_db()
-        self.assertIsNone(contest.seb_preset)
-
     def test_format_config_json_saved(self):
         # ICPC accepts a config dict with a validated 'penalty' key — use it to
         # exercise the JSON round-trip (the default format rejects any config).
@@ -1824,6 +1522,80 @@ class ContestCreateNewFieldsTestCase(CommonDataMixin, TestCase):
         cp = Contest.objects.get(key='dispsame').contest_problems.get()
         self.assertEqual(cp.display_name, '')
 
+    def test_anti_cheat_has_no_level_presets(self):
+        html = self.client.get(reverse('contest_create')).content.decode()
+        ac = html[html.find('Anti-cheating'):html.find('id="advanced-btn"')]
+        self.assertNotIn('name="cheat_level"', html)
+        self.assertNotIn('value="high"', ac)
+        self.assertNotIn('value="medium"', ac)
+        self.assertNotIn('value="low"', ac)
+        self.assertNotIn('value="custom"', ac)
+        self.assertNotIn('>High<', ac)
+        self.assertNotIn('>Medium<', ac)
+        self.assertNotIn('>Low<', ac)
+        self.assertNotIn('>Custom<', ac)
+        self.assertIn('id="id_access_code"', ac)
+        self.assertNotIn('seb', ac.lower())
+
+    def test_advanced_fields_round_trip(self):
+        response = self._post(
+            name='Adv RT', key='advrt',
+            format_name='icpc',
+            format_config='{"penalty": 20}',
+            allow_virtual_participation=False,
+            allow_spectate=True,
+            use_clarifications=False,
+            hide_problem_tags=True,
+            show_short_display=True,
+            summary='hello summary',
+            og_image='https://example.com/og.png',
+            logo_override_image='https://example.com/logo.png',
+            points_precision=2,
+            scoreboard_visibility='C',
+            access_code='secret42',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        contest = Contest.objects.get(key='advrt')
+        self.assertEqual(contest.format_name, 'icpc')
+        self.assertEqual(contest.format_config, {'penalty': 20})
+        self.assertFalse(contest.allow_virtual_participation)
+        self.assertTrue(contest.allow_spectate)
+        self.assertFalse(contest.use_clarifications)
+        self.assertTrue(contest.hide_problem_tags)
+        self.assertTrue(contest.show_short_display)
+        self.assertEqual(contest.summary, 'hello summary')
+        self.assertEqual(contest.og_image, 'https://example.com/og.png')
+        self.assertEqual(contest.logo_override_image, 'https://example.com/logo.png')
+        self.assertEqual(contest.points_precision, 2)
+        self.assertEqual(contest.scoreboard_visibility, 'C')
+        self.assertEqual(contest.access_code, 'secret42')
+
+        edit = self.client.get(reverse('contest_edit', args=['advrt']))
+        self.assertEqual(edit.status_code, 200)
+        prefill = edit.context['prefill']
+        self.assertEqual(prefill['format_name'], 'icpc')
+        self.assertFalse(prefill['allow_virtual_participation'])
+        self.assertTrue(prefill['allow_spectate'])
+        self.assertFalse(prefill['use_clarifications'])
+        self.assertTrue(prefill['hide_problem_tags'])
+        self.assertTrue(prefill['show_short_display'])
+        self.assertEqual(prefill['summary'], 'hello summary')
+        self.assertEqual(prefill['og_image'], 'https://example.com/og.png')
+        self.assertEqual(prefill['access_code'], 'secret42')
+        self.assertEqual(prefill['points_precision'], 2)
+        self.assertEqual(prefill['scoreboard_visibility'], 'C')
+        html = edit.content.decode()
+        before, advanced = html.split('class="advanced-hidden"', 1)
+        self.assertIn('id="id_format_name"', before)
+        self.assertIn('id="id_allow_virtual_participation"', before)
+        self.assertIn('id="id_allow_spectate"', before)
+        self.assertNotIn('id="id_format_config"', before)
+        self.assertNotIn('id="id_format_name"', advanced)
+        self.assertNotIn('id="id_allow_virtual_participation"', advanced)
+        self.assertNotIn('id="id_allow_spectate"', advanced)
+        self.assertIn('id="id_format_config"', advanced)
+        self.assertNotIn('name="cheat_level"', html)
+
 
 class ContestEditProblemsTestCase(CommonDataMixin, TestCase):
     """Edit mode: problems are pre-filled and synced on save."""
@@ -1860,7 +1632,7 @@ class ContestEditProblemsTestCase(CommonDataMixin, TestCase):
             'allow_virtual_participation': True, 'run_pretests_only': False,
             'rate_all': False, 'tester_see_submissions': False, 'tester_see_scoreboard': False,
             'show_short_display': False, 'is_private': False, 'is_organization_private': False,
-            'limit_join_organizations': False, 'seb_required': False,
+            'limit_join_organizations': False,
             'format_name': 'default', 'scoreboard_visibility': 'V', 'points_precision': 3,
             'authors': [], 'curators': [], 'testers': [], 'spectators': [],
             'organizations': [], 'classes': [], 'join_organizations': [], 'tags': [],
@@ -1992,7 +1764,7 @@ class ContestEditProblemsTestCase(CommonDataMixin, TestCase):
 
 
 class ContestEditorNewEndpointsTestCase(CommonDataMixin, TestCase):
-    """New editor endpoints: tag create, .seb upload, finalize/unfinalize."""
+    """New editor endpoints: tag create, finalize/unfinalize."""
 
     @classmethod
     def setUpTestData(cls):
@@ -2000,7 +1772,7 @@ class ContestEditorNewEndpointsTestCase(CommonDataMixin, TestCase):
         cls.editor = create_user(username='endpoints_editor', user_permissions=(
             'add_contest', 'edit_own_contest', 'edit_all_contest', 'contest_rating',
             'lock_contest', 'contest_access_code',
-            'contest_seb_requirement', 'create_private_contest', 'change_contest_visibility',
+            'create_private_contest', 'change_contest_visibility',
             'contest_problem_label', 'override_performance_ceiling',
         ))
         cls.curator = create_user(username='endpoints_curator', user_permissions=('edit_own_contest',))
@@ -2089,118 +1861,6 @@ class ContestEditorNewEndpointsTestCase(CommonDataMixin, TestCase):
             data=json.dumps({'name': 'curator-tag'}), content_type='application/json',
         )
         self.assertEqual(response.status_code, 200, response.content)
-
-    # ── .seb upload ─────────────────────────────────────────────────────────
-
-    def test_seb_upload_success(self):
-        self.client.force_login(self.editor)
-        response = self.client.post(
-            reverse('contest_seb_upload', args=['endpointcontest']),
-            data={'seb_config_file': SimpleUploadedFile('exam.seb', b'SEB config')},
-        )
-        self.assertEqual(response.status_code, 200, response.content)
-        self.assertTrue(json.loads(response.content)['ok'])
-        self.contest.refresh_from_db()
-        self.assertTrue(self.contest.seb_config_file)
-        # The stored name is a generated object key, never the uploaded filename:
-        # seb_configs/YYYY/MM/contest-<id>/<uuid>.seb
-        name = self.contest.seb_config_file.name
-        self.assertRegex(name, r'^seb_configs/\d{4}/\d{2}/contest-%d/[0-9a-f]{32}\.seb$' % self.contest.id)
-        self.assertNotIn('exam', name)
-        # Every object written through ResilientStorage is tracked for mirroring.
-        self.assertTrue(StoredFileRecord.objects.filter(path=name).exists())
-
-    def test_seb_download_returns_stored_file(self):
-        self.client.force_login(self.editor)
-        self.client.post(
-            reverse('contest_seb_upload', args=['endpointcontest']),
-            data={'seb_config_file': SimpleUploadedFile('exam.seb', b'SEB config bytes')},
-        )
-        response = self.client.get(reverse('contest_seb_upload', args=['endpointcontest']))
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(b''.join(response.streaming_content), b'SEB config bytes')
-        self.assertIn('endpointcontest.seb', response['Content-Disposition'])
-
-    def test_seb_download_denied_without_permission(self):
-        self.client.force_login(self.curator)
-        response = self.client.get(reverse('contest_seb_upload', args=['endpointcontest']))
-        self.assertEqual(response.status_code, 403)
-
-    def test_seb_upload_replaces_previous_object(self):
-        self.client.force_login(self.editor)
-        self.client.post(
-            reverse('contest_seb_upload', args=['endpointcontest']),
-            data={'seb_config_file': SimpleUploadedFile('first.seb', b'first')},
-        )
-        self.contest.refresh_from_db()
-        first = self.contest.seb_config_file.name
-        self.client.post(
-            reverse('contest_seb_upload', args=['endpointcontest']),
-            data={'seb_config_file': SimpleUploadedFile('second.seb', b'second')},
-        )
-        self.contest.refresh_from_db()
-        self.assertNotEqual(self.contest.seb_config_file.name, first)
-        # The replaced object is removed rather than orphaned in the bucket.
-        self.assertEqual(
-            StoredFileRecord.objects.get(path=first).status, StoredFileRecord.STATUS_DELETED)
-
-    def test_seb_upload_keeps_object_shared_with_a_clone(self):
-        # ContestClone copies the field value, so two contests can name the same
-        # object. Replacing one must not delete the other's config.
-        self.client.force_login(self.editor)
-        self.client.post(
-            reverse('contest_seb_upload', args=['endpointcontest']),
-            data={'seb_config_file': SimpleUploadedFile('shared.seb', b'shared')},
-        )
-        self.contest.refresh_from_db()
-        shared = self.contest.seb_config_file.name
-        _now = timezone.now()
-        clone = create_contest(
-            key='clonedseb', name='Cloned',
-            start_time=_now + timedelta(days=1), end_time=_now + timedelta(days=2),
-            seb_config_file=shared,
-        )
-
-        self.client.post(
-            reverse('contest_seb_upload', args=['endpointcontest']),
-            data={'seb_config_file': SimpleUploadedFile('new.seb', b'new')},
-        )
-        clone.refresh_from_db()
-        self.assertEqual(clone.seb_config_file.name, shared)
-        self.assertNotEqual(
-            StoredFileRecord.objects.get(path=shared).status, StoredFileRecord.STATUS_DELETED)
-        self.assertEqual(clone.seb_config_file.open('rb').read(), b'shared')
-
-    def test_seb_upload_rejects_bad_extension(self):
-        self.client.force_login(self.editor)
-        response = self.client.post(
-            reverse('contest_seb_upload', args=['endpointcontest']),
-            data={'seb_config_file': SimpleUploadedFile('exam.txt', b'x')},
-        )
-        self.assertEqual(response.status_code, 400)
-
-    def test_seb_upload_rejects_missing_file(self):
-        self.client.force_login(self.editor)
-        response = self.client.post(
-            reverse('contest_seb_upload', args=['endpointcontest']),
-            data={},
-        )
-        self.assertEqual(response.status_code, 400)
-
-    def test_seb_upload_denied_for_curator_of_other_contest(self):
-        # The curator curates endpointcontest — deny when the contest is not theirs.
-        self.client.force_login(self.curator)
-        _now = timezone.now()
-        create_contest(
-            key='othersebcontest', name='Other SEB',
-            start_time=_now + timedelta(days=1), end_time=_now + timedelta(days=2),
-            authors=('superuser',),
-        )
-        response = self.client.post(
-            reverse('contest_seb_upload', args=['othersebcontest']),
-            data={'seb_config_file': SimpleUploadedFile('exam.seb', b'x')},
-        )
-        self.assertEqual(response.status_code, 403)
 
     # ── finalize / unfinalize ───────────────────────────────────────────────
 

@@ -12,7 +12,6 @@ from judge.admin.organization import ClassAdmin, OrganizationAdmin, Organization
 from judge.admin.problem import ProblemAdmin, ProblemPointsVoteAdmin
 from judge.admin.profile import ProfileAdmin, UserAdmin
 from judge.admin.runtime import JudgeAdmin, LanguageAdmin
-from judge.admin.seb import SEBConfigPresetAdmin
 from judge.admin.stored_file import StoredFileRecordAdmin
 from judge.admin.submission import SubmissionAdmin
 from judge.admin.taxon import ProblemGroupAdmin, ProblemTypeAdmin
@@ -20,7 +19,7 @@ from judge.admin.ticket import TicketAdmin
 from judge.models import AIHintLog, AssignmentDraft, BlogPost, Class, Comment, CommentLock, Contest, \
     ContestParticipation, ContestTag, Judge, Language, License, MiscConfig, NavigationBar, Organization, \
     OrganizationRequest, Problem, ProblemGroup, ProblemPointsVote, ProblemType, Profile, \
-    SEBConfigPreset, StoredFileRecord, Submission, Ticket
+    StoredFileRecord, Submission, Ticket
 
 admin.site.register(AIHintLog, AIHintLogAdmin)
 admin.site.register(AssignmentDraft, AssignmentDraftAdmin)
@@ -46,7 +45,6 @@ admin.site.register(ProblemGroup, ProblemGroupAdmin)
 admin.site.register(ProblemPointsVote, ProblemPointsVoteAdmin)
 admin.site.register(ProblemType, ProblemTypeAdmin)
 admin.site.register(Profile, ProfileAdmin)
-admin.site.register(SEBConfigPreset, SEBConfigPresetAdmin)
 admin.site.register(StoredFileRecord, StoredFileRecordAdmin)
 admin.site.register(Submission, SubmissionAdmin)
 admin.site.register(Ticket, TicketAdmin)

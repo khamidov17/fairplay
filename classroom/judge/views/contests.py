@@ -16,12 +16,11 @@ from django.contrib.admin.models import ADDITION, CHANGE, LogEntry
 from django.contrib.auth.mixins import LoginRequiredMixin, PermissionRequiredMixin
 from django.contrib.auth.views import redirect_to_login
 from django.contrib.contenttypes.models import ContentType
-from django.core import signing
 from django.core.exceptions import ImproperlyConfigured, ObjectDoesNotExist, PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import BooleanField, Case, Count, F, FloatField, IntegerField, Max, Min, Q, Sum, Value, When
 from django.db.models.expressions import CombinedExpression, Exists, OuterRef
-from django.http import FileResponse, Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect, JsonResponse
+from django.http import Http404, HttpResponse, HttpResponseBadRequest, HttpResponseRedirect, JsonResponse
 from django.shortcuts import get_object_or_404, render
 from django.template.defaultfilters import date as date_filter
 from django.urls import reverse
@@ -31,7 +30,6 @@ from django.utils.functional import cached_property
 from django.utils.html import format_html
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.safestring import mark_safe
-from django.utils.text import slugify
 from django.utils.timezone import make_aware
 from django.utils.translation import gettext as _, gettext_lazy
 from django.views.decorators.csrf import ensure_csrf_cookie
@@ -46,10 +44,9 @@ from judge import event_poster as event
 from judge.comments import CommentedDetailView
 from judge.forms import ContestCloneForm
 from judge.models import Contest, ContestMoss, ContestParticipation, ContestProblem, \
-    ContestTag, Problem, ProblemSubmissionType, Profile, SEBConfigPreset, Submission, SubmissionManualGrade, \
+    ContestTag, Problem, ProblemSubmissionType, Profile, Submission, SubmissionManualGrade, \
     contest_problem_display_name
 from judge.models.profile import Class, Organization
-from judge.storage import StorageUnavailableError
 from judge.subjects import has_feature
 from judge.tasks import run_moss
 from judge.utils.celery import redirect_to_task_status
@@ -59,10 +56,6 @@ from judge.utils.problems import _get_result_data, assignment_problem_stats, par
 from judge.utils.ranker import ranker
 from judge.utils.result_visibility import visible_results
 from judge.utils.safe_json import script_json
-from judge.utils.seb import (
-    read_seb_launch_token, seb_config_downloadable_by, seb_launch_context, seb_launch_url,
-    seb_preset_downloadable_by,
-)
 from judge.utils.stats import get_bar_chart, get_pie_chart
 from judge.utils.user_search import profile_choice_label
 from judge.utils.views import DiggPaginatorMixin, QueryStringSortMixin, SingleObjectFormView, TitleMixin, \
@@ -78,8 +71,8 @@ __all__ = ['ContestList', 'ContestListV2', 'ContestCreate', 'ContestDetail', 'Co
            'base_contest_ranking_list', 'ContestExportPDF', 'ContestExportScores', 'ContestExportSubmissions',
            'ContestExportJoinedScores',
            'ContestGrade', 'ContestGradeSave', 'ContestGradeRelease',
-           'ContestBatchAIGrade', 'ContestSEBConfig', 'SEBLaunchConfig', 'SEBLaunchToken', 'SEBQuit',
-           'ContestTagCreateView', 'ContestSEBFileView',
+           'ContestBatchAIGrade',
+           'ContestTagCreateView',
            'ContestFinalizeView', 'ContestUnfinalizeView']
 
 
@@ -440,13 +433,12 @@ class ContestCreate(LoginRequiredMixin, View):
         'hide_problem_authors', 'allow_virtual_participation', 'allow_spectate', 'run_pretests_only',
         'rate_all', 'tester_see_submissions', 'tester_see_scoreboard',
         'show_short_display', 'is_private', 'is_organization_private',
-        'limit_join_organizations', 'seb_required', 'allow_ai_hints',
+        'limit_join_organizations', 'allow_ai_hints',
         'allow_student_ai_grading', 'hide_sandbox_output',
     )
     _text_fields = (
         'name', 'description', 'access_code', 'problem_label_script',
         'og_image', 'logo_override_image', 'summary',
-        'seb_browser_exam_keys', 'seb_config_keys', 'seb_quit_url',
     )
     _int_fields = ('points_precision', 'rating_floor', 'rating_ceiling', 'performance_ceiling_override')
     _m2m_fields = (
@@ -459,7 +451,7 @@ class ContestCreate(LoginRequiredMixin, View):
         """Fields the current user may NOT write, mirroring the Django admin.
 
         ``ContestAdmin.get_readonly_fields`` gates sensitive fields behind their
-        own model permissions (``contest_access_code``, ``contest_seb_requirement``,
+        own model permissions (``contest_access_code``,
         ``change_contest_visibility``, ``contest_rating``, ``lock_contest``,
         ``contest_problem_label``, ``override_performance_ceiling`` and
         ``create_private_contest``).
@@ -467,8 +459,7 @@ class ContestCreate(LoginRequiredMixin, View):
         The frontend editor must enforce the exact same rules server-side:
         otherwise any curator holding only ``judge.edit_own_contest`` could
         bypass every one of those permissions by POSTing the field directly
-        (e.g. flip ``is_visible`` on a contest they merely curate, or arm SEB
-        without the ``contest_seb_requirement`` permission).
+        (e.g. flip ``is_visible`` on a contest they merely curate).
 
         Returns a ``set`` of model field names that must be skipped when
         applying the payload — and hidden in the template, so the UI only ever
@@ -483,9 +474,6 @@ class ContestCreate(LoginRequiredMixin, View):
             restricted.add('locked_after')
         if not user.has_perm('judge.contest_access_code'):
             restricted.add('access_code')
-        if not user.has_perm('judge.contest_seb_requirement'):
-            restricted |= {'seb_required', 'seb_browser_exam_keys', 'seb_config_keys',
-                           'seb_config_file', 'seb_quit_url', 'seb_preset', 'seb_require_browser_exam_key'}
         if not user.has_perm('judge.create_private_contest'):
             restricted |= {'private_contestants', 'organizations', 'is_private', 'is_organization_private'}
             # is_visible is only gated when the user can neither create private
@@ -613,7 +601,7 @@ class ContestCreate(LoginRequiredMixin, View):
         * **Granular permission gating** — fields the current user may not
           touch (per ``_restricted_fields``, mirroring the Django admin) are
           skipped entirely. This is the server-side backstop: even if the
-          frontend were bypassed, a curator cannot widen visibility, arm SEB,
+          frontend were bypassed, a curator cannot widen visibility,
           mark a contest rated, lock it, or change label scripts / ceilings.
         * **Format whitelist** — ``format_name`` must name a registered contest
           format. Anything else would later blow up ``Contest.format_class``
@@ -624,7 +612,7 @@ class ContestCreate(LoginRequiredMixin, View):
           instead of letting the UI and the backend disagree about state.
 
         Note: model-level validation (``Contest.clean()`` / field lengths /
-        SEB keys / label script) is NOT run here — it happens via
+        label script) is NOT run here — it happens via
         ``full_clean()`` in ``_create`` / ``_update`` right before ``save()``,
         so invalid input becomes a readable 400 instead of bricking the row.
         """
@@ -683,10 +671,6 @@ class ContestCreate(LoginRequiredMixin, View):
             if field in restricted:
                 continue
             setattr(contest, field, payload.get(field, ''))
-        # Exam surface lock: tri-state (auto = on for SEB / Exam format). Only
-        # written when the editor sent it, so other clients keep the stored value.
-        if 'lock_site_during_participation' in payload:
-            contest.lock_site_during_participation = _choice_to_tristate(payload.get('lock_site_during_participation'))
         for field in self._int_fields:
             if field in restricted:
                 continue
@@ -701,60 +685,6 @@ class ContestCreate(LoginRequiredMixin, View):
                 # (default 3), the rating bounds are nullable (default None).
                 parsed = contest._meta.get_field(field).get_default()
             setattr(contest, field, parsed)
-
-        # ── SEB: opt into the staff-published default configuration ─────────
-        # The payload carries a boolean, never a preset id: an instructor may
-        # take the site default but must not be able to point their contest at
-        # an arbitrary (retired, unlisted, half-configured) preset row. Setting
-        # the link here — before full_clean() — is what lets a brand-new
-        # assignment be SEB-armed in a single save, since the preset satisfies
-        # Contest.clean()'s "at least one key" requirement without any upload.
-        if 'seb_preset' not in restricted and 'seb_use_default' in payload:
-            if payload.get('seb_use_default'):
-                # An existing link is kept as-is. Re-resolving on every save
-                # would silently move the contest onto whatever preset happens
-                # to be default now — changing its Config Key and locking out
-                # anyone mid-exam, the exact failure SEBConfigPreset.clean()
-                # refuses to allow when the preset itself is edited.
-                if contest.seb_preset_id is None:
-                    preset = SEBConfigPreset.get_default()
-                    if preset is None:
-                        raise ValidationError(
-                            _('No default Safe Exam Browser configuration has been set up by the site '
-                              'administrator yet.'))
-                    contest.seb_preset = preset
-                # Drop this contest's own file and hashes, so the preset actually
-                # takes effect. Every SEB accessor prefers the contest's own
-                # value, so leaving them would keep serving the old upload while
-                # the editor hides the fields that explain why — the failure that
-                # locks out macOS silently, since it authenticates with the
-                # Config Key alone and Windows matches on the BEK first.
-                # Judged against the STORED row, not the in-flight object: the
-                # text loop above has already blanked the key fields from a
-                # payload that omits them (the editor hides those inputs once
-                # this box is ticked, and a hidden input is not submitted), so
-                # the object no longer shows what is really overriding.
-                stored = Contest.objects.filter(pk=contest.pk).first() if contest.pk else None
-                overrides = [f for f in ('seb_config_file', 'seb_browser_exam_keys', 'seb_config_keys',
-                                         'seb_quit_url') if stored and getattr(stored, f)]
-                if overrides:
-                    # Re-keying a contest students are sitting right now would 403
-                    # every one of them, the same reason SEBConfigPreset.clean()
-                    # refuses to let a live preset be edited.
-                    now = timezone.now()
-                    if stored.seb_required and stored.start_time is not None and \
-                            stored.end_time is not None and stored.start_time <= now < stored.end_time:
-                        raise ValidationError(
-                            _('This exam is in progress. Switching it to the default configuration now '
-                              'would change the keys its students are authenticating with and lock them '
-                              'out. Wait until it ends, or leave it on its own configuration.'))
-                    # The stored object is left in place; only the reference is
-                    # cleared, so a mistaken switch is recoverable.
-                    contest.seb_config_file = None
-                    for field in ('seb_browser_exam_keys', 'seb_config_keys', 'seb_quit_url'):
-                        setattr(contest, field, '')
-            else:
-                contest.seb_preset = None
 
         # ── Format: registered name + optional JSON config blob ─────────────
         # Validating against contest_format.formats (rather than the field's
@@ -1410,17 +1340,15 @@ class ContestCreate(LoginRequiredMixin, View):
             'points_precision': 3, 'rating_floor': '', 'rating_ceiling': '',
             'performance_ceiling_override': '', 'start_time': '', 'end_time': '',
             'locked_after': '', 'duration_hours': 0, 'duration_minutes': 0,
-            'seb_browser_exam_keys': '', 'seb_config_keys': '', 'seb_quit_url': '',
             'is_visible': False, 'is_rated': False, 'use_clarifications': True,
             'hide_problem_tags': False, 'hide_problem_authors': False,
             'allow_virtual_participation': True, 'allow_spectate': False, 'run_pretests_only': False,
             'rate_all': False, 'tester_see_submissions': False, 'tester_see_scoreboard': False,
             'show_short_display': False, 'is_private': False, 'is_organization_private': False,
-            'limit_join_organizations': False, 'seb_required': False, 'seb_use_default': False,
+            'limit_join_organizations': False,
             'allow_ai_hints': False,
             'allow_student_ai_grading': False,
             'hide_sandbox_output': False,
-            'lock_site_during_participation': 'auto',
             'vis_mode': 'org' if self.request.user.has_perm('judge.create_private_contest') else 'hidden',
             'problems': [],
             'target_score': 100,
@@ -1432,7 +1360,6 @@ class ContestCreate(LoginRequiredMixin, View):
         # The preset this contest is actually linked to, which is not
         # necessarily the current site default (staff may have published a
         # newer one, or retired this one).
-        linked_preset = None
 
         if contest is not None:
             total = int(contest.time_limit.total_seconds()) if contest.time_limit else 0
@@ -1468,19 +1395,9 @@ class ContestCreate(LoginRequiredMixin, View):
                 'locked_after': self._local_input(contest.locked_after),
                 'duration_hours': total // 3600 if total else 0,
                 'duration_minutes': (total % 3600) // 60 if total else 0,
-                'seb_browser_exam_keys': (contest.seb_browser_exam_keys
-                                          if 'seb_browser_exam_keys' not in restricted else ''),
-                'seb_config_keys': (contest.seb_config_keys
-                                    if 'seb_config_keys' not in restricted else ''),
-                'seb_quit_url': contest.seb_quit_url if 'seb_quit_url' not in restricted else '',
-                'seb_use_default': (contest.seb_preset_id is not None
-                                    if 'seb_preset' not in restricted else False),
             })
-            if 'seb_preset' not in restricted:
-                linked_preset = contest.seb_preset
             for field in self._bool_fields:
                 prefill[field] = getattr(contest, field)
-            prefill['lock_site_during_participation'] = _tristate_to_choice(contest.lock_site_during_participation)
             # Profile M2M → (id, "Name (username)"); organization/class/tag M2M → (id, name).
             for field in self._m2m_fields:
                 related = getattr(contest, field)
@@ -1574,17 +1491,6 @@ class ContestCreate(LoginRequiredMixin, View):
             # end time will end those students' windows, but never blocks it.
             'has_participants': bool(contest is not None and contest.users.exclude(
                 virtual=ContestParticipation.SPECTATE).exists()),
-            # The staff-published SEB configuration offered by the one-click
-            # checkbox, or None when no administrator has set one up yet (the
-            # template then explains why the checkbox is disabled).
-            'seb_default_preset': SEBConfigPreset.get_default(),
-            # What this contest already uses, so the card names the real
-            # configuration rather than whichever one is default today.
-            'seb_linked_preset': linked_preset,
-            # A shared preset (the site default) is not offered for download to editors (SEB-1).
-            'seb_linked_preset_downloadable': bool(
-                linked_preset is not None and contest is not None and
-                seb_preset_downloadable_by(linked_preset, self.request.user, contest.key)),
             'prefill': prefill,
         }
         ctx.update(self._library_filter_context())
@@ -1642,85 +1548,6 @@ class ContestTagCreateView(LoginRequiredMixin, View):
             defaults={'color': self._PALETTE[ContestTag.objects.count() % len(self._PALETTE)]},
         )
         return JsonResponse({'ok': True, 'tag': {'id': tag.id, 'name': tag.name, 'color': tag.color}})
-
-
-def _tristate_to_choice(value):
-    return 'auto' if value is None else ('on' if value else 'off')
-
-
-def _choice_to_tristate(choice):
-    return {'on': True, 'off': False}.get(choice)
-
-
-@method_decorator(ensure_csrf_cookie, name='dispatch')
-class ContestSEBFileView(LoginRequiredMixin, View):
-    """Upload/replace a contest's ``.seb`` Safe Exam Browser config file.
-
-    The admin-only ``seb_config_file`` FileField becomes editable from the
-    contest editor via a multipart POST (the main editor save is JSON and
-    cannot carry file uploads). Permission mirrors ``ContestCreate`` edit mode:
-    the contest must be editable by the requesting user, and — since this
-    writes one of the SEB fields — the user must hold
-    ``judge.contest_seb_requirement`` just as ``_restricted_fields`` demands for
-    every other SEB write path.
-
-    GET streams the contest's current file back to the same audience. The bytes
-    live in private object storage under a generated key, so there is no URL an
-    editor could link to directly (``querystring_auth`` is off by design — see
-    ``judge/storage/s3.py``); every read goes through Django.
-    """
-
-    def _editor_or_error(self, request, contest):
-        if not request.user.is_authenticated:
-            return JsonResponse({'error': _('Not authenticated.')}, status=401)
-        if not contest.is_editable_by(request.user) or \
-                not request.user.has_perm('judge.contest_seb_requirement'):
-            return JsonResponse({'error': _('Permission denied.')}, status=403)
-        return None
-
-    def get(self, request, *args, **kwargs):
-        contest = get_object_or_404(Contest, key=kwargs['contest'])
-        denied = self._editor_or_error(request, contest)
-        if denied is not None:
-            return denied
-        if not contest.seb_config_file:
-            raise Http404()
-        try:
-            fh = contest.seb_config_file.open('rb')
-        except StorageUnavailableError:
-            return HttpResponse(_('The file store is temporarily unavailable. Please try again later.'),
-                                status=503, content_type='text/plain')
-        return FileResponse(fh, as_attachment=True, filename=f'{contest.key}.seb',
-                            content_type='application/seb')
-
-    def post(self, request, *args, **kwargs):
-        contest = get_object_or_404(Contest, key=kwargs['contest'])
-        denied = self._editor_or_error(request, contest)
-        if denied is not None:
-            return denied
-        if 'seb_config_file' not in request.FILES:
-            return JsonResponse({'error': _('No file uploaded.')}, status=400)
-        upload = request.FILES['seb_config_file']
-        if not upload.name.lower().endswith('.seb'):
-            return JsonResponse({'error': _('Only .seb files are accepted.')}, status=400)
-        previous = contest.seb_config_file.name if contest.seb_config_file else ''
-        try:
-            contest.seb_config_file = upload
-            contest.save(update_fields=['seb_config_file'])
-        except Exception:
-            logger.exception('SEB config upload failed for contest %s', contest.key)
-            return JsonResponse({'error': _('Failed to upload the file.')}, status=500)
-        # Each upload gets a fresh generated key, so the replaced object would
-        # otherwise linger in the bucket forever with nothing referencing it.
-        # ContestClone copies the field VALUE, so a clone can still point at the
-        # same object — deleting it then would take the clone's config with it.
-        if previous and previous != contest.seb_config_file.name and \
-                not Contest.objects.filter(seb_config_file=previous).exclude(pk=contest.pk).exists():
-            try:
-                contest.seb_config_file.storage.delete(previous)
-            except Exception:
-                logger.exception('could not remove replaced SEB config %s', previous)
-        return JsonResponse({'ok': True, 'name': upload.name})
 
 
 class ContestFinalizeView(LoginRequiredMixin, View):
@@ -1830,17 +1657,6 @@ class ContestMixin(object):
         context['can_change'] = self.can_change
         context['can_clone'] = self.can_clone
         context['is_org_admin'] = self.object.is_viewable_by_org_admin(self.request.user)
-
-        if self.object.seb_required:
-            context['seb_required'] = True
-            context['seb_user_bypasses'] = self.object.user_bypasses_seb(self.request.user)
-            context['seb_request_valid'] = self.object.request_matches_seb(self.request)
-            context['seb_launch'] = seb_launch_context(self.request, self.object)
-        else:
-            context['seb_required'] = False
-            context['seb_user_bypasses'] = True
-            context['seb_request_valid'] = True
-            context['seb_launch'] = None
 
         if not self.object.og_image or not self.object.summary:
             metadata = generate_opengraph('generated-meta-contest:%d' % self.object.id,
@@ -2137,10 +1953,6 @@ class ContestAccessDenied(Exception):
     pass
 
 
-class ContestSEBRequired(Exception):
-    pass
-
-
 class ContestAccessCodeForm(forms.Form):
     access_code = forms.CharField(max_length=255)
 
@@ -2152,40 +1964,17 @@ class ContestAccessCodeForm(forms.Form):
 class ContestJoin(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
-        try:
-            self._check_seb(request)
-        except ContestSEBRequired:
-            return self._seb_required_response(request)
         return self.ask_for_access_code()
 
     def post(self, request, *args, **kwargs):
         self.object = self.get_object()
         try:
             return self.join_contest(request)
-        except ContestSEBRequired:
-            return self._seb_required_response(request)
         except ContestAccessDenied:
             if request.POST.get('access_code'):
                 return self.ask_for_access_code(ContestAccessCodeForm(request.POST))
             else:
                 return HttpResponseRedirect(request.path)
-
-    def _check_seb(self, request):
-        contest = self.object
-        if not contest.seb_required:
-            return
-        if contest.user_bypasses_seb(request.user):
-            return
-        if not contest.request_matches_seb(request):
-            raise ContestSEBRequired()
-
-    def _seb_required_response(self, request):
-        contest = self.object
-        return render(request, 'contest/seb_required.html', {
-            'contest': contest,
-            'seb_launch': seb_launch_context(request, contest),
-            'title': _('Safe Exam Browser required for "%s"') % contest.name,
-        }, status=403)
 
     def join_contest(self, request, access_code=None):
         contest = self.object
@@ -2200,8 +1989,6 @@ class ContestJoin(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
             return generic_message(request, _('Banned from joining'),
                                    _('You have been declared persona non grata for this contest. '
                                      'You are permanently barred from joining this contest.'))
-
-        self._check_seb(request)
 
         requires_access_code = (not self.can_edit and contest.access_code and access_code != contest.access_code)
         if contest.ended:
@@ -2300,7 +2087,6 @@ class ContestLeave(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
                                    _('You are not in contest "%s".') % contest.key, 404)
 
         participation = profile.current_contest
-        was_spectating = participation.spectate
         try:
             participation_submit_progress(participation, log_step='leave_post')
         except TypeError:
@@ -2315,19 +2101,7 @@ class ContestLeave(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
                 harvest_participation(participation)
         except Exception:
             logger.exception('Auto-submit on leave failed for participation %d', participation.pk)
-        # Leave is also how a student hands in. While a running assignment locks the site, it
-        # does not take the student out of it: the lock is keyed on ``current_contest``, and
-        # rejoining the same LIVE participation is allowed, so leaving would switch the lock off
-        # and on at will. The student stays in until the window ends (then ``update_contest``
-        # removes it); under SEB they still go to the quit URL.
-        from judge.middleware import _exam_lock_applies
-        if not _exam_lock_applies(request, participation):
-            profile.remove_contest()
-        else:
-            messages.info(request, _('Your answers are saved. The rest of the site stays closed until this '
-                                     'assignment ends.'))
-        if contest.seb_required and not was_spectating and not contest.user_bypasses_seb(request.user):
-            return HttpResponseRedirect(contest.seb_effective_quit_url or reverse('seb_quit'))
+        profile.remove_contest()
         return HttpResponseRedirect(reverse('contest_view', args=(contest.key,)))
 
 
@@ -3201,132 +2975,3 @@ class ContestExportSubmissions(ContestMixin, PermissionRequiredMixin, BaseDetail
         filename = f'{self.object.key}-submissions.zip'
         response['Content-Disposition'] = f'attachment; filename="{filename}"'
         return response
-
-
-class ContestSEBConfig(LoginRequiredMixin, ContestMixin, BaseDetailView):
-    """The "Download config file" button: same bytes, but for a real browser.
-
-    SEB itself cannot use this URL — see :class:`SEBLaunchConfig`.
-    """
-
-    def get(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        if not seb_config_downloadable_by(self.object, request.user):
-            raise PermissionDenied()
-        return _stream_seb_config(self.object)
-
-
-def _stream_seb_config(contest):
-    """Stream ``contest``'s effective ``.seb`` file, or 404/503."""
-    # The file may be the contest's own upload or the one inherited from its
-    # preset; either way it is served under the contest's own name.
-    config_file = contest.seb_effective_config_file
-    if not contest.seb_required or not config_file:
-        raise Http404()
-    try:
-        fh = config_file.open('rb')
-    except StorageUnavailableError:
-        return HttpResponse(_('The file store is temporarily unavailable. Please try again later.'),
-                            status=503, content_type='text/plain')
-    return FileResponse(
-        fh,
-        as_attachment=True,
-        filename=f'{contest.key}.seb',
-        content_type='application/seb',
-    )
-
-
-class SEBLaunchConfig(View):
-    """Serve a contest's ``.seb`` to the SEB client itself, authorized by a token.
-
-    Deliberately has neither ``LoginRequiredMixin`` nor ``ContestMixin``. SEB
-    requests this URL before it has a browser session, so any redirect to the
-    login page would come back as HTML; SEB then abandons the configuration,
-    opens the page in a temporary window still running its *local* settings, and
-    never enters lockdown — the small, quittable window students reported.
-    ``ContestMixin`` is skipped for the same reason: its ``access_check`` renders
-    a 403 page for an anonymous visitor to a private contest.
-
-    The signed token minted by :func:`sign_seb_launch_token` is the
-    authorization. Nothing is weakened by serving the file here: entering the
-    exam still requires a SEB client whose per-URL key hash matches, which
-    ``ContestMiddleware`` and ``ContestJoin`` both check.
-    """
-
-    def get(self, request, *args, **kwargs):
-        try:
-            data = read_seb_launch_token(kwargs['token'])
-        except signing.SignatureExpired:
-            return self.stale(request, _('This launch link has expired.'))
-        except signing.BadSignature:
-            return self.stale(request, _('This launch link is not valid.'))
-        contest = get_object_or_404(Contest, pk=data.get('c'))
-        # The token proves who it was minted for; that user must still be allowed
-        # to fetch the file now (roster and time window, see SEB-1).
-        profile = Profile.objects.filter(pk=data.get('u')).select_related('user').first()
-        if profile is None or not seb_config_downloadable_by(contest, profile.user):
-            return self.stale(request, _('This launch link is not available for you yet.'))
-        response = _stream_seb_config(contest)
-        # A cached .seb would let a stale configuration start a later exam.
-        response['Cache-Control'] = 'no-store'
-        return response
-
-    def stale(self, request, reason):
-        # Must render, never redirect: a redirect puts SEB back on the
-        # "configuration resource needs authentication" path this view exists to
-        # avoid, leaving it parked in an unconfigured window.
-        return render(request, 'contest/seb_launch_expired.html', {
-            'reason': reason,
-            'title': _('Launch link expired'),
-        }, status=400)
-
-
-class SEBLaunchToken(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
-    """Mint a fresh ``sebs://`` launch URL for the "Launch in SEB" button.
-
-    The token embedded at page render expires; a student who opened the exam
-    page well before the start time would otherwise click a dead link. The
-    button re-mints here on click and falls back to the rendered href if this
-    request fails.
-    """
-
-    def get(self, request, *args, **kwargs):
-        self.object = self.get_object()
-        if not self.object.seb_required or not self.object.seb_effective_config_file:
-            raise Http404()
-        if not seb_config_downloadable_by(self.object, request.user):
-            raise PermissionDenied()
-        return JsonResponse({'url': seb_launch_url(request, self.object, request.profile)})
-
-
-class SEBPresetConfig(LoginRequiredMixin, View):
-    """Stream a preset's ``.seb`` so an editor can inspect what they are adopting.
-
-    Presets live in private object storage like every other uploaded file, so
-    the editor page cannot link to ``config_file.url``. Gated on the same
-    permission that reveals the SEB controls at all.
-    """
-
-    def get(self, request, *args, **kwargs):
-        preset = get_object_or_404(SEBConfigPreset, pk=kwargs['pk'])
-        if not seb_preset_downloadable_by(preset, request.user, request.GET.get('contest')):
-            raise PermissionDenied()
-        if not preset.config_file:
-            raise Http404()
-        try:
-            fh = preset.config_file.open('rb')
-        except StorageUnavailableError:
-            return HttpResponse(_('The file store is temporarily unavailable. Please try again later.'),
-                                status=503, content_type='text/plain')
-        # slugify() of a fully non-ASCII name is empty, which would offer the
-        # browser a bare ".seb" dotfile.
-        return FileResponse(fh, as_attachment=True,
-                            filename='%s.seb' % (slugify(preset.name) or 'seb-config'),
-                            content_type='application/seb')
-
-
-class SEBQuit(TitleMixin, TemplateView):
-    template_name = 'contest/seb_quit.html'
-
-    def get_title(self):
-        return _('Exam finished')

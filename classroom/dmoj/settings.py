@@ -10,14 +10,12 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 import datetime
-import mimetypes
 import os
 
 from django.utils.translation import gettext_lazy as _
 from django_jinja.builtins import DEFAULT_EXTENSIONS
 from jinja2 import select_autoescape
 
-mimetypes.add_type('application/seb', '.seb')
 
 BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
@@ -154,14 +152,6 @@ DMOJ_EMAIL_CHANGE_LIMIT_COUNT = 10
 # Number of minutes before an email change request activation key expires
 DMOJ_EMAIL_CHANGE_EXPIRY_MINUTES = 60
 
-# Number of minutes before a Safe Exam Browser launch token expires. The token
-# only authorizes fetching a contest's .seb configuration, which is an artifact
-# every student in the exam receives anyway, so this can be generous.
-DMOJ_SEB_LAUNCH_TOKEN_EXPIRY_MINUTES = 30
-# Students (class members / private contestants) may download a contest's .seb from this
-# many minutes before the start until the end. Editors can always download it.
-DMOJ_SEB_CONFIG_DOWNLOAD_WINDOW_MINUTES = 30
-
 # At the bare minimum, dark and light theme CSS file locations must be declared
 DMOJ_THEME_CSS = {
     'light': 'style.css',
@@ -253,7 +243,6 @@ else:
                     'children': [
                         'judge.ContestParticipation',
                         'judge.ContestTag',
-                        'judge.SEBConfigPreset',
                     ],
                 },
                 ('judge.Ticket', 'fa-bell'),
@@ -826,7 +815,6 @@ assert DMOJ_PROBLEM_MIN_USER_POINTS_VOTE >= DMOJ_PROBLEM_MIN_PROBLEM_POINTS
 
 # <= 1 minute expiry is unusable UX
 assert DMOJ_EMAIL_CHANGE_EXPIRY_MINUTES > 1
-assert DMOJ_SEB_LAUNCH_TOKEN_EXPIRY_MINUTES > 1
 
 if DMOJ_PDF_PDFOID_URL:
     # If a cache is configured, it must already exist and be a directory

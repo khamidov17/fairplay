@@ -213,4 +213,3 @@ class AssignmentProblemListTestCase(TestCase):
             response,
             'When you leave, answers you have not submitted yet will be submitted automatically.',
         )
-        self.assertNotContains(response, 'Submit &amp; Exit SEB')

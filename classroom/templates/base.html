@@ -92,11 +92,7 @@
     {% block js_media %}{% endblock %}
     {% if request.in_contest %}
         <script>$(function () {
-            {% if request.participation.contest.seb_required and not request.participation.spectate and not request.participation.contest.user_bypasses_seb(request.user) %}
-                count_down($("#contest-time-remaining"), '{{ (request.participation.contest.seb_effective_quit_url or url('seb_quit'))|escapejs }}');
-            {% else %}
-                count_down($("#contest-time-remaining"), window.DKUOJ_CONTEST_TIMER_REDIRECT);
-            {% endif %}
+            count_down($("#contest-time-remaining"), window.DKUOJ_CONTEST_TIMER_REDIRECT);
 
             var selected = null,
                 x_pos = 0, y_pos = 0,
