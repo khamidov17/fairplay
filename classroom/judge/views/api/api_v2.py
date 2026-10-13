@@ -334,6 +334,42 @@ class APIContestDetail(APIDetailView):
         }
 
 
+def scoreboard_visible_contests(user, now):
+    """Contests whose participant scores ``user`` may read through the API (CA-6).
+
+    A subset of ``Contest.get_visible_contests``: the contest has ended and its
+    scoreboard is not hidden (``SCOREBOARD_HIDDEN`` stays hidden for good;
+    the "hidden until the end" options are visible once it has ended), or the
+    user organises it, or is listed in "view contest scoreboard".
+    """
+    visible_contests = Contest.get_visible_contests(user)
+    if user.has_perm('judge.see_private_contest') or user.has_perm('judge.edit_all_contest'):
+        return visible_contests
+    q = Q(end_time__lt=now) & ~Q(scoreboard_visibility=Contest.SCOREBOARD_HIDDEN)
+    if user.is_authenticated:
+        if user.has_perm('judge.edit_own_contest'):
+            q |= Q(authors=user.profile)
+            q |= Q(curators=user.profile)
+        q |= Q(view_contest_scoreboard=user.profile)
+    return visible_contests.filter(q)
+
+
+def user_manages_organizations(user, org_ids):
+    """True if ``user`` may list the members of every course in ``org_ids``."""
+    if not user.is_authenticated:
+        return False
+    if user.is_superuser or user.has_perm('judge.edit_all_organization'):
+        return True
+    wanted = set()
+    for org_id in org_ids:
+        try:
+            wanted.add(int(org_id))
+        except (TypeError, ValueError):
+            raise ValueError('invalid organization id')
+    managed = set(Organization.objects.filter(id__in=wanted, admins=user.profile).values_list('id', flat=True))
+    return wanted <= managed
+
+
 class APIContestParticipationList(APIListView):
     model = ContestParticipation
     basic_filters = (
@@ -344,22 +380,11 @@ class APIContestParticipationList(APIListView):
     )
 
     def get_unfiltered_queryset(self):
-        visible_contests = Contest.get_visible_contests(self.request.user)
-
-        # Check which contest scoreboards the user can actually see.
-        # "Contest.get_visible_contests" only gets which contests the user can *see*.
-        # Conditions for participation scoreboard access:
-        #   1. Contest has ended
+        # Conditions for participation scoreboard access (see scoreboard_visible_contests):
+        #   1. Contest has ended and its scoreboard is not "Hidden permanently"
         #   2. User is the organizer or curator of the contest
         #   3. User is specified to be able to "view contest scoreboard"
-        if not self.request.user.has_perm('judge.see_private_contest'):
-            q = Q(end_time__lt=self._now)
-            if self.request.user.is_authenticated:
-                if self.request.user.has_perm('judge.edit_own_contest'):
-                    q |= Q(authors=self.request.profile)
-                    q |= Q(curators=self.request.profile)
-                q |= Q(view_contest_scoreboard=self.request.profile)
-            visible_contests = visible_contests.filter(q)
+        visible_contests = scoreboard_visible_contests(self.request.user, self._now)
 
         return (
             ContestParticipation.objects
@@ -492,6 +517,13 @@ class APIUserList(APIListView):
         ('organization', 'organizations'),
     )
 
+    def filter_queryset(self, queryset):
+        # CA-6: filtering by course is a roster listing; only that course's managers get it.
+        org_ids = self.request.GET.getlist('organization')
+        if org_ids and not user_manages_organizations(self.request.user, org_ids):
+            raise PermissionDenied()
+        return super().filter_queryset(queryset)
+
     def get_unfiltered_queryset(self):
         return (
             Profile.objects
@@ -518,6 +550,17 @@ class APIUserDetail(APIDetailView):
     slug_field = 'user__username'
     slug_url_kwarg = 'user'
 
+    def visible_organization_ids(self, profile):
+        """Course memberships: all for the user themself and site editors, else only managed courses."""
+        user = self.request.user
+        org_ids = profile.organizations.values_list('id', flat=True)
+        if user.is_authenticated and (user.profile.id == profile.id or user.is_superuser or
+                                      user.has_perm('judge.edit_all_organization')):
+            return list(org_ids)
+        if not user.is_authenticated:
+            return []
+        return list(org_ids.filter(admins=user.profile))
+
     def get_object_data(self, profile):
         solved_problems = list(
             Submission.objects
@@ -537,7 +580,7 @@ class APIUserDetail(APIDetailView):
             .filter(
                 user=profile,
                 virtual=ContestParticipation.LIVE,
-                contest__in=Contest.get_visible_contests(self.request.user),
+                contest__in=scoreboard_visible_contests(self.request.user, self._now),
                 contest__end_time__lt=self._now,
             )
             .order_by('contest__end_time')
@@ -563,7 +606,7 @@ class APIUserDetail(APIDetailView):
             'solved_problems': solved_problems,
             'rank': profile.display_rank,
             'rating': profile.rating,
-            'organizations': list(profile.organizations.values_list('id', flat=True)),
+            'organizations': self.visible_organization_ids(profile),
             'contests': contest_history,
         }
 

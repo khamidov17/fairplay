@@ -432,10 +432,12 @@ def revoke_site_teacher_role(profile, *, excluding_verification=None):
 
 
 def grant_class_instructor_role(profile, class_obj):
-    """Make profile an instructor for one class (class admin + course member + staff).
+    """Make profile an instructor for one class (class admin + course member).
 
     Returns (granted_class_admin, granted_staff) describing what this call changed.
-    Does NOT grant site-wide Instructors group (use grant_site_teacher_role for that).
+    Does NOT grant site-wide Instructors group (use grant_site_teacher_role for that),
+    and never sets ``is_staff`` (CA-11): class rights come from ``Class.admins``, and
+    staff status opens the Django admin. ``granted_staff`` is therefore always False.
     """
     if profile is None or class_obj is None:
         return False, False
@@ -444,13 +446,7 @@ def grant_class_instructor_role(profile, class_obj):
     class_obj.organization.members.add(profile)
     class_obj.members.add(profile)
     granted_class_admin = not already_admin
-    granted_staff = False
-    user = profile.user
-    if user is not None and not user.is_staff:
-        user.is_staff = True
-        user.save(update_fields=['is_staff'])
-        granted_staff = True
-    return granted_class_admin, granted_staff
+    return granted_class_admin, False
 
 
 def promote_site_teacher_on_class_join(profile, class_obj):
@@ -551,6 +547,9 @@ def apply_instructor_verification_action(verification, action, reviewer):
             verification.save()
         else:
             if verification.request_class_id is None:
+                return False
+            # CA-11: only approved site teachers can become class instructors.
+            if not profile_is_site_teacher(verification.user):
                 return False
             granted_class_admin, granted_staff = grant_class_instructor_role(
                 verification.user, verification.request_class,
@@ -1536,8 +1535,13 @@ class InstructorJoinRequestsView(LoginRequiredMixin, TitleMixin, View):
         def grant_membership(obj):
             apply_approved_join_request(obj)
 
+        def reviewer_manages_course(obj):
+            return self._can_review_all(request) or profile_is_org_admin(request.profile, obj.organization)
+
         def revoke_membership(obj):
-            if obj.grants_organization:
+            # CA-8: only a course-level reviewer may take a user out of the whole
+            # course. A class instructor's reject/reopen undoes the class part only.
+            if obj.grants_organization and reviewer_manages_course(obj):
                 remove_profile_from_organization(obj.user, obj.organization)
             elif obj.request_class:
                 obj.user.classes.remove(obj.request_class)
@@ -2022,9 +2026,11 @@ def apply_class_member_csv(form, class_obj, organization):
         return None
     if hasattr(csv_file, 'seek'):
         csv_file.seek(0)
+    # CA-1: a class roster upload only creates new accounts and links existing
+    # ones. It never rewrites an existing account's name, e-mail or active flag.
     result = process_user_csv(
         csv_file, organization=organization, target_class=class_obj,
-        update_existing=True, activate=True,
+        update_existing=False, activate=True,
     )
     return result
 
@@ -2171,9 +2177,10 @@ class ClassImportMembers(LoginRequiredMixin, View):
             messages.error(request, _('Choose a CSV file to import.'))
             return HttpResponseRedirect(reverse('class_edit', args=[org.id, org.slug, class_obj.id, class_obj.slug]))
 
+        # CA-1: only create new accounts and link existing ones (see apply_class_member_csv).
         result = process_user_csv(
             csv_file, organization=org, target_class=class_obj,
-            update_existing=True, activate=True,
+            update_existing=False, activate=True,
         )
         sync_class_members_to_organization(class_obj)
         _flash_class_csv_import_result(request, result)
@@ -2186,8 +2193,9 @@ class DeleteClass(LoginRequiredMixin, View):
         org = class_obj.organization
         if not (org.admins.filter(id=request.profile.id).exists() or
                 class_obj.admins.filter(id=request.profile.id).exists() or
-                request.user.has_perm('judge.delete_class') or
                 user_can_edit_all_organizations(request.user)):
+            # CA-2: the site-wide judge.delete_class perm (held by every site
+            # teacher through the Instructors group) is not enough on its own.
             return generic_message(request, _("Can't delete class"),
                                    _('You are not allowed to delete this class.'), status=403)
         name = class_obj.name
@@ -2384,6 +2392,7 @@ class ClassLinkAssignmentsView(LoginRequiredMixin, TitleMixin, FormView):
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
         kwargs['class_obj'] = self.object
+        kwargs['user'] = self.request.user
         return kwargs
 
     def get_title(self):
@@ -2574,6 +2583,13 @@ class InstructorVerificationSubmitView(LoginRequiredMixin, View):
             )
             return HttpResponseRedirect(next_url)
 
+        # CA-11: the UI only offers this to site teachers; enforce it here too.
+        if not profile_is_site_teacher(profile, request.user):
+            messages.error(
+                request,
+                _('Only approved teachers can apply to instruct a class. Apply for teacher access first.'),
+            )
+            return HttpResponseRedirect(next_url)
         if profile_is_class_admin(profile, klass):
             messages.info(request, _('You already instruct this class.'))
             return HttpResponseRedirect(next_url)

@@ -111,3 +111,19 @@ class ImpersonatePermissionTestCase(CommonDataMixin, TestCase):
         response = self.client.get(reverse('impersonate-start', args=(self.users['imp_student'].id,)))
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.session['_impersonate'], self.users['imp_student'].id)
+
+    def test_impersonation_start_and_stop_are_logged(self):
+        """CA-5: who impersonated whom and when is recorded."""
+        from django.conf import settings
+        from impersonate.models import ImpersonationLog
+        self.assertFalse(settings.IMPERSONATE.get('DISABLE_LOGGING'))
+        self.client.force_login(self.users['imp_class_admin'])
+        self.client.get(reverse('impersonate-start', args=(self.users['imp_student'].id,)))
+        log = ImpersonationLog.objects.get()
+        self.assertEqual(log.impersonator, self.users['imp_class_admin'])
+        self.assertEqual(log.impersonating, self.users['imp_student'])
+        self.assertIsNotNone(log.session_started_at)
+        self.assertIsNone(log.session_ended_at)
+        self.client.get(reverse('impersonate-stop'))
+        log.refresh_from_db()
+        self.assertIsNotNone(log.session_ended_at)

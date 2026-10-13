@@ -440,6 +440,14 @@ def process_user_csv(csv_file, organization: Organization = None, target_class: 
 
     New accounts use username=NetID with an unusable local password; students
     sign in via Duke NetID SSO. Existing accounts are linked to the course/class.
+
+    ``update_existing`` only ever touches the name/e-mail/active state of an
+    existing account that is a plain member (not staff, not superuser, not a
+    course/class manager) already enrolled in the target class (or course,
+    when no class is given). Any other existing account is only linked: a
+    roster upload must never be able to rewrite another person's e-mail
+    address (account takeover through password reset) or re-activate a
+    disabled account.
     """
     result = UserImportResult()
 
@@ -477,7 +485,8 @@ def process_user_csv(csv_file, organization: Organization = None, target_class: 
 
         try:
             with transaction.atomic():
-                outcome, user = _upsert_user(row, update_existing, activate)
+                outcome, user = _upsert_user(row, update_existing, activate,
+                                             organization=organization, target_class=target_class)
                 if outcome == 'created':
                     result.created += 1
                 elif outcome == 'updated':
@@ -506,7 +515,40 @@ def _ensure_profile(user: User) -> Profile:
     return profile
 
 
-def _upsert_user(row: dict, update_existing: bool, activate: bool) -> Tuple[str, Optional[User]]:
+def import_may_update_existing_user(user: User, organization: Organization = None,
+                                    target_class: Class = None) -> bool:
+    """May a roster import change this existing account's name/e-mail/active flag?
+
+    Only for a plain, non-staff account that is already a member of the target
+    class (or of the course when no class is given) and manages nothing in it.
+    """
+    if user.is_staff or user.is_superuser:
+        return False
+    if target_class is None and organization is None:
+        return False
+    profile = Profile.objects.filter(user=user).first()
+    if profile is None:
+        return False
+    if target_class is not None:
+        if not target_class.members.filter(id=profile.id).exists():
+            return False
+        if target_class.admins.filter(id=profile.id).exists():
+            return False
+        organization = organization or target_class.organization
+    if organization is not None:
+        if not organization.members.filter(id=profile.id).exists():
+            return False
+        if organization.admins.filter(id=profile.id).exists():
+            return False
+        if organization.instructors.filter(id=profile.id).exists():
+            return False
+        if Class.objects.filter(organization=organization, admins=profile).exists():
+            return False
+    return True
+
+
+def _upsert_user(row: dict, update_existing: bool, activate: bool,
+                 organization: Organization = None, target_class: Class = None) -> Tuple[str, Optional[User]]:
     username = row.get('username')
     first_name = row.get('first_name', '')
     last_name = row.get('last_name', '')
@@ -514,7 +556,7 @@ def _upsert_user(row: dict, update_existing: bool, activate: bool) -> Tuple[str,
 
     try:
         user = User.objects.get(username=username)
-        if update_existing:
+        if update_existing and import_may_update_existing_user(user, organization, target_class):
             updated_fields = []
             if first_name and user.first_name != first_name:
                 user.first_name = first_name

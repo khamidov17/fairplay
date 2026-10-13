@@ -1,4 +1,6 @@
 # coding=utf-8
+import re
+
 from django import forms
 from django.conf import settings
 from django.contrib.auth.models import User
@@ -35,6 +37,15 @@ class CustomRegistrationForm(RegistrationForm):
 
     if ReCaptchaField is not None:
         captcha = ReCaptchaField(widget=ReCaptchaWidget())
+
+    def clean_username(self):
+        username = super().clean_username()
+        # CA-7: SSO-shaped usernames are reserved for the identity provider.
+        pattern = getattr(settings, 'SSO_RESERVED_USERNAME_REGEX', '')
+        if pattern and re.match(pattern, username):
+            raise forms.ValidationError(gettext('This username is reserved for NetID sign-in. Use the NetID '
+                                                'login, or choose a different username.'))
+        return username
 
     def clean_email(self):
         if User.objects.filter(email=self.cleaned_data['email']).exists():

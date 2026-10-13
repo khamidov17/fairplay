@@ -26,12 +26,14 @@ BASE_DIR = os.path.dirname(os.path.dirname(__file__))
 
 # SECURITY WARNING: keep the secret key used in production secret!
 # This well-known development value must be overridden in local_settings.py;
-# a check below refuses to start with DEBUG = False if it is left unchanged.
+# a check below refuses to start if it is left unchanged (whatever DEBUG is), except
+# under the test runner or with CLASSROOM_ALLOW_INSECURE_DEV=1 (CA-9).
 _INSECURE_DEFAULT_SECRET_KEY = '5*9f5q57mqmlz2#f$x1h76&jxy#yortjl1v+l*6hd18$d*yx#0'
 SECRET_KEY = _INSECURE_DEFAULT_SECRET_KEY
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# Off by default (CA-9); local development turns it on in local_settings.py.
+DEBUG = False
 
 ALLOWED_HOSTS = []
 
@@ -348,7 +350,9 @@ MIDDLEWARE = (
 IMPERSONATE = {
     'CUSTOM_ALLOW': 'judge.impersonation.can_impersonate',
     'CUSTOM_USER_QUERYSET': 'judge.impersonation.get_impersonable_users',
-    'DISABLE_LOGGING': True,
+    # CA-5: every impersonation start/stop is recorded (impersonate.ImpersonationLog:
+    # who, whom, start, end; read-only in the Django admin). Never turn this off.
+    'DISABLE_LOGGING': False,
 }
 
 ACCOUNT_ACTIVATION_DAYS = 7
@@ -639,7 +643,17 @@ AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',
 )
 
+# Local (username + password) self-registration. Set to False to allow only SSO and
+# roster-imported accounts (CA-7).
 REGISTRATION_OPEN = True
+
+# Usernames matching this pattern belong to the SSO identity provider (NetID-shaped,
+# e.g. ``ab123``) and cannot be registered locally, so nobody can claim a student's
+# NetID before the student's first SSO login (CA-7). Set to '' to disable.
+SSO_RESERVED_USERNAME_REGEX = r'^[A-Za-z]{2,8}[0-9]{1,6}$'
+# requests' ``verify`` for the SSO token check: True, or a path to a CA bundle.
+NETID_SSO_VERIFY = True
+NETID_SSO_TIMEOUT = 10
 
 SOCIAL_AUTH_PIPELINE = (
     'social_core.pipeline.social_auth.social_details',
@@ -744,21 +758,24 @@ LITELLM_PROFILES.setdefault('question_import', {
 
 
 # Check settings are consistent
-# Refuse to run a production (DEBUG = False) site on the well-known development
-# secrets; they allow anyone to forge sessions, CSRF tokens, and event-daemon
-# messages. DEBUG = True deployments are left alone for troubleshooting.
+# Refuse to run on the well-known development secrets; they allow anyone to forge
+# sessions, CSRF tokens, password-reset links and event-daemon channel names. This
+# applies with DEBUG = True too (CA-9); only the test runner and an explicit
+# CLASSROOM_ALLOW_INSECURE_DEV=1 are exempt.
+from dmoj.insecure_defaults import insecure_default_errors, insecure_defaults_allowed  # noqa: E402
+
+if not insecure_defaults_allowed():
+    _insecure_errors = insecure_default_errors(
+        SECRET_KEY, _INSECURE_DEFAULT_SECRET_KEY,
+        EVENT_DAEMON_USE, EVENT_DAEMON_SUBMISSION_KEY, _INSECURE_DEFAULT_SUBMISSION_KEY,
+    )
+    if _insecure_errors:
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(' '.join(_insecure_errors))
+
 if not DEBUG:
     from django.core.exceptions import ImproperlyConfigured
-
-    if SECRET_KEY == _INSECURE_DEFAULT_SECRET_KEY:
-        raise ImproperlyConfigured(
-            'SECRET_KEY is still the well-known development default; '
-            'set a unique value in local_settings.py before running with DEBUG = False.')
-    if EVENT_DAEMON_USE and EVENT_DAEMON_SUBMISSION_KEY == _INSECURE_DEFAULT_SUBMISSION_KEY:
-        raise ImproperlyConfigured(
-            'EVENT_DAEMON_SUBMISSION_KEY is still the well-known development default; '
-            'set a unique value in local_settings.py before enabling the event daemon '
-            'with DEBUG = False.')
 
     # Submission-file storage: fail loudly rather than silently degrade to local disk.
     # These fire only for deployments that actually use the feature (endpoint set, or

@@ -156,6 +156,21 @@ class CustomNetidRedirectView(LoginView):
         return redirect(f'{auth_host}/auth/redirect')
 
 
+def netid_may_bind_existing_user(user, eppn):
+    """May an SSO login for this NetID land in the existing local account ``user`` (CA-7)?
+
+    Only when the account was made for SSO (by an SSO login or a roster import:
+    no usable local password), or its e-mail address is the SSO e-mail and was
+    verified (an active account; local registration stays inactive until the
+    activation mail is clicked). Otherwise someone who registered the NetID as a
+    local username first would own the student's account.
+    """
+    if not user.has_usable_password():
+        return True
+    email = (user.email or '').strip().lower()
+    return bool(user.is_active and email and email == (eppn or '').strip().lower())
+
+
 class CustomNetidLoginView(LoginView):
     def get(self, request):
         from django.shortcuts import redirect
@@ -182,9 +197,13 @@ class CustomNetidLoginView(LoginView):
                 import requests
                 from django.conf import settings
                 auth_host = settings.AUTH_HOSTS['Duke-netid']
+                # CA-7: TLS certificates are checked (NETID_SSO_VERIFY may name a CA
+                # bundle), and the token is sent as an encoded query parameter.
                 response = requests.get(
-                    f'{auth_host}/verify_token.php?token={token}',
-                    verify=False,
+                    f'{auth_host}/verify_token.php',
+                    params={'token': token},
+                    verify=getattr(settings, 'NETID_SSO_VERIFY', True) or True,
+                    timeout=getattr(settings, 'NETID_SSO_TIMEOUT', 10),
                 )
                 if response.status_code == 200:
                     data = response.json()
@@ -233,6 +252,17 @@ class CustomNetidLoginView(LoginView):
 
             user.set_unusable_password()
             user.save()
+        else:
+            if not netid_may_bind_existing_user(user, eppn):
+                from django.contrib import messages
+                messages.error(request, _('A local account with this username already exists and is not '
+                                          'linked to NetID. Sign in with its password, or ask an administrator.'))
+                return redirect('/')
+
+        if not user.is_active:
+            from django.contrib import messages
+            messages.error(request, _('This account is disabled.'))
+            return redirect('/')
 
         if user.is_superuser:
             from django.contrib import messages

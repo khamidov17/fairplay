@@ -1,3 +1,9 @@
+import secrets
+
+# CI-only throwaway key: settings refuse the well-known development default outside
+# the test runner (compilejsi18n, check_migration_graph, ...).
+SECRET_KEY = secrets.token_urlsafe(50)
+
 COMPRESS_OUTPUT_DIR = 'cache'
 STATICFILES_FINDERS += ('compressor.finders.CompressorFinder',)
 STATIC_ROOT = os.path.join(BASE_DIR, 'static')

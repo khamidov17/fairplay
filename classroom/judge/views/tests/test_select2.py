@@ -81,6 +81,10 @@ class UserSelect2NameSearchTest(CommonDataMixin, TestCase):
         cls.unlisted.profile.is_unlisted = True
         cls.unlisted.profile.save(update_fields=['is_unlisted'])
 
+    def setUp(self):
+        # CA-4: user pickers need a login; teachers/staff search by name.
+        self.client.force_login(self.users['staff_problem_edit_own'])
+
     def _results(self, url_name, term, **kwargs):
         url = reverse(url_name, kwargs=kwargs) if kwargs else reverse(url_name)
         return self.client.get(url, {'term': term}).json()['results']
@@ -117,8 +121,11 @@ class UserSelect2NameSearchTest(CommonDataMixin, TestCase):
         hidden = self._results('user_search_select2_ajax', 'Hidden')
         self.assertFalse(any(row['id'] == 'ghost' for row in hidden))
 
-    def test_profile_select2_still_returns_unlisted_users(self):
-        """Teacher form pickers keep the original profile_select2 scope."""
+    def test_profile_select2_unlisted_users_only_for_superusers(self):
+        """CA-4: is_unlisted is respected; only superusers still find unlisted users."""
+        rows = self._results('profile_select2', 'Hidden')
+        self.assertFalse(any(row['id'] == self.unlisted.profile.id for row in rows))
+        self.client.force_login(self.users['superuser'])
         rows = self._results('profile_select2', 'Hidden')
         self.assertTrue(any(row['id'] == self.unlisted.profile.id for row in rows))
 
@@ -143,3 +150,52 @@ class AuthorFilterSelect2Test(CommonDataMixin, TestCase):
     def test_instructor_can_search_profiles(self):
         ids = self._ids('staff_problem_edit_own', 'superuser')
         self.assertIn(self.users['superuser'].profile.id, ids)
+
+
+class UserSearchSelect2ScopeTest(CommonDataMixin, TestCase):
+    """CA-4: login required, minimum term, course scope, no real names to students."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.course = create_organization(name='scope_course')
+        cls.other_course = create_organization(name='scope_other')
+        cls.student = create_user(username='scope_student', first_name='Stu')
+        cls.classmate = create_user(username='scope_mate', first_name='Zhang', last_name='Wei')
+        cls.stranger = create_user(username='scope_stranger', first_name='Zhang', last_name='Stranger')
+        cls.course.members.add(cls.student.profile, cls.classmate.profile)
+        cls.other_course.members.add(cls.stranger.profile)
+
+    def _get(self, url_name, term):
+        return self.client.get(reverse(url_name), {'term': term}).json()['results']
+
+    def test_anonymous_gets_nothing(self):
+        for name in ('profile_select2', 'user_search_select2_ajax'):
+            with self.subTest(view=name):
+                self.assertEqual(self._get(name, 'scope'), [])
+
+    def test_empty_or_short_term_lists_nobody(self):
+        self.client.force_login(self.users['superuser'])
+        for name in ('profile_select2', 'user_search_select2_ajax'):
+            with self.subTest(view=name):
+                self.assertEqual(self._get(name, ''), [])
+                self.assertEqual(self._get(name, 's'), [])
+
+    def test_student_sees_only_course_mates_by_username_without_names(self):
+        self.client.force_login(self.student)
+        rows = self._get('user_search_select2_ajax', 'scope_')
+        ids = {row['id'] for row in rows}
+        self.assertIn('scope_mate', ids)
+        self.assertNotIn('scope_stranger', ids)
+        self.assertTrue(all('Zhang' not in row['text'] for row in rows))
+        # Real-name search must not work as a name -> NetID lookup for students.
+        self.assertEqual(self._get('user_search_select2_ajax', 'Zhang'), [])
+        rows = self._get('profile_select2', 'scope_')
+        self.assertEqual({row['id'] for row in rows} & {self.stranger.profile.id}, set())
+        self.assertTrue(all('Zhang' not in row['text'] for row in rows))
+
+    def test_teacher_searches_site_wide_with_names(self):
+        self.client.force_login(self.users['staff_problem_edit_own'])
+        rows = self._get('user_search_select2_ajax', 'Zhang')
+        self.assertEqual({row['id'] for row in rows}, {'scope_mate', 'scope_stranger'})
+        self.assertIn('Zhang Wei (scope_mate)', {row['text'] for row in rows})

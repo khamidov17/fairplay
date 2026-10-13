@@ -73,12 +73,16 @@ class UserImportTestCase(TestCase):
         self.assertEqual(User.objects.get(username='bob').email, 'bob1@example.com')
 
     def test_existing_user_skipped_unless_update_requested(self):
-        create_user(username='carol')
-        result = self._import(['carol,Carol,New,carol@example.com'])
+        from judge.models.tests.util import create_organization
+        org = create_organization(name='Carol Course')
+        carol_user = create_user(username='carol')
+        org.members.add(carol_user.profile)
+        result = self._import(['carol,Carol,New,carol@example.com'], organization=org)
         self.assertEqual(result.skipped, 1)
         self.assertEqual(User.objects.get(username='carol').first_name, '')
 
-        result = self._import(['carol,Carol,New,carol@example.com'], update_existing=True)
+        # Updating is only possible for a plain member already in this course (CA-1).
+        result = self._import(['carol,Carol,New,carol@example.com'], organization=org, update_existing=True)
         self.assertEqual(result.updated, 1)
         carol = User.objects.get(username='carol')
         self.assertEqual(carol.first_name, 'Carol')
@@ -114,6 +118,70 @@ class UserImportTestCase(TestCase):
         result = process_user_csv(io.BytesIO(content))
         self.assertEqual(result.created, 1)
         self.assertEqual(User.objects.get(username='gh200').email, 'gh200@duke.edu')
+
+
+class UserImportExistingAccountGuardTest(TestCase):
+    """CA-1: an import never rewrites accounts it does not own."""
+    HEADER = 'username,first_name,last_name,email\n'
+
+    def setUp(self):
+        from judge.models import Class
+        from judge.models.tests.util import create_organization
+        self.org = create_organization(name='Guard Course')
+        self.klass = Class.objects.create(organization=self.org, name='Guard Class', slug='guard-class')
+
+    def _import(self, rows, **kwargs):
+        content = (self.HEADER + '\n'.join(rows)).encode('utf-8')
+        kwargs.setdefault('organization', self.org)
+        kwargs.setdefault('target_class', self.klass)
+        return process_user_csv(io.BytesIO(content), update_existing=True, activate=True, **kwargs)
+
+    def test_superuser_and_staff_never_updated(self):
+        root = create_user(username='guard_root', email='root@example.com', is_superuser=True, is_staff=True)
+        staff = create_user(username='guard_staff', email='staff@example.com', is_staff=True)
+        for user in (root, staff):
+            self.org.members.add(user.profile)
+            self.klass.members.add(user.profile)
+        result = self._import(['guard_root,A,B,evil@example.com', 'guard_staff,A,B,evil2@example.com'])
+        self.assertEqual(result.updated, 0)
+        root.refresh_from_db()
+        staff.refresh_from_db()
+        self.assertEqual(root.email, 'root@example.com')
+        self.assertEqual(staff.email, 'staff@example.com')
+
+    def test_user_outside_the_class_is_only_linked(self):
+        outsider = create_user(username='guard_outsider', email='out@example.com', is_active=False)
+        result = self._import(['guard_outsider,A,B,evil@example.com'])
+        self.assertEqual(result.updated, 0)
+        outsider.refresh_from_db()
+        self.assertEqual(outsider.email, 'out@example.com')
+        self.assertFalse(outsider.is_active)
+        self.assertTrue(self.klass.members.filter(id=outsider.profile.id).exists())
+
+    def test_course_manager_is_not_updated(self):
+        manager = create_user(username='guard_manager', email='mgr@example.com')
+        self.org.members.add(manager.profile)
+        self.klass.members.add(manager.profile)
+        self.org.admins.add(manager.profile)
+        self._import(['guard_manager,A,B,evil@example.com'])
+        manager.refresh_from_db()
+        self.assertEqual(manager.email, 'mgr@example.com')
+
+    def test_plain_member_of_the_class_may_be_updated(self):
+        member = create_user(username='guard_member', email='old@example.com')
+        self.org.members.add(member.profile)
+        self.klass.members.add(member.profile)
+        result = self._import(['guard_member,Mem,Ber,new@example.com'])
+        self.assertEqual(result.updated, 1)
+        member.refresh_from_db()
+        self.assertEqual(member.email, 'new@example.com')
+
+    def test_no_scope_means_no_update(self):
+        loner = create_user(username='guard_loner', email='loner@example.com')
+        content = (self.HEADER + 'guard_loner,A,B,evil@example.com').encode('utf-8')
+        process_user_csv(io.BytesIO(content), update_existing=True)
+        loner.refresh_from_db()
+        self.assertEqual(loner.email, 'loner@example.com')
 
 
 class ContestScoreImportTestCase(TestCase):

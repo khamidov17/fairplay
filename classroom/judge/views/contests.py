@@ -137,7 +137,8 @@ class ContestList(ContestInSessionListRedirectMixin, QueryStringSortMixin, DiggP
         return queryset.annotate(
             editor_or_tester=Exists(Contest.authors.through.objects.filter(contest=OuterRef('pk'), profile=profile)) |
             Exists(Contest.curators.through.objects.filter(contest=OuterRef('pk'), profile=profile)) |
-            Exists(Contest.testers.through.objects.filter(contest=OuterRef('pk'), profile=profile)),
+            Exists(Contest.testers.through.objects.filter(contest=OuterRef('pk'), profile=profile)) |
+            Exists(Contest.spectators.through.objects.filter(contest=OuterRef('pk'), profile=profile)),
             completed_contest=Exists(ContestParticipation.objects.filter(contest=OuterRef('pk'), user=profile,
                                                                          virtual=ContestParticipation.LIVE)),
         )
@@ -250,7 +251,8 @@ class ContestListV2(ContestInSessionListRedirectMixin, QueryStringSortMixin, Dig
         return queryset.annotate(
             editor_or_tester=Exists(Contest.authors.through.objects.filter(contest=OuterRef('pk'), profile=profile)) |
             Exists(Contest.curators.through.objects.filter(contest=OuterRef('pk'), profile=profile)) |
-            Exists(Contest.testers.through.objects.filter(contest=OuterRef('pk'), profile=profile)),
+            Exists(Contest.testers.through.objects.filter(contest=OuterRef('pk'), profile=profile)) |
+            Exists(Contest.spectators.through.objects.filter(contest=OuterRef('pk'), profile=profile)),
             completed_contest=Exists(ContestParticipation.objects.filter(contest=OuterRef('pk'), user=profile,
                                                                          virtual=ContestParticipation.LIVE)),
         )
