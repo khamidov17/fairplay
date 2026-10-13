@@ -79,6 +79,17 @@ def grade_internally(submission):
     grader = get_grader(submission.problem.submission_type)
     outcome = grader.grade(submission)
 
+    if _keeps_stored_ai_score(submission, outcome):
+        # A plain rejudge (Finalize, bulk / admin rejudge, auto-grade) of an
+        # AI-graded answer does not call the LLM, so the grader only returns an
+        # "awaiting AI" placeholder. Keep the stored AI score instead of
+        # overwriting it with 0; re-scoring with AI needs an explicit AI run
+        # (``run_ai_for_submission``: Grade-desk batch, rejudge widget, button).
+        # Teacher manual grades live in SubmissionManualGrade and are untouched.
+        if submission.rejudged_date is not None:
+            type(submission).objects.filter(pk=submission.pk).update(rejudged_date=submission.rejudged_date)
+        return submission.points
+
     SubmissionTestCase.objects.filter(submission=submission).delete()
     if outcome.cases:
         SubmissionTestCase.objects.bulk_create([
@@ -96,6 +107,25 @@ def grade_internally(submission):
         submission, case_points=outcome.case_points, case_total=outcome.case_total,
         result=outcome.result, status='D', error='',
     )
+
+
+# Placeholder results the AI-graded types return when the LLM was not invoked.
+_AI_PLACEHOLDER_RESULTS = ('IR', 'IE')
+# Terminal results an AI grading pass stores.
+_AI_SCORED_RESULTS = ('AC', 'WA')
+
+
+def _keeps_stored_ai_score(submission, outcome):
+    """Whether ``outcome`` is a no-LLM placeholder that must not replace a stored AI score."""
+    if outcome.result not in _AI_PLACEHOLDER_RESULTS or outcome.case_points:
+        return False
+    if submission.status != 'D' or submission.result not in _AI_SCORED_RESULTS:
+        return False
+    from judge.utils.contest_ai import problem_supports_ai_feedback, should_run_ai_now
+    if not problem_supports_ai_feedback(submission.problem):
+        return False
+    # An explicit AI run (batch pass / manual trigger) always re-scores.
+    return not should_run_ai_now(submission)
 
 
 def finalize_ai_combined(submission, *, ai_score, final_points):
