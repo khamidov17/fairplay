@@ -9,7 +9,7 @@ from django.utils import timezone
 
 from judge.models import ContestParticipation, Judge, Language, Submission, SubmissionTestCase
 from judge.models.tests.util import create_contest, create_contest_participation, create_problem, create_user
-from judge.utils.sandbox_output import should_hide_sandbox_output
+from judge.utils.sandbox_output import should_hide_sandbox_output, submission_output_hidden_for
 
 
 class IDEViewTestCase(TestCase):
@@ -196,3 +196,183 @@ class IDESandboxOutputHideTestCase(TestCase):
         self.assertEqual(body['result'], 'IR')
         self.assertIn('ZeroDivisionError', body['feedback'])
         self.assertIn('Traceback', body['extended_feedback'])
+
+
+class IDESandboxOutputEveryPathTestCase(TestCase):
+    """AI-2: "Hide IDE / Run Test output" holds on every path, and is recorded on the run."""
+
+    fixtures = ['language_all.json']
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.student = create_user(username='idepathstudent')
+        cls.author = create_user(username='idepathauthor')
+        cls.language = Language.objects.get(key='PY3')
+        judge = Judge.objects.create(name='idepathjudge', auth_key='idepathkey', online=True)
+        judge.runtimes.add(cls.language)
+        cls.ide_problem = create_problem(code='idepractice')
+        cls.contest = create_contest(
+            key='idepathasn', name='Hide sandbox everywhere',
+            start_time=timezone.now() - timedelta(hours=1),
+            end_time=timezone.now() + timedelta(hours=2),
+            is_visible=True,
+            hide_sandbox_output=True,
+            authors=('idepathauthor',),
+        )
+
+    def setUp(self):
+        cache.clear()
+        self.client = Client()
+        self.client.force_login(self.student)
+
+    def _join(self):
+        participation = create_contest_participation(contest=self.contest, user=self.student.profile)
+        self.student.profile.current_contest = participation
+        self.student.profile.save()
+        return participation
+
+    def _leave(self):
+        self.student.profile.current_contest = None
+        self.student.profile.save()
+
+    def _run_and_grade(self, output='secret-stdout-777'):
+        with mock.patch.object(Submission, 'judge'):
+            response = self.client.post(reverse('ide_submit'), {
+                'source': 'print(1)', 'language': self.language.id, 'input': '',
+            })
+        self.assertEqual(response.status_code, 200, response.content)
+        submission = Submission.objects.get(id=response.json()['submission_id'])
+        Submission.objects.filter(id=submission.id).update(status='D', result='AC', time=0.01, memory=10)
+        SubmissionTestCase.objects.create(
+            submission=submission, case=1, status='AC', time=0.01, memory=10, output=output,
+        )
+        submission.refresh_from_db()
+        return submission
+
+    def _pages(self, submission):
+        return {
+            'ide_status': self.client.get(reverse('ide_submission_status', args=[submission.id])),
+            'submission_status': self.client.get(reverse('submission_status', args=[submission.id])),
+            'testcases_widget': self.client.get(reverse('submission_testcases_query'), {'id': submission.id}),
+        }
+
+    def test_run_records_the_hiding_contest(self):
+        self._join()
+        submission = self._run_and_grade()
+        self.assertEqual(submission.sandbox_hidden_contest_id, self.contest.id)
+
+    def test_run_outside_any_contest_records_nothing(self):
+        submission = self._run_and_grade()
+        self.assertIsNone(submission.sandbox_hidden_contest_id)
+        pages = self._pages(submission)
+        self.assertIn('secret-stdout-777', pages['ide_status'].json()['output'])
+        self.assertContains(pages['submission_status'], 'secret-stdout-777')
+
+    def test_output_hidden_on_submission_page_and_widget(self):
+        self._join()
+        submission = self._run_and_grade()
+        pages = self._pages(submission)
+        self.assertNotIn('output', pages['ide_status'].json())
+        self.assertEqual(pages['submission_status'].status_code, 200)
+        self.assertNotContains(pages['submission_status'], 'secret-stdout-777')
+        self.assertEqual(pages['testcases_widget'].status_code, 200)
+        self.assertNotContains(pages['testcases_widget'], 'secret-stdout-777')
+
+    def test_leaving_the_contest_does_not_reveal_output(self):
+        self._join()
+        submission = self._run_and_grade()
+        self._leave()
+        pages = self._pages(submission)
+        self.assertNotIn('output', pages['ide_status'].json())
+        self.assertTrue(pages['ide_status'].json()['output_hidden'])
+        self.assertNotContains(pages['submission_status'], 'secret-stdout-777')
+        self.assertNotContains(pages['testcases_widget'], 'secret-stdout-777')
+
+    def test_run_made_after_leaving_a_running_contest_is_hidden(self):
+        # Leave, Run, rejoin must not be a way around the switch.
+        self._join()
+        self._leave()
+        submission = self._run_and_grade()
+        self.assertEqual(submission.sandbox_hidden_contest_id, self.contest.id)
+        self.assertNotIn('output', self._pages(submission)['ide_status'].json())
+
+    def test_output_shown_after_the_contest_ends(self):
+        self._join()
+        submission = self._run_and_grade()
+        self._leave()
+        self.contest.end_time = timezone.now() - timedelta(minutes=1)
+        self.contest.save(update_fields=['end_time'])
+        pages = self._pages(submission)
+        self.assertIn('secret-stdout-777', pages['ide_status'].json()['output'])
+        self.assertContains(pages['submission_status'], 'secret-stdout-777')
+
+    def test_assignment_staff_are_not_hidden_from(self):
+        self._join()
+        submission = self._run_and_grade()
+        self.assertTrue(submission_output_hidden_for(submission, self.student))
+        self.assertFalse(submission_output_hidden_for(submission, self.author))
+
+
+class IDERateLimitAtomicTestCase(TestCase):
+    """AI-8: the IDE limit is reserved with add/incr, so a stale read cannot pass it."""
+
+    fixtures = ['language_all.json']
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = create_user(username='iderateuser')
+        cls.language = Language.objects.get(key='PY3')
+        judge = Judge.objects.create(name='idereatejudge', auth_key='idereatekey', online=True)
+        judge.runtimes.add(cls.language)
+        create_problem(code='idepractice')
+
+    def setUp(self):
+        cache.clear()
+        self.client = Client()
+        self.client.force_login(self.user)
+        self.key = f'ide_run:{self.user.profile.id}'
+
+    def _submit(self):
+        with mock.patch.object(Submission, 'judge'):
+            return self.client.post(reverse('ide_submit'), {
+                'source': 'print(1)', 'language': self.language.id, 'input': '',
+            })
+
+    def test_stale_counter_read_cannot_pass_the_limit(self):
+        # Five runs already counted, but this request read the counter before they
+        # landed (a parallel burst): the reservation itself must refuse it.
+        cache.set(self.key, 5, 60)
+        real_get = cache.get
+
+        def stale_get(key, *args, **kwargs):
+            if key == self.key:
+                return 0
+            return real_get(key, *args, **kwargs)
+
+        with mock.patch('judge.views.ide.cache.get', side_effect=stale_get):
+            response = self._submit()
+        self.assertEqual(response.status_code, 429)
+        self.assertFalse(Submission.objects.filter(user=self.user.profile).exists())
+
+    def test_counter_expiring_mid_request_does_not_500(self):
+        # The fast-path read saw a live counter, which then expired before the
+        # increment: this used to raise ValueError from cache.incr after queuing.
+        real_get = cache.get
+
+        def expired_get(key, *args, **kwargs):
+            if key == self.key:
+                return 1
+            return real_get(key, *args, **kwargs)
+
+        with mock.patch('judge.views.ide.cache.get', side_effect=expired_get):
+            response = self._submit()
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(cache.get(self.key), 1)
+
+    def test_five_runs_then_limited(self):
+        for _ in range(5):
+            self.assertEqual(self._submit().status_code, 200)
+            # Not queued any more, so DMOJ_SUBMISSION_LIMIT does not interfere.
+            Submission.objects.filter(user=self.user.profile).update(status='D')
+        self.assertEqual(self._submit().status_code, 429)
+        self.assertEqual(Submission.objects.filter(user=self.user.profile).count(), 5)

@@ -10,7 +10,7 @@ from django.urls import reverse, set_script_prefix
 from django.utils import timezone
 
 from judge.middleware import _seb_block_exempt, _seb_launch_prefix
-from judge.models import ContestParticipation, SEBConfigPreset
+from judge.models import Contest, ContestParticipation, SEBConfigPreset
 from judge.models.tests.util import CommonDataMixin, create_contest, create_contest_participation, create_user
 from judge.utils.seb import sign_seb_launch_token
 
@@ -115,13 +115,15 @@ class ContestSEBEnforcementTestCase(CommonDataMixin, TestCase):
 
     def test_allowed_with_valid_bek_header(self):
         self.enter_contest('seb_participant', self.seb_contest)
-        path = reverse('home')
+        # A page inside the exam surface: other pages are locked during an SEB exam.
+        path = reverse('contest_view', args=('sebexam',))
         response = self.client.get(path, **bek_header(path))
         self.assertEqual(response.status_code, 200)
 
     def test_allowed_with_valid_config_key_header(self):
         self.enter_contest('seb_participant', self.seb_contest)
-        path = reverse('home')
+        # A page inside the exam surface: other pages are locked during an SEB exam.
+        path = reverse('contest_view', args=('sebexam',))
         response = self.client.get(path, **cfg_header(path))
         self.assertEqual(response.status_code, 200)
 
@@ -133,7 +135,8 @@ class ContestSEBEnforcementTestCase(CommonDataMixin, TestCase):
 
     def test_hash_covers_query_string(self):
         self.enter_contest('seb_participant', self.seb_contest)
-        path = reverse('home')
+        # A page inside the exam surface: other pages are locked during an SEB exam.
+        path = reverse('contest_view', args=('sebexam',))
         # Hash over URL including the query string is accepted...
         response = self.client.get(path + '?foo=bar', **bek_header(path + '?foo=bar'))
         self.assertEqual(response.status_code, 200)
@@ -482,13 +485,13 @@ class ContestSEBPresetTestCase(CommonDataMixin, TestCase):
 
     def test_allowed_with_preset_bek_header(self):
         self.enter_contest('preset_student', self.preset_contest)
-        path = reverse('home')
+        path = reverse('contest_view', args=('presetexam',))
         response = self.client.get(path, **bek_header(path, PRESET_BEK))
         self.assertEqual(response.status_code, 200)
 
     def test_allowed_with_preset_config_key_header(self):
         self.enter_contest('preset_student', self.preset_contest)
-        path = reverse('home')
+        path = reverse('contest_view', args=('presetexam',))
         response = self.client.get(path, **cfg_header(path, PRESET_CFG))
         self.assertEqual(response.status_code, 200)
 
@@ -518,8 +521,144 @@ class ContestSEBPresetTestCase(CommonDataMixin, TestCase):
         response = self.client.get(reverse('seb_preset_config', args=(self.preset.id,)))
         self.assertEqual(response.status_code, 403)
 
+    def test_preset_preview_denied_with_permission_but_not_editing_a_contest_using_it(self):
+        # SEB-1: the permission alone does not hand out every preset's .seb.
+        self.client.force_login(self.users['preset_staff'])
+        response = self.client.get(reverse('seb_preset_config', args=(self.preset.id,)))
+        self.assertEqual(response.status_code, 403)
+
+    def test_preset_preview_denied_for_editor_without_permission(self):
+        self.preset_contest.authors.add(self.users['preset_student'].profile)
+        self.client.force_login(self.users['preset_student'])
+        response = self.client.get(reverse('seb_preset_config', args=(self.preset.id,)) + '?contest=presetexam')
+        self.assertEqual(response.status_code, 403)
+
+    def test_preset_preview_denied_for_other_contest_key(self):
+        other = create_contest(key='presetother', is_visible=True)
+        other.authors.add(self.users['preset_staff'].profile)
+        self.client.force_login(self.users['preset_staff'])
+        response = self.client.get(reverse('seb_preset_config', args=(self.preset.id,)) + '?contest=presetother')
+        self.assertEqual(response.status_code, 403)
+
     def test_preset_preview_allowed_with_permission(self):
+        # Permission AND editing a contest that uses this preset.
+        self.preset_contest.authors.add(self.users['preset_staff'].profile)
         self.client.force_login(self.users['preset_staff'])
         response = self.client.get(reverse('seb_preset_config', args=(self.preset.id,)))
         self.assertEqual(response.status_code, 200)
         self.assertEqual(b''.join(response.streaming_content), PRESET_CONFIG_BYTES)
+
+
+@override_settings(COMPRESS_ENABLED=False, MEDIA_ROOT=tempfile.mkdtemp(), DMOJ_SEB_CONFIG_DOWNLOAD_WINDOW_MINUTES=30)
+class SEBConfigDownloadGateTestCase(CommonDataMixin, TestCase):
+    """SEB-1: the .seb goes only to the roster, and only shortly before or during the exam."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.users.update({
+            'gate_student': create_user(username='gate_student'),
+            'gate_outsider': create_user(username='gate_outsider'),
+            'gate_editor': create_user(username='gate_editor'),
+        })
+        now = timezone.now()
+        cls.contest = create_contest(
+            key='sebgate', is_visible=True, is_private=True,
+            start_time=now + timezone.timedelta(hours=3),
+            end_time=now + timezone.timedelta(hours=5),
+            seb_required=True, seb_browser_exam_keys=BEK, seb_config_keys=CFG,
+            private_contestants=('gate_student',),
+            # Can see the contest (scoreboard viewer) but is not on the roster.
+            view_contest_scoreboard=('gate_outsider',),
+            authors=('gate_editor',),
+        )
+        cls.contest.seb_config_file.save('gate.seb', ContentFile(SEB_CONFIG_BYTES), save=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        super().tearDownClass()
+        shutil.rmtree(cls._overridden_settings['MEDIA_ROOT'], ignore_errors=True)
+
+    def _move_start(self, delta):
+        now = timezone.now()
+        Contest.objects.filter(id=self.contest.id).update(start_time=now + delta, end_time=now + delta +
+                                                          timezone.timedelta(hours=2))
+
+    def _download(self, username):
+        self.client.force_login(self.users[username])
+        return self.client.get(reverse('contest_seb_config', args=('sebgate',)))
+
+    def _launch_fetch(self, username):
+        self.client.logout()
+        url = reverse('seb_launch_config', args=(sign_seb_launch_token(self.contest, self.users[username].profile),))
+        return self.client.get(url)
+
+    def test_student_cannot_download_hours_before_start(self):
+        self.assertEqual(self._download('gate_student').status_code, 403)
+        self.assertEqual(self._launch_fetch('gate_student').status_code, 400)
+        self.client.force_login(self.users['gate_student'])
+        self.assertEqual(self.client.get(reverse('seb_launch_token', args=('sebgate',))).status_code, 403)
+
+    def test_student_can_download_within_window_before_start(self):
+        self._move_start(timezone.timedelta(minutes=20))
+        response = self._download('gate_student')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(b''.join(response.streaming_content), SEB_CONFIG_BYTES)
+        self.assertEqual(self._launch_fetch('gate_student').status_code, 200)
+
+    def test_student_can_download_while_running(self):
+        self._move_start(-timezone.timedelta(minutes=5))
+        self.assertEqual(self._download('gate_student').status_code, 200)
+
+    def test_nobody_but_editors_after_the_end(self):
+        self._move_start(-timezone.timedelta(hours=3))
+        self.assertEqual(self._download('gate_student').status_code, 403)
+        self.assertEqual(self._download('gate_editor').status_code, 200)
+
+    def test_viewer_not_on_roster_denied_even_during_exam(self):
+        self._move_start(-timezone.timedelta(minutes=5))
+        self.assertEqual(self._download('gate_outsider').status_code, 403)
+        self.assertEqual(self._launch_fetch('gate_outsider').status_code, 400)
+
+    def test_editor_always_allowed(self):
+        self.assertEqual(self._download('gate_editor').status_code, 200)
+
+    @override_settings(DMOJ_SEB_CONFIG_DOWNLOAD_WINDOW_MINUTES=240)
+    def test_window_is_a_setting(self):
+        self.assertEqual(self._download('gate_student').status_code, 200)
+
+    def test_contest_page_hides_links_before_window(self):
+        self.client.force_login(self.users['gate_student'])
+        response = self.client.get(reverse('contest_view', args=('sebgate',)))
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.context['seb_launch']['download_url'])
+        self.assertIsNone(response.context['seb_launch']['sebs_url'])
+
+
+@override_settings(COMPRESS_ENABLED=False)
+class SEBRequireBrowserExamKeyViewTestCase(CommonDataMixin, TestCase):
+    """SEB-1: the per-contest "require Browser Exam Key header" option."""
+
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls.users['bek_student'] = create_user(username='bek_student')
+        cls.contest = create_contest(
+            key='sebbekonly', is_visible=True, seb_required=True,
+            seb_browser_exam_keys=BEK, seb_config_keys=CFG, seb_require_browser_exam_key=True,
+        )
+
+    def setUp(self):
+        profile = self.users['bek_student'].profile
+        profile.current_contest = create_contest_participation(contest=self.contest, user=profile)
+        profile.save()
+        self.client.force_login(self.users['bek_student'])
+
+    def test_config_key_alone_blocked(self):
+        path = reverse('contest_view', args=('sebbekonly',))
+        response = self.client.get(path, **cfg_header(path))
+        self.assertContains(response, 'Safe Exam Browser required', status_code=403)
+
+    def test_browser_exam_key_allowed(self):
+        path = reverse('contest_view', args=('sebbekonly',))
+        self.assertEqual(self.client.get(path, **bek_header(path)).status_code, 200)

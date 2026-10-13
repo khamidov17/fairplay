@@ -16,6 +16,8 @@ import time
 from django.conf import settings
 from django.core.cache import cache
 
+from judge.utils.cache_mutex import cache_mutex
+
 logger = logging.getLogger(__name__)
 
 
@@ -35,6 +37,10 @@ def _quota_key(user_id: int) -> str:
 
 def _rate_key(user_id: int, problem_id: int) -> str:
     return f'ai_grade_rate:{user_id}:{problem_id}'
+
+
+def _rate_lock_key(user_id: int, problem_id: int) -> str:
+    return f'ai_grade_rate:{user_id}:{problem_id}:lock'
 
 
 def student_quota_limit() -> int:
@@ -102,30 +108,38 @@ def get_remaining(user_id: int) -> int:
 
 
 def try_reserve(user_id: int, problem_id: int) -> tuple[bool, str | None]:
-    """Claim one AI grading slot; returns (ok, error_message)."""
-    recent = _recent_timestamps(user_id, problem_id)
-    if len(recent) >= rate_limit_count():
-        secs = rate_limit_remaining_seconds(user_id, problem_id)
-        return False, f'rate_limited:{secs}'
+    """Claim one AI grading slot; returns (ok, error_message).
 
-    limit = student_quota_limit()
-    if limit <= 0:
-        return False, 'quota_disabled'
+    The per-problem window is a cached list, so its read-check-append runs under
+    a cache mutex: parallel POSTs cannot all read the same short list and pass.
+    The global quota uses ``add`` + ``incr``, which are atomic.
+    """
+    with cache_mutex(_rate_lock_key(user_id, problem_id)):
+        recent = _recent_timestamps(user_id, problem_id)
+        if len(recent) >= rate_limit_count():
+            secs = rate_limit_remaining_seconds(user_id, problem_id)
+            return False, f'rate_limited:{secs}'
 
-    key = _quota_key(user_id)
-    try:
-        used = cache.incr(key)
-    except ValueError:
-        cache.set(key, 1, None)
-        used = 1
-    if used > limit:
-        refund(user_id)
-        return False, 'quota_exhausted'
+        limit = student_quota_limit()
+        if limit <= 0:
+            return False, 'quota_disabled'
 
-    now = time.time()
-    recent.append(now)
-    cache.set(_rate_key(user_id, problem_id), recent, rate_window_seconds())
-    return True, None
+        key = _quota_key(user_id)
+        cache.add(key, 0, None)
+        try:
+            used = cache.incr(key)
+        except ValueError:
+            # Evicted between add() and incr(); count this request as the first.
+            cache.add(key, 1, None)
+            used = 1
+        if used > limit:
+            refund(user_id)
+            return False, 'quota_exhausted'
+
+        now = time.time()
+        recent.append(now)
+        cache.set(_rate_key(user_id, problem_id), recent, rate_window_seconds())
+        return True, None
 
 
 def refund(user_id: int) -> None:

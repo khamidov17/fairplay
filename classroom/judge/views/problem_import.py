@@ -281,7 +281,7 @@ def _editor_data_for_item(item):
         'is_public': True,
         'partial': False,
         'ai': False,
-        'ai_hints_enabled': True,
+        'ai_hints_enabled': False,
         'organizations': [],
         'group_id': '',
         'difficulty': DIFFICULTY_VALUES.get(item.difficulty, item.difficulty) or 'medium',

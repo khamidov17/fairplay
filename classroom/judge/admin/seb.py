@@ -35,7 +35,8 @@ class SEBConfigPresetAdmin(admin.ModelAdmin):
     fieldsets = (
         (None, {'fields': ('name', 'description', 'is_default', 'is_active')}),
         (_('Configuration'), {
-            'fields': ('current_config_file', 'config_file', 'browser_exam_keys', 'config_keys', 'quit_url'),
+            'fields': ('current_config_file', 'config_file', 'browser_exam_keys', 'config_keys', 'quit_url',
+                       'require_browser_exam_key'),
             'description': _('Build the .seb file in the SEB Configuration Tool with the Start URL set to this '
                              "site's home page, a custom Browser Exam Key under Security, and a Quit URL. Then "
                              'upload it here and paste both key hashes.'),

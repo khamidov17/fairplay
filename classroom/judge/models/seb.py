@@ -80,6 +80,12 @@ class SEBConfigPreset(models.Model):
         help_text=_('Must match the Quit URL set inside the .seb file. Students land here after their final '
                     'submission so SEB auto-closes. Leave blank to disable.'),
     )
+    require_browser_exam_key = models.BooleanField(
+        verbose_name=_('require Browser Exam Key header'),
+        default=False,
+        help_text=_('Accept only the Browser Exam Key request header, not the Config Key header alone. '
+                    'Leave off if students use the macOS SEB build, which sends only the Config Key.'),
+    )
     is_default = models.BooleanField(
         verbose_name=_('site default'),
         default=False,
@@ -118,7 +124,7 @@ class SEBConfigPreset(models.Model):
 
     # Fields whose change invalidates the keys students' SEB clients are already
     # sending, or the URL their client is configured to quit to.
-    _LOCKOUT_FIELDS = ('config_file', 'browser_exam_keys', 'config_keys', 'quit_url')
+    _LOCKOUT_FIELDS = ('config_file', 'browser_exam_keys', 'config_keys', 'quit_url', 'require_browser_exam_key')
 
     def live_seb_contest_keys(self, limit=5):
         """Keys of contests using this preset that students are sitting right now."""

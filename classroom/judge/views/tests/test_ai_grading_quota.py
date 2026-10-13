@@ -378,3 +378,40 @@ class AIGradingQuotaTestCase(CommonDataMixin, TestCase):
         secs = int(match.group(1))
         self.assertGreater(secs, 0)
         self.assertLessEqual(secs, 43)
+
+
+class AIGradingRateLimitConcurrencyTestCase(TestCase):
+    """AI-8: parallel requests cannot all read the same short rate list and pass."""
+
+    @override_settings(DMOJ_AI_GRADING_STUDENT_QUOTA=100, DMOJ_AI_GRADING_RATE_LIMIT=5)
+    def test_parallel_burst_respects_the_window(self):
+        import threading
+        import time as real_time
+
+        from judge import ai_grading_quota
+
+        cache.clear()
+        real_recent = ai_grading_quota._recent_timestamps
+
+        def slow_recent(user_id, problem_id):
+            # Widen the read-to-write gap so an unlocked implementation lets
+            # every thread read the same (empty) list.
+            result = real_recent(user_id, problem_id)
+            real_time.sleep(0.05)
+            return result
+
+        barrier = threading.Barrier(10)
+        results = []
+
+        def worker():
+            barrier.wait()
+            results.append(try_reserve(4242, 7)[0])
+
+        with mock.patch.object(ai_grading_quota, '_recent_timestamps', side_effect=slow_recent):
+            threads = [threading.Thread(target=worker) for _ in range(10)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        self.assertEqual(sum(results), 5)
+        self.assertEqual(get_remaining(4242), 95)

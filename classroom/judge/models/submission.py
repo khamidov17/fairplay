@@ -93,6 +93,12 @@ class Submission(models.Model):
     contest_object = models.ForeignKey('Contest', verbose_name=_('contest'), null=True, blank=True,
                                        on_delete=models.SET_NULL, related_name='+', db_index=False)
     locked_after = models.DateTimeField(verbose_name=_('submission lock'), null=True, blank=True)
+    # IDE / workspace Run only: the assignment whose "Hide IDE / Run Test output" was in force
+    # for this user when the run was created. Recorded at creation so that leaving the
+    # assignment later does not reveal the output (see judge.utils.sandbox_output).
+    sandbox_hidden_contest = models.ForeignKey(
+        'Contest', verbose_name=_('sandbox output hidden by'), null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='+', db_index=False)
 
     # ── Manual grading metadata (teacher-side grade page) ───────────────────
     # These three fields back the "评分与评语" (score + review comment) panel of

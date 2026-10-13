@@ -915,8 +915,13 @@ class ProblemDetail(ProblemMixin, SolvedProblemMixin, CommentedDetailView):
             if contest_problem is not None and current_participation is not None
             else None
         )
+        # Not offered while this problem's verdicts are hidden from the user: the
+        # hint panel unlocking only after a non-AC result would reveal the verdict.
         context['ai_hints_possible'] = bool(
-            ai_hints_mod.hints_enabled_for(self.object, hint_contest) and ai_hints_mod.is_configured(),
+            ai_hints_mod.hints_enabled_for(self.object, hint_contest, user)
+            and not ai_hints_mod.results_hidden_in_contest_problem(
+                contest_problem if hint_contest is not None else None, user)
+            and ai_hints_mod.is_configured(),
         )
         context['ai_hints_remaining'] = (
             ai_hints_mod.get_remaining(self.request.profile.id)

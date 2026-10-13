@@ -171,7 +171,7 @@
               <tbody>
             {% for case in batch.cases %}
             {% set is_ide_submission = submission.problem.code == 'idepractice' %}
-            {% set print_case_output = (is_ide_submission or case.status != 'AC') and case.output and (prefix_length is none or prefix_length > 0) %}
+            {% set print_case_output = not sandbox_output_hidden and (is_ide_submission or case.status != 'AC') and case.output and (prefix_length is none or prefix_length > 0) %}
             {% set case_num = loop.index if batch.id else test_case_id() %}
             <tr id="{{ case.id }}" class="case-row{% if print_case_output or case.extended_feedback or case.feedback %} toggle closed{% endif %}">
                 <td>

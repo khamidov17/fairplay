@@ -259,6 +259,29 @@ class ContestEditViewTestCase(CommonDataMixin, TestCase):
         self.assertRegex(html, r'id="id_hide_sandbox_output"[^>]*checked')
         self.assertNotIn('lock_non_code_part', html)
 
+    def test_post_roundtrips_lock_site_during_participation(self):
+        self.client.force_login(self.editor)
+        url = reverse('contest_edit', args=['editablecontest'])
+        response = self.client.get(url)
+        self.assertEqual(response.context['prefill']['lock_site_during_participation'], 'auto')
+        self.assertContains(response, 'id="id_lock_site_during_participation"')
+        for choice, stored in (('off', False), ('on', True), ('auto', None)):
+            with self.subTest(choice=choice):
+                response = self.client.post(
+                    url, data=json.dumps(self._full_payload(lock_site_during_participation=choice)),
+                    content_type='application/json',
+                )
+                self.assertEqual(response.status_code, 200, response.content)
+                self.contest.refresh_from_db()
+                self.assertIs(self.contest.lock_site_during_participation, stored)
+        # A client that does not send the field keeps the stored value.
+        self.contest.lock_site_during_participation = False
+        self.contest.save(update_fields=['lock_site_during_participation'])
+        response = self.client.post(url, data=json.dumps(self._full_payload()), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.contest.refresh_from_db()
+        self.assertIs(self.contest.lock_site_during_participation, False)
+
     def test_get_echoes_using_profile_timezone(self):
         """The editor's Validity fields echo stored UTC in the profile timezone."""
         self.client.force_login(self.editor)

@@ -156,6 +156,9 @@ DMOJ_EMAIL_CHANGE_EXPIRY_MINUTES = 60
 # only authorizes fetching a contest's .seb configuration, which is an artifact
 # every student in the exam receives anyway, so this can be generous.
 DMOJ_SEB_LAUNCH_TOKEN_EXPIRY_MINUTES = 30
+# Students (class members / private contestants) may download a contest's .seb from this
+# many minutes before the start until the end. Editors can always download it.
+DMOJ_SEB_CONFIG_DOWNLOAD_WINDOW_MINUTES = 30
 
 # At the bare minimum, dark and light theme CSS file locations must be declared
 DMOJ_THEME_CSS = {
@@ -702,6 +705,9 @@ DMOJ_AI_GRADING_STUDENT_QUOTA = 100
 # separate ban; the window keeps counting.
 DMOJ_AI_GRADING_RATE_LIMIT = 5
 DMOJ_AI_GRADING_RATE_WINDOW_SECONDS = 300
+# Contest analytics: students with fewer completed submissions are shown as "not enough
+# data" and are not ranked as anomalies.
+DMOJ_ANALYTICS_MIN_SUBMISSIONS = 3
 # Weight of the supplementary AI rubric score in the final programming grade
 # (0..1).  final = testcase_score * (1 - weight) + ai_score * weight, where
 # ai_score is clamped so the AI score ratio never drops below the test-case

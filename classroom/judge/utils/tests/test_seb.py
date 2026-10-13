@@ -145,6 +145,37 @@ class SEBMismatchDiagnosticsTestCase(SimpleTestCase):
             self.assertTrue(request_matches_seb(request, [BEK], []))
 
 
+class RequireBrowserExamKeyTestCase(SimpleTestCase):
+    """SEB-1: with require_bek, the Config Key header alone is not enough."""
+
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_config_key_alone_rejected(self):
+        request = self.factory.get(
+            '/page', HTTP_X_SAFEEXAMBROWSER_CONFIGKEYHASH=seb_hash('http://testserver/page', CFG),
+        )
+        self.assertTrue(request_matches_seb(request, [BEK], [CFG]))
+        with self.assertLogs('judge.seb', level='WARNING'):
+            self.assertFalse(request_matches_seb(request, [BEK], [CFG], require_bek=True))
+
+    def test_browser_exam_key_accepted(self):
+        request = self.factory.get(
+            '/page', HTTP_X_SAFEEXAMBROWSER_REQUESTHASH=seb_hash('http://testserver/page', BEK),
+        )
+        self.assertTrue(request_matches_seb(request, [BEK], [CFG], require_bek=True))
+
+    def test_contest_and_preset_switches(self):
+        from judge.models import SEBConfigPreset
+        contest = Contest(key='demo', id=7)
+        self.assertFalse(contest.seb_requires_browser_exam_key())
+        contest.seb_require_browser_exam_key = True
+        self.assertTrue(contest.seb_requires_browser_exam_key())
+        contest = Contest(key='demo', id=7)
+        contest.seb_preset = SEBConfigPreset(id=3, name='p', require_browser_exam_key=True)
+        self.assertTrue(contest.seb_requires_browser_exam_key())
+
+
 class SEBLaunchTokenTestCase(SimpleTestCase):
     def test_round_trip(self):
         contest = Contest(key='demo', id=7)
@@ -176,12 +207,27 @@ class SEBLaunchTokenTestCase(SimpleTestCase):
 class SEBLaunchContextTestCase(SimpleTestCase):
     def setUp(self):
         self.factory = RequestFactory()
+        # Who may fetch the file is covered by the view tests (SEB-1); here the
+        # viewer is allowed, unless a test says otherwise.
+        patcher = mock.patch('judge.utils.seb.seb_config_downloadable_by', return_value=True)
+        self.downloadable = patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _request(self, path='/page', secure=False, profile=SimpleNamespace(id=13)):
         # DMOJLoginMiddleware sets request.profile; RequestFactory does not.
         request = self.factory.get(path, secure=secure)
         request.profile = profile
+        request.user = SimpleNamespace(is_authenticated=True)
         return request
+
+    def test_no_links_for_a_viewer_who_may_not_fetch_the_file(self):
+        self.downloadable.return_value = False
+        contest = Contest(key='demo', id=7)
+        contest.seb_config_file.name = 'seb_configs/demo.seb'
+        context = seb_launch_context(self._request(), contest)
+        self.assertIsNone(context['download_url'])
+        self.assertIsNone(context['sebs_url'])
+        self.assertIsNone(context['token_url'])
 
     def test_without_config_file(self):
         contest = Contest(key='demo', id=7)

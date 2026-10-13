@@ -57,7 +57,10 @@ from judge.utils.opengraph import generate_opengraph
 from judge.utils.problems import _get_result_data, assignment_problem_stats, participation_submit_progress, \
     user_completed_ids
 from judge.utils.ranker import ranker
-from judge.utils.seb import read_seb_launch_token, request_matches_seb, seb_launch_context, seb_launch_url
+from judge.utils.seb import (
+    read_seb_launch_token, seb_config_downloadable_by, seb_launch_context, seb_launch_url,
+    seb_preset_downloadable_by,
+)
 from judge.utils.stats import get_bar_chart, get_pie_chart
 from judge.utils.user_search import profile_choice_label
 from judge.utils.views import DiggPaginatorMixin, QueryStringSortMixin, SingleObjectFormView, TitleMixin, \
@@ -478,7 +481,7 @@ class ContestCreate(LoginRequiredMixin, View):
             restricted.add('access_code')
         if not user.has_perm('judge.contest_seb_requirement'):
             restricted |= {'seb_required', 'seb_browser_exam_keys', 'seb_config_keys',
-                           'seb_config_file', 'seb_quit_url', 'seb_preset'}
+                           'seb_config_file', 'seb_quit_url', 'seb_preset', 'seb_require_browser_exam_key'}
         if not user.has_perm('judge.create_private_contest'):
             restricted |= {'private_contestants', 'organizations', 'is_private', 'is_organization_private'}
             # is_visible is only gated when the user can neither create private
@@ -676,6 +679,10 @@ class ContestCreate(LoginRequiredMixin, View):
             if field in restricted:
                 continue
             setattr(contest, field, payload.get(field, ''))
+        # Exam surface lock: tri-state (auto = on for SEB / Exam format). Only
+        # written when the editor sent it, so other clients keep the stored value.
+        if 'lock_site_during_participation' in payload:
+            contest.lock_site_during_participation = _choice_to_tristate(payload.get('lock_site_during_participation'))
         for field in self._int_fields:
             if field in restricted:
                 continue
@@ -1409,6 +1416,7 @@ class ContestCreate(LoginRequiredMixin, View):
             'allow_ai_hints': False,
             'allow_student_ai_grading': False,
             'hide_sandbox_output': False,
+            'lock_site_during_participation': 'auto',
             'vis_mode': 'org' if self.request.user.has_perm('judge.create_private_contest') else 'hidden',
             'problems': [],
             'target_score': 100,
@@ -1468,6 +1476,7 @@ class ContestCreate(LoginRequiredMixin, View):
                 linked_preset = contest.seb_preset
             for field in self._bool_fields:
                 prefill[field] = getattr(contest, field)
+            prefill['lock_site_during_participation'] = _tristate_to_choice(contest.lock_site_during_participation)
             # Profile M2M → (id, "Name (username)"); organization/class/tag M2M → (id, name).
             for field in self._m2m_fields:
                 related = getattr(contest, field)
@@ -1622,6 +1631,14 @@ class ContestTagCreateView(LoginRequiredMixin, View):
             defaults={'color': self._PALETTE[ContestTag.objects.count() % len(self._PALETTE)]},
         )
         return JsonResponse({'ok': True, 'tag': {'id': tag.id, 'name': tag.name, 'color': tag.color}})
+
+
+def _tristate_to_choice(value):
+    return 'auto' if value is None else ('on' if value else 'off')
+
+
+def _choice_to_tristate(choice):
+    return {'on': True, 'off': False}.get(choice)
 
 
 @method_decorator(ensure_csrf_cookie, name='dispatch')
@@ -1806,8 +1823,7 @@ class ContestMixin(object):
         if self.object.seb_required:
             context['seb_required'] = True
             context['seb_user_bypasses'] = self.object.user_bypasses_seb(self.request.user)
-            context['seb_request_valid'] = request_matches_seb(
-                self.request, self.object.seb_allowed_bek(), self.object.seb_allowed_config_keys())
+            context['seb_request_valid'] = self.object.request_matches_seb(self.request)
             context['seb_launch'] = seb_launch_context(self.request, self.object)
         else:
             context['seb_required'] = False
@@ -2149,7 +2165,7 @@ class ContestJoin(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
             return
         if contest.user_bypasses_seb(request.user):
             return
-        if not request_matches_seb(request, contest.seb_allowed_bek(), contest.seb_allowed_config_keys()):
+        if not contest.request_matches_seb(request):
             raise ContestSEBRequired()
 
     def _seb_required_response(self, request):
@@ -4324,6 +4340,8 @@ class ContestSEBConfig(LoginRequiredMixin, ContestMixin, BaseDetailView):
 
     def get(self, request, *args, **kwargs):
         self.object = self.get_object()
+        if not seb_config_downloadable_by(self.object, request.user):
+            raise PermissionDenied()
         return _stream_seb_config(self.object)
 
 
@@ -4372,6 +4390,11 @@ class SEBLaunchConfig(View):
         except signing.BadSignature:
             return self.stale(request, _('This launch link is not valid.'))
         contest = get_object_or_404(Contest, pk=data.get('c'))
+        # The token proves who it was minted for; that user must still be allowed
+        # to fetch the file now (roster and time window, see SEB-1).
+        profile = Profile.objects.filter(pk=data.get('u')).select_related('user').first()
+        if profile is None or not seb_config_downloadable_by(contest, profile.user):
+            return self.stale(request, _('This launch link is not available for you yet.'))
         response = _stream_seb_config(contest)
         # A cached .seb would let a stale configuration start a later exam.
         response['Cache-Control'] = 'no-store'
@@ -4400,6 +4423,8 @@ class SEBLaunchToken(LoginRequiredMixin, ContestMixin, SingleObjectMixin, View):
         self.object = self.get_object()
         if not self.object.seb_required or not self.object.seb_effective_config_file:
             raise Http404()
+        if not seb_config_downloadable_by(self.object, request.user):
+            raise PermissionDenied()
         return JsonResponse({'url': seb_launch_url(request, self.object, request.profile)})
 
 
@@ -4412,9 +4437,9 @@ class SEBPresetConfig(LoginRequiredMixin, View):
     """
 
     def get(self, request, *args, **kwargs):
-        if not request.user.has_perm('judge.contest_seb_requirement'):
-            raise PermissionDenied()
         preset = get_object_or_404(SEBConfigPreset, pk=kwargs['pk'])
+        if not seb_preset_downloadable_by(preset, request.user, request.GET.get('contest')):
+            raise PermissionDenied()
         if not preset.config_file:
             raise Http404()
         try:

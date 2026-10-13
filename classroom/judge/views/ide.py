@@ -10,7 +10,7 @@ from django.views import View
 from django.views.generic import TemplateView
 
 from judge.models import Language, Problem, Submission, SubmissionSource
-from judge.utils.sandbox_output import should_hide_sandbox_output
+from judge.utils.sandbox_output import sandbox_hide_contest_for_new_run, submission_output_hidden_for
 from judge.utils.views import TitleMixin
 
 __all__ = ['IDEView', 'IDESubmitView', 'IDESubmissionStatus']
@@ -34,6 +34,27 @@ def _ansi_to_html(text):
     if not text:
         return ''
     return _ansi_converter.convert(text, full=False)
+
+
+def _rate_limited_response():
+    return JsonResponse({
+        'error':
+        f'Rate limit exceeded. Maximum {IDE_RATE_LIMIT_COUNT} runs per {IDE_RATE_LIMIT_WINDOW} minute(s).',
+    }, status=429)
+
+
+def _reserve_ide_run(cache_key):
+    """Atomically count one run in the fixed window; False when over the limit."""
+    timeout = IDE_RATE_LIMIT_WINDOW * MINUTES_TO_SECONDS
+    for _attempt in range(2):
+        cache.add(cache_key, 0, timeout=timeout)
+        try:
+            count = cache.incr(cache_key)
+        except ValueError:
+            # The key expired between add() and incr(): start a new window.
+            continue
+        return count <= IDE_RATE_LIMIT_COUNT
+    return False
 
 
 class IDEView(LoginRequiredMixin, TitleMixin, TemplateView):
@@ -66,15 +87,11 @@ class IDESubmitView(LoginRequiredMixin, View):
     """
 
     def post(self, request):
-        # Rate limiting check
+        # Rate limiting check (fast path; the binding check is the atomic
+        # reservation below, just before the run is created).
         cache_key = f'ide_run:{request.profile.id}'
-        current_count = cache.get(cache_key, 0)
-
-        if current_count >= IDE_RATE_LIMIT_COUNT:
-            return JsonResponse({
-                'error':
-                f'Rate limit exceeded. Maximum {IDE_RATE_LIMIT_COUNT} runs per {IDE_RATE_LIMIT_WINDOW} minute(s).',
-            }, status=429)
+        if (cache.get(cache_key) or 0) >= IDE_RATE_LIMIT_COUNT:
+            return _rate_limited_response()
 
         # Parse request
         source_code = request.POST.get('source', '')
@@ -117,12 +134,20 @@ class IDESubmitView(LoginRequiredMixin, View):
                 'error': 'You have too many submissions in queue. Please wait.',
             }, status=429)
 
-        # Create submission
+        # Reserve a slot atomically: concurrent requests each get their own
+        # count from incr, so a burst cannot pass a stale read of the counter.
+        if not _reserve_ide_run(cache_key):
+            return _rate_limited_response()
+
+        # Create submission. The "Hide IDE / Run Test output" decision is taken
+        # now and stored on the run, so leaving the assignment later does not
+        # reveal the output.
         with transaction.atomic():
             submission = Submission(
                 user=request.profile,
                 problem=ide_problem,
                 language=language,
+                sandbox_hidden_contest=sandbox_hide_contest_for_new_run(request.user),
             )
             submission.save()
 
@@ -138,12 +163,6 @@ class IDESubmitView(LoginRequiredMixin, View):
 
         # Judge submission with custom limits
         submission.judge(force_judge=True, judge_id=None)
-
-        # Increment rate limit counter
-        if current_count == 0:
-            cache.set(cache_key, 1, timeout=IDE_RATE_LIMIT_WINDOW * MINUTES_TO_SECONDS)
-        else:
-            cache.incr(cache_key)
 
         return JsonResponse({
             'success': True,
@@ -172,7 +191,7 @@ class IDESubmissionStatus(LoginRequiredMixin, View):
         # compiler/interpreter output are converted to HTML here; the frontend
         # inserts them as-is. Keep truncation on pre-conversion text to avoid
         # slicing inside an HTML tag.
-        hide_output = should_hide_sandbox_output(request.user)
+        hide_output = submission_output_hidden_for(submission_obj, request.user)
         response = {
             'status': submission_obj.status,
             'result': submission_obj.result,

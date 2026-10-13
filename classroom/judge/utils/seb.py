@@ -4,11 +4,13 @@ import hashlib
 import hmac
 import logging
 import re
+from datetime import timedelta
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
 from django.core import signing
 from django.urls import reverse
+from django.utils import timezone
 
 # WSGI normalizes header names: X-SafeExamBrowser-RequestHash -> HTTP_X_SAFEEXAMBROWSER_REQUESTHASH
 BEK_HEADER = 'HTTP_X_SAFEEXAMBROWSER_REQUESTHASH'
@@ -111,7 +113,23 @@ def _diagnose_url_mismatch(request, received, keys):
     return None
 
 
-def request_matches_seb(request, allowed_bek, allowed_cfg):
+def request_matches_seb(request, allowed_bek, allowed_cfg, require_bek=False):
+    """Whether this request carries a valid SEB key hash header.
+
+    Limitation (SEB-1): the Config Key hash is derived from the ``.seb`` settings, so
+    anyone holding the ``.seb`` file can compute it, and an ordinary browser that adds
+    the header passes. The Browser Exam Key also covers the SEB binary, so it is the
+    stronger proof; pass ``require_bek`` to accept only that header. It stays off by
+    default because the macOS SEB build sends only the Config Key. Encrypting the
+    ``.seb`` with a settings password also keeps its contents from students.
+    """
+    if require_bek:
+        allowed_cfg = []
+        if request.META.get(CFG_HEADER) and not request.META.get(BEK_HEADER):
+            logger.warning('SEB check failed for %s: only the Config Key header was sent, but this contest '
+                           'requires the Browser Exam Key header. The macOS SEB build cannot send it; turn '
+                           '"require Browser Exam Key header" off for macOS students.', request.path)
+            return False
     if not allowed_bek and not allowed_cfg:
         logger.warning('SEB check failed for %s: the contest has no Browser Exam Key and no Config Key '
                        'configured, so no client can ever match.', request.path)
@@ -122,6 +140,8 @@ def request_matches_seb(request, allowed_bek, allowed_cfg):
     seen = []
     for hdr, keys, label in ((BEK_HEADER, allowed_bek, 'Browser Exam Key'),
                              (CFG_HEADER, allowed_cfg, 'Config Key')):
+        if not keys:
+            continue
         received = request.META.get(hdr)
         if not received:
             continue
@@ -161,6 +181,44 @@ def request_matches_seb(request, allowed_bek, allowed_cfg):
             request.path, label, label, _abbrev(received), url,
             ', '.join('%s… (from key %s…)' % (_abbrev(_sha256_hex(url, k)), _abbrev(k)) for k in keys))
     return False
+
+
+def seb_config_downloadable_by(contest, user):
+    """Whether ``user`` may fetch ``contest``'s ``.seb`` file (download, launch link, launch token).
+
+    Editors always may. Anyone else must be on the contest's roster (see
+    ``Contest.seb_config_participant_to_be``), and the contest must be running or
+    start within ``DMOJ_SEB_CONFIG_DOWNLOAD_WINDOW_MINUTES``. The file holds what the
+    Config Key is derived from, so it must not circulate days ahead of the exam.
+    """
+    if not user.is_authenticated:
+        return False
+    if contest.is_editable_by(user):
+        return True
+    now = timezone.now()
+    window = timedelta(minutes=getattr(settings, 'DMOJ_SEB_CONFIG_DOWNLOAD_WINDOW_MINUTES', 30))
+    if now < contest.start_time - window or now >= contest.end_time:
+        return False
+    return contest.seb_config_participant_to_be(user)
+
+
+def seb_preset_downloadable_by(preset, user, contest_key=None):
+    """Whether ``user`` may download a preset's ``.seb``.
+
+    Needs ``judge.contest_seb_requirement`` and editing a contest that uses this
+    preset (the one named by ``contest_key`` when given). Users who may change
+    presets in the admin (``judge.change_sebconfigpreset``) always may.
+    """
+    if not user.is_authenticated:
+        return False
+    if user.has_perm('judge.change_sebconfigpreset'):
+        return True
+    if not user.has_perm('judge.contest_seb_requirement'):
+        return False
+    contests = preset.contests.all()
+    if contest_key:
+        contests = contests.filter(key=contest_key)
+    return any(contest.is_editable_by(user) for contest in contests)
 
 
 def sign_seb_launch_token(contest, profile):
@@ -214,7 +272,8 @@ def seb_launch_context(request, contest):
     download_url = None
     sebs_url = None
     token_url = None
-    if contest.seb_effective_config_file:
+    user = getattr(request, 'user', None)
+    if contest.seb_effective_config_file and user is not None and seb_config_downloadable_by(contest, user):
         # The download button is for a real browser, so it stays on the
         # login-gated endpoint; only the sebs:// link needs the token.
         download_url = request.build_absolute_uri(reverse('contest_seb_config', args=(contest.key,)))

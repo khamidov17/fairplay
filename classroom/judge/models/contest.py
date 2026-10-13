@@ -320,6 +320,22 @@ class Contest(models.Model):
         help_text=_('Inherit the .seb file, key hashes and quit URL from a staff-published configuration. '
                     'Anything filled in above overrides the preset for this contest.'),
     )
+    seb_require_browser_exam_key = models.BooleanField(
+        verbose_name=_('require SEB Browser Exam Key header'),
+        default=False,
+        help_text=_('Accept only the Browser Exam Key request header, not the Config Key header alone. '
+                    'Stronger, but the macOS SEB build sends only the Config Key, so leave this off if '
+                    'students use macOS. A preset with this option on also turns it on.'),
+    )
+    lock_site_during_participation = models.BooleanField(
+        verbose_name=_('lock the site during participation'),
+        null=True,
+        blank=True,
+        default=None,
+        help_text=_('While a student is in this assignment, allow only its own pages, its problems and '
+                    'workspace, their own submissions in it, and logout. Empty means automatic: on when '
+                    'Safe Exam Browser is required or the format is Exam.'),
+    )
 
     @classmethod
     def generate_unique_key(cls):
@@ -797,6 +813,51 @@ class Contest(models.Model):
         if self.seb_quit_url:
             return self.seb_quit_url
         return self.seb_preset.quit_url if self.seb_preset_id else ''
+
+    def seb_requires_browser_exam_key(self):
+        if self.seb_require_browser_exam_key:
+            return True
+        return bool(self.seb_preset_id and self.seb_preset.require_browser_exam_key)
+
+    def request_matches_seb(self, request):
+        from judge.utils.seb import request_matches_seb
+        return request_matches_seb(request, self.seb_allowed_bek(), self.seb_allowed_config_keys(),
+                                   require_bek=self.seb_requires_browser_exam_key())
+
+    @property
+    def locks_site_during_participation(self):
+        """Whether a live participant is confined to this assignment's pages (exam surface lock)."""
+        if self.lock_site_during_participation is not None:
+            return self.lock_site_during_participation
+        return bool(self.seb_required or self.format_name == 'exam')
+
+    def seb_config_participant_to_be(self, user):
+        """Whether ``user`` is on this contest's roster (may sit it), ignoring staff roles.
+
+        A class-restricted contest needs class membership, an organization-private one
+        without classes needs organization membership, a private one needs the user in
+        ``private_contestants``, and ``limit_join_organizations`` must also hold. A contest
+        with no roster at all (public) can be joined by anyone who can see it.
+        """
+        if not user.is_authenticated:
+            return False
+        try:
+            self.access_check(user)
+        except (self.Inaccessible, self.PrivateContest):
+            return False
+        profile = user.profile
+        if self.is_private and not self.private_contestants.filter(id=profile.id).exists():
+            return False
+        if self.is_organization_private:
+            if self.classes.exists():
+                if not self.classes.filter(id__in=profile.classes.all()).exists():
+                    return False
+            elif not self.organizations.filter(id__in=profile.organizations.all()).exists():
+                return False
+        if self.limit_join_organizations and \
+                not self.join_organizations.filter(id__in=profile.organizations.all()).exists():
+            return False
+        return True
 
     def user_bypasses_seb(self, user):
         if not user.is_authenticated:

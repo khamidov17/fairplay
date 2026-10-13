@@ -1,6 +1,5 @@
 import json
 import logging
-import time
 from dataclasses import dataclass
 from datetime import timedelta
 
@@ -9,6 +8,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from judge import llm
+from judge.utils.cache_mutex import cache_mutex
 
 logger = logging.getLogger(__name__)
 
@@ -87,25 +87,16 @@ def _store(user_id: int, ts: list[float]) -> None:
     cache.set(_cache_key(user_id), json.dumps(ts), _window_seconds())
 
 
-class _mutex:
+def _mutex(key: str):
     """Cache-backed mutex so the read-modify-write on the timestamp list stays atomic."""
+    return cache_mutex(key, ttl=_LOCK_TTL, wait=_LOCK_WAIT)
 
-    def __init__(self, key: str):
-        self.key = key
 
-    def __enter__(self):
-        deadline = time.monotonic() + _LOCK_WAIT
-        while not cache.add(self.key, 1, _LOCK_TTL):
-            if time.monotonic() >= deadline:
-                # A crashed holder left the lock behind; break the deadlock.
-                cache.delete(self.key)
-                break
-            time.sleep(0.01)
-        return self
-
-    def __exit__(self, *exc):
-        cache.delete(self.key)
-        return False
+def quota_exhausted_message() -> str:
+    """The 429 text. The quota is a sliding window, not a daily allowance."""
+    minutes = max(1, round(_window_seconds() / 60))
+    return (f'You have used all {_window_limit()} AI hints allowed in a {minutes}-minute window. '
+            'Try again in a few minutes.')
 
 
 def get_remaining(user_id: int) -> int:
@@ -136,16 +127,51 @@ def is_configured() -> bool:
     return llm.is_configured()
 
 
-def hints_enabled_for(problem, contest=None) -> bool:
+def hints_enabled_for(problem, contest=None, user=None) -> bool:
     """Whether AI Hint is available for this problem in the given contest context.
 
-    The problem's own ``ai_hints_enabled`` is never mutated. Callers must only
-    pass ``contest`` when the student is actually working that problem inside
-    that assignment (active participation / contest submission).
+    Inside a contest the contest decides: ``contest.allow_ai_hints`` alone, so an
+    exam can switch hints off even for problems that have them on elsewhere.
+    Outside a contest the problem's own ``ai_hints_enabled`` decides. Pass
+    ``contest`` when the hint is about work done in that assignment (a contest
+    submission, or the problem opened inside the active assignment). Pass
+    ``user`` too so that a student who is currently in an assignment is held to
+    that assignment's switch even for work outside it. The problem flag is never
+    mutated.
     """
-    if getattr(problem, 'ai_hints_enabled', False):
+    if contest is not None:
+        enabled = bool(getattr(contest, 'allow_ai_hints', False))
+    else:
+        enabled = bool(getattr(problem, 'ai_hints_enabled', False))
+    if enabled and user is not None and user.is_authenticated:
+        participation = getattr(getattr(user, 'profile', None), 'current_contest', None)
+        if participation is not None and participation.contest_id != getattr(contest, 'id', None):
+            enabled = bool(participation.contest.allow_ai_hints)
+    return enabled
+
+
+def results_hidden_in_contest_problem(contest_problem, user) -> bool:
+    """Whether verdicts on ``contest_problem`` are masked from ``user`` right now.
+
+    Mirrors ``Submission.results_visible_to`` for a problem that has no
+    submission yet: exam format with hidden results, not finalized, and the user
+    is not contest staff.
+    """
+    if contest_problem is None or not contest_problem.results_hidden:
+        return False
+    contest = contest_problem.contest
+    if not contest.format_class.has_hidden_results or contest.results_finalized:
+        return False
+    if not user.is_authenticated:
         return True
-    return bool(contest is not None and getattr(contest, 'allow_ai_hints', False))
+    if user.has_perm('judge.view_all_submission') or contest_problem.problem.is_editable_by(user):
+        return False
+    profile = user.profile
+    if profile.id in contest.editor_ids or \
+            contest.view_contest_submissions.filter(id=profile.id).exists() or \
+            (contest.tester_see_submissions and profile.id in contest.tester_ids):
+        return False
+    return True
 
 
 def build_user_message(submission) -> str:

@@ -28,7 +28,8 @@ class ContestAnalytics(TitleMixin, ContestMixin, DetailView):
         # Build table data: list of student dicts sorted by anomaly score descending
         students_list = sorted(
             analytics['students'].values(),
-            key=lambda s: s.get('anomaly_score', 0),
+            # "Not enough data" (score None) sorts last, never above real anomalies.
+            key=lambda s: (s.get('anomaly_score') is not None, s.get('anomaly_score') or 0),
             reverse=True,
         )
 
