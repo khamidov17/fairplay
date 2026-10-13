@@ -54,6 +54,33 @@ class ProblemImportTestDataParsingTestCase(SimpleTestCase):
         self.assertEqual(images[0].content, b'png-data')
         self.assertIn(image_placeholder(images[0].token), text)
 
+    def test_embedded_docx_zip_bomb_is_rejected(self):
+        """AUTH-11: a small deflated DOCX that expands to a huge document.xml is refused before reading."""
+        document = io.BytesIO()
+        body = '<w:document xmlns:w="urn:w"><w:body><w:p><w:r><w:t>%s</w:t></w:r></w:p></w:body></w:document>'
+        with zipfile.ZipFile(document, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('word/document.xml', body % ('a' * (64 * 1024 * 1024)))
+        self.assertLess(len(document.getvalue()), 4 * 1024 * 1024)
+        with self.assertRaisesRegex(ValueError, 'too large'):
+            _description_text('question.docx', document.getvalue())
+
+    def test_embedded_docx_with_highly_compressed_part_is_rejected(self):
+        document = io.BytesIO()
+        with zipfile.ZipFile(document, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('word/document.xml', '<w:document xmlns:w="urn:w"><w:body/></w:document>')
+            archive.writestr('word/media/figure.png', b'\0' * (4 * 1024 * 1024))
+        with self.assertRaisesRegex(ValueError, 'too large'):
+            _description_text('question.docx', document.getvalue())
+
+    def test_embedded_docx_with_normal_compression_is_read(self):
+        document = io.BytesIO()
+        with zipfile.ZipFile(document, 'w', compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr('word/document.xml', '<w:document xmlns:w="urn:w"><w:body><w:p><w:r>'
+                                                  '<w:t>Sum two numbers.</w:t></w:r></w:p></w:body></w:document>')
+        text, images = _description_text('question.docx', document.getvalue())
+        self.assertEqual(text, 'Sum two numbers.')
+        self.assertEqual(images, [])
+
     def test_draft_image_url_accepts_compact_uuid_tokens_from_existing_drafts(self):
         self.assertEqual(
             _draft_image_url(7, 'e46f2ff7126a4bed8d5f80c12a37c6ca'),

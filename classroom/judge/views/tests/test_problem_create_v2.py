@@ -102,8 +102,8 @@ class ProblemCreateV2ViewTestCase(CommonDataMixin, TestCase):
         self.assertContains(response, 'data-rich-mount="editorial"')
         self.assertNotContains(response, 'data-rich-mount="explain"')
 
-    def test_course_dropdown_lists_all_courses(self):
-        """Match main admin organization_select2: any course is listed, not just memberships."""
+    def test_course_dropdown_lists_taught_courses(self):
+        """AUTH-10: only courses the instructor teaches are offered (not memberships, not other courses)."""
         member_org = create_organization(name='Member Course')
         admin_only_org = create_organization(name='Admin Only Course')
         outsider_org = create_organization(name='Other Course')
@@ -116,9 +116,9 @@ class ProblemCreateV2ViewTestCase(CommonDataMixin, TestCase):
         names = {org['name'] for org in response.context['organizations']}
         self.assertTrue(response.context['can_create_organization'])
         self.assertTrue(response.context['can_change_public'])
-        self.assertIn(member_org.name, names)
+        self.assertNotIn(member_org.name, names)
         self.assertIn(admin_only_org.name, names)
-        self.assertIn(outsider_org.name, names)
+        self.assertNotIn(outsider_org.name, names)
         self.assertNotRegex(response.content.decode(), r'<select[^>]*id="f-org"[^>]*disabled')
 
     def test_course_field_readonly_without_create_private_problem(self):
@@ -135,14 +135,15 @@ class ProblemCreateV2ViewTestCase(CommonDataMixin, TestCase):
         self.assertContains(response, 'id="f-org"', html=False)
         self.assertRegex(response.content.decode(), r'<select[^>]*id="f-org"[^>]*disabled')
 
-    def test_create_private_problem_can_attach_any_course(self):
+    def test_create_private_problem_can_attach_taught_course(self):
         org = create_organization(name='Unrelated Course')
+        org.instructors.add(self.users['creator'].profile)
         self.client.force_login(self.users['creator'])
         payload = {
             'problemTypes': ['Graph Theory'],
             'type': 'single',
             'name': 'Org scoped',
-            'description': 'Any course is allowed.',
+            'description': 'A course the instructor teaches is allowed.',
             'points': 5,
             'group_id': self.group.id,
             'organizations': [org.id],

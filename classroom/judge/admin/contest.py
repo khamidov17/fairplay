@@ -1,4 +1,3 @@
-import json
 
 from adminsortable2.admin import SortableAdminBase, SortableInlineAdminMixin
 from django import forms
@@ -19,6 +18,7 @@ from reversion.admin import VersionAdmin
 
 from judge.models import Class, Contest, ContestProblem, ContestSubmission, Profile, Rating, Submission
 from judge.ratings import rate_contest
+from judge.utils.safe_json import script_json
 from judge.utils.user_search import apply_profile_choice_labels, profile_choice_label
 from judge.utils.views import NoBatchDeleteMixin
 from judge.widgets import AdminAceWidget, AdminHeavySelect2MultipleWidget, AdminHeavySelect2Widget, \
@@ -708,7 +708,7 @@ class ContestAdmin(NoBatchDeleteMixin, SortableAdminBase, VersionAdmin):
             self.is_embedded_advanced_mode(request, obj)
         )
         if context['show_embedded_advanced_toggle']:
-            context['simple_preset_defaults'] = json.dumps(self.get_simple_preset_defaults(request))
+            context['simple_preset_defaults'] = script_json(self.get_simple_preset_defaults(request))
         return super().render_change_form(request, context, add, change, form_url, obj)
 
 

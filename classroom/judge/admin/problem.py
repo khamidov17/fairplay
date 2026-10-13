@@ -1,5 +1,4 @@
 import io
-import json
 import os
 import re
 import zipfile
@@ -26,6 +25,7 @@ from judge.models import Class, Language, LanguageLimit, Organization, Problem, 
 from judge.utils import simple_xlsx
 from judge.utils.language_matching import matching_languages
 from judge.utils.problem_create import generate_problem_code as next_problem_code
+from judge.utils.safe_json import script_json
 from judge.utils.simple_xlsx import build_xlsx_workbook, read_xlsx_rows
 from judge.utils.user_search import apply_profile_choice_labels, profile_choice_label
 from judge.utils.views import NoBatchDeleteMixin
@@ -1460,7 +1460,7 @@ class ProblemAdmin(NoBatchDeleteMixin, VersionAdmin):
             self.is_embedded_advanced_mode(request, obj)
         )
         if context['show_embedded_advanced_toggle']:
-            context['simple_preset_defaults'] = json.dumps(self.get_simple_preset_defaults(request))
+            context['simple_preset_defaults'] = script_json(self.get_simple_preset_defaults(request))
         return super().render_change_form(request, context, add, change, form_url, obj)
 
     def save_model(self, request, obj, form, change):

@@ -2,6 +2,7 @@
 import errno
 import io
 import json
+import logging
 import mimetypes
 import os
 import re
@@ -25,7 +26,7 @@ from django.views import View
 
 from judge import llm
 from judge.llm import LLMError
-from judge.models import Language, Organization, Problem, ProblemBlank, ProblemData, ProblemFillBlankConfig, \
+from judge.models import Language, Problem, ProblemBlank, ProblemData, ProblemFillBlankConfig, \
     ProblemImportDraft, \
     ProblemImportImage, ProblemImportItem, ProblemMCQConfig, ProblemMCQOption, ProblemShortAnswerConfig, \
     ProblemSubmissionType, ProblemTestCase, ProblemType, Solution, problem_data_storage
@@ -33,9 +34,12 @@ from judge.utils.excel_embedded_documents import image_placeholder, read_xlsx_ro
     store_docx_image
 from judge.utils.problem_create import apply_simple_problem_defaults, default_problem_type, log_problem_admin_entry
 from judge.utils.problem_data import ProblemDataCompiler
+from judge.utils.safe_json import script_json
 from judge.utils.simple_xlsx import validate_xlsx_upload
-from judge.views.problem_create_v2 import ProblemCreateV2View
+from judge.views.problem_create_v2 import ProblemCreateV2View, assignable_organizations
 
+
+logger = logging.getLogger('judge.problem_import')
 
 QUESTION_TYPE_MAP = {
     'code': ProblemSubmissionType.CODE,
@@ -269,7 +273,7 @@ def _serialize_editor_testcases(testcases):
 
 def _safe_json(value):
     """Serialize inline editor data without allowing it to escape a script tag."""
-    return json.dumps(value).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+    return script_json(value)
 
 
 def _editor_data_for_item(item):
@@ -983,6 +987,9 @@ class ProblemImportItemActionView(LoginRequiredMixin, View):
             if zip_upload is not None:
                 _parse_zip_test_data(zip_upload)
                 zip_upload.seek(0)
+                if item.test_data_zip:
+                    # Replaced: do not leave the previous hidden test data behind.
+                    item.test_data_zip.delete(save=False)
                 item.test_data_zip.save(zip_upload.name or 'test_data.zip', zip_upload, save=False)
 
             if not item.data_needs_review:
@@ -1252,13 +1259,9 @@ def _resolve_import_organizations(request, raw_value):
             'reason': _('The preview editor currently supports one organization per problem.'),
         }]
 
-    # Match the unified problem editor: creators may assign any organization,
+    # Match the unified problem editor: creators may assign the courses they teach,
     # including a course that does not yet have any classes or members.
-    queryset = (
-        Organization.objects.all()
-        if request.user.has_perm('judge.create_private_problem')
-        else Organization.objects.none()
-    )
+    queryset = assignable_organizations(request.user)
     token = tokens[0]
     matches = list(queryset.filter(slug__iexact=token))
     matches.extend(queryset.filter(short_name__iexact=token))
@@ -1628,6 +1631,28 @@ def _delete_problem_data_directories(problem_codes):
             shutil.rmtree(directory)
 
 
+def _discard_test_data_zip_on_commit(item):
+    """Delete the draft's test-data ZIP once the created problem is committed.
+
+    The problem keeps its own copy in problem data storage; the draft copy is hidden test data
+    and must not linger in storage.
+    """
+    if not item.test_data_zip:
+        return
+    name = item.test_data_zip.name
+    storage = item.test_data_zip.storage
+    item_id = item.pk
+
+    def discard():
+        ProblemImportItem.objects.filter(pk=item_id, test_data_zip=name).update(test_data_zip='')
+        try:
+            storage.delete(name)
+        except Exception:
+            logger.exception('Could not delete import test data %s', name)
+
+    transaction.on_commit(discard)
+
+
 def _create_problem(request, item, promoted_images=None, created_data_directories=None):
     if item.created_problem_id:
         return item.created_problem
@@ -1641,6 +1666,7 @@ def _create_problem(request, item, promoted_images=None, created_data_directorie
         log_problem_admin_entry(request, problem, created=True)
         # The BinaryField data is no longer needed once every referenced image is public.
         item.images.all().delete()
+        _discard_test_data_zip_on_commit(item)
         if promoted_images is not None:
             promoted_images.extend(stored_images)
         if created_data_directories is not None:
@@ -1721,6 +1747,14 @@ def _create_problem_records(request, item, description, created_data_directories
 
 def _apply_editor_configuration(request, item, problem):
     """Apply the unified editor's common and advanced fields after import-specific records exist."""
+    try:
+        _apply_editor_configuration_fields(request, item, problem)
+    except PermissionError as error:
+        # The import views report ValueError to the teacher and roll the creation back.
+        raise ValueError(str(error)) from error
+
+
+def _apply_editor_configuration_fields(request, item, problem):
     if not item.editor_data:
         return
     saved_payload = item.editor_data
@@ -1745,7 +1779,7 @@ def _apply_editor_configuration(request, item, problem):
         problem.time_limit = editor._num(payload.get('time_limit'), problem.time_limit)
         problem.memory_limit = int(editor._num(payload.get('memory_limit'), problem.memory_limit / 1024) * 1024)
     problem.group = editor._resolve_group(payload)
-    problem.is_public = editor._resolve_public(request.user, bool(payload.get('is_public')), payload)
+    problem.is_public = editor._resolve_public(request.user, bool(payload.get('is_public')), payload, problem=problem)
     problem.save()
     editor._attach_types(problem, payload)
     editor._attach_orgs(problem, payload, request.user)

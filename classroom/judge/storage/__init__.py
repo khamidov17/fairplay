@@ -5,11 +5,12 @@ from django.core.files.storage import FileSystemStorage
 
 from judge.storage.resilient import ResilientStorage, StorageUnavailableError, \
     generate_assignment_draft_key, generate_class_material_key, generate_editor_attachment_key, \
-    generate_seb_config_key, generate_submission_key
+    generate_problem_import_key, generate_seb_config_key, generate_submission_key
 
 __all__ = ['submission_storage', 'ResilientStorage', 'StorageUnavailableError',
            'generate_assignment_draft_key', 'generate_class_material_key',
-           'generate_editor_attachment_key', 'generate_seb_config_key', 'generate_submission_key']
+           'generate_editor_attachment_key', 'generate_problem_import_key', 'generate_seb_config_key',
+           'generate_submission_key']
 
 _submission_storage = None
 

@@ -75,6 +75,16 @@ def generate_editor_attachment_key(user_id, original_name, now=None):
     )
 
 
+def generate_problem_import_key(draft_id, original_name, now=None):
+    """Object key for a test-data ZIP held by an Excel import draft (hidden test data: private store,
+    random name). The file is deleted once the problem is created or the draft is discarded."""
+    now = now or timezone.now()
+    ext = posixpath.splitext(original_name)[1].lower()
+    if not _EXT_RE.fullmatch(ext):
+        ext = ''
+    return 'import_test_data/%04d/%02d/%d/%s%s' % (now.year, now.month, draft_id or 0, uuid.uuid4().hex, ext)
+
+
 def generate_seb_config_key(scope, original_name, now=None):
     """Object key for Safe Exam Browser ``.seb`` configs (same store as submission files).
 
