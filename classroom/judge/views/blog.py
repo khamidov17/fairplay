@@ -9,6 +9,7 @@ from django.views.generic import ListView
 from judge.comments import CommentedDetailView
 from judge.models import BlogPost, Comment, Contest, Language, Problem, ProblemClarification, Profile, Submission, \
     Ticket
+from judge.subjects import teaching_courses
 from judge.utils.cachedict import CacheDict
 from judge.utils.diggpaginator import DiggPaginator
 from judge.utils.opengraph import generate_opengraph
@@ -69,6 +70,8 @@ class PostList(ListView):
 
         context['current_contests'] = visible_contests.filter(start_time__lte=now, end_time__gt=now)
         context['future_contests'] = visible_contests.filter(start_time__gt=now)
+
+        context['teaching_courses'] = teaching_courses(self.request.user)
 
         if self.request.user.is_authenticated:
             context['own_open_tickets'] = (

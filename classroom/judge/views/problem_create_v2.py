@@ -48,6 +48,8 @@ from judge.models import (Class, Language, LanguageLimit, License, Organization,
 from judge.models.problem_data import CHECKERS
 from judge.models.question import GRADE_AI, GRADE_EXACT
 from judge.question_types.mcq import sync_mcq_options
+from judge.subjects import (CREATE_V2_TYPE_CAPS, capability_for_question_type, course_question_caps,
+                            ensure_question_type_allowed, features_for, infer_subject_key)
 from judge.utils.problem_create import (apply_simple_problem_defaults, default_problem_group, default_problem_type,
                                         generate_problem_code, log_problem_admin_entry,
                                         problem_admin_changed_fields, problem_admin_snapshot)
@@ -207,7 +209,48 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
                 context['clone_url'] = reverse('problem_clone', args=[problem.code])
         else:
             context['suggested_code'] = generate_problem_code()
+            problem = None
+        self.apply_subject_context(request, context, problem)
         return render(request, self.template_name, context)
+
+    def apply_subject_context(self, request, context, problem=None):
+        """Which question types the page offers, from the subject registry (judge/subjects/).
+
+        The course context is the problem's courses when editing, else ``?course=<id>`` (a course
+        the user teaches, also preselected), else none: then the user's site-wide features apply.
+        The page also gets each offered course's capabilities so it can refuse a type that a
+        selected course does not allow before saving (the server refuses it too).
+        """
+        user = request.user
+        course_context = None
+        context['preselect_organization_ids'] = []
+        if problem is not None and problem.pk is not None and problem.organizations.exists():
+            course_context = problem
+        else:
+            try:
+                course_id = int(request.GET.get('course') or 0)
+            except (TypeError, ValueError):
+                course_id = 0
+            course = assignable_organizations(user).filter(pk=course_id).first() if course_id else None
+            if course is not None:
+                course_context = course
+                context['preselect_organization_ids'] = [course.pk]
+        caps = set(features_for(user, course_context))
+        if problem is not None and problem.pk is not None:
+            # An existing problem keeps its own type even if its course's subject changed later.
+            own = capability_for_question_type(problem.submission_type)
+            if own:
+                caps.add(own)
+        context['subject_course'] = course_context
+        context['subject_caps'] = caps
+        context['can_create_code'] = context.get('can_create_code', False) and 'question_programming' in caps
+        context['create_type_caps_json'] = script_json(CREATE_V2_TYPE_CAPS)
+        org_ids = [o['id'] for o in context.get('organizations') or []]
+        context['org_question_caps_json'] = script_json({
+            str(pk): caps_list for pk, caps_list in course_question_caps(
+                list(Organization.objects.filter(pk__in=org_ids))).items()
+        })
+        context['preselect_organization_ids_json'] = script_json(context['preselect_organization_ids'])
 
     def get_context(self, request):
         user = request.user
@@ -344,6 +387,8 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
 
         before = problem_admin_snapshot(existing) if existing is not None else None
         try:
+            # Subject registry: e.g. no programming problems in a Biology course (judge/subjects/).
+            self._check_subject_allows(request, payload, qtype, existing)
             # Mirror classic VersionAdmin: store an optional edit-reason comment on the revision.
             with revisions.create_revision(atomic=True):
                 if qtype == 'programming':
@@ -424,6 +469,29 @@ class ProblemCreateV2View(LoginRequiredMixin, View):
                 'old': submitted_code,
             }
         return JsonResponse(body)
+
+    def _check_subject_allows(self, request, payload, qtype, problem=None):
+        """Refuse a question type that a course it is attached to does not offer (PermissionError).
+
+        Editing a problem without changing its type only checks the courses being newly added, so a
+        course whose subject changed later can still fix typos in its old problems.
+        """
+        if qtype not in CREATE_V2_TYPE_CAPS:
+            return
+        user = request.user
+        if user.has_perm('judge.create_private_problem'):
+            courses = self._payload_organizations(payload, user, problem)
+        elif problem is not None and problem.pk is not None:
+            courses = list(problem.organizations.all())
+        else:
+            courses = []
+        if problem is not None and problem.pk is not None and (
+                capability_for_question_type(problem.submission_type) == capability_for_question_type(qtype)):
+            existing_ids = set(problem.organizations.values_list('id', flat=True))
+            courses = [c for c in courses if c.pk not in existing_ids]
+            if not courses:
+                return
+        ensure_question_type_allowed(user, qtype, courses)
 
     # ------------------------------------------------------------------ edit support
     def _get_editable_problem(self, request, code):
@@ -1922,7 +1990,8 @@ class ProblemCreateV2OrganizationView(LoginRequiredMixin, View):
         slug = slugify(name)[:128] or 'org'
         short_name = name[:20]
         with transaction.atomic():
-            org = Organization.objects.create(name=name, slug=slug, short_name=short_name, about='')
+            org = Organization.objects.create(name=name, slug=slug, short_name=short_name, about='',
+                                              subject=infer_subject_key(short_name, name))
             profile = request.profile
             if profile:
                 org.admins.add(profile)

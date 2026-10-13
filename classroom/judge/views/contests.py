@@ -50,6 +50,7 @@ from judge.models import Contest, ContestMoss, ContestParticipation, ContestProb
     contest_problem_display_name
 from judge.models.profile import Class, Organization
 from judge.storage import StorageUnavailableError
+from judge.subjects import has_feature
 from judge.tasks import run_moss
 from judge.utils.celery import redirect_to_task_status
 from judge.utils.opengraph import generate_opengraph
@@ -1556,6 +1557,9 @@ class ContestCreate(LoginRequiredMixin, View):
                          .prefetch_related('types', 'organizations', 'authors__user')
                          .order_by('-date')),
             'contest': contest,
+            # Subject registry: code-only settings (IDE output, pretests) follow the assignment's
+            # courses when editing, else the editor's own courses (judge/subjects/).
+            'subject_course': contest,
             'user_timezone': user_tz_name,
             'is_edit': contest is not None,
             # Fields hidden in the template AND skipped server-side, mirroring
@@ -2995,6 +2999,9 @@ class ContestMossMixin(ContestMixin, PermissionRequiredMixin):
     def get_object(self, queryset=None):
         contest = super().get_object(queryset)
         if settings.MOSS_API_KEY is None or not contest.is_editable_by(self.request.user):
+            raise Http404()
+        # MOSS is part of the code pack: not offered for assignments of non-code courses.
+        if not has_feature(self.request.user, 'moss', contest):
             raise Http404()
         return contest
 

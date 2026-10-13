@@ -2870,12 +2870,14 @@
                                     {{ _('Allow spectate') }}{{ tip(_('Allow students to spectate while the assignment is active. Spectator submissions do not count toward statistics or rankings.')) }}
                                 </label>
                             </div>
+                            {% if has_feature('ide') or prefill.hide_sandbox_output %}
                             <div class="form-row form-row-check">
                                 <label>
                                     <input type="checkbox" id="id_hide_sandbox_output" name="hide_sandbox_output"{% if prefill.hide_sandbox_output %} checked{% endif %}>
                                     {{ _('Hide IDE / Run Test output') }}{{ tip(_('Hide sandbox stdout from students. The verdict, compile errors, and runtime exceptions remain visible. This does not close the IDE, lock problems, or change Submit.')) }}
                                 </label>
                             </div>
+                            {% endif %}
                             <div class="form-row">
                                 <label for="id_lock_site_during_participation">
                                     {{ _('Lock the site during participation') }}{{ tip(_('While a student is in this assignment, only its pages, its problems and workspace, their own submissions in it, and logout work. The IDE page, other problems, comments, tickets, blogs and user pages are blocked. Automatic means on for Safe Exam Browser and Exam-format assignments.')) }}
@@ -3309,7 +3311,9 @@
                                         <label><input type="checkbox" id="id_hide_problem_tags" name="hide_problem_tags"{% if prefill.hide_problem_tags %} checked{% endif %}> {{ _('Hide problem tags') }}{{ tip(_('Whether problem tags should be hidden by default.')) }}</label>
                                         <label><input type="checkbox" id="id_hide_problem_authors" name="hide_problem_authors"{% if prefill.hide_problem_authors %} checked{% endif %}> {{ _('Hide problem authors') }}{{ tip(_('Whether problem authors should be hidden by default.')) }}</label>
                                         <label><input type="checkbox" id="id_show_short_display" name="show_short_display"{% if prefill.show_short_display %} checked{% endif %}> {{ _('Show short settings on assignment page') }}{{ tip(_('Whether to show a section containing assignment settings on the assignment page or not.')) }}</label>
+                                        {% if has_feature('judge') or prefill.run_pretests_only %}
                                         <label><input type="checkbox" id="id_run_pretests_only" name="run_pretests_only"{% if prefill.run_pretests_only %} checked{% endif %}> {{ _('Run pretests only') }}{{ tip(_('Whether judges should grade pretests only, versus all testcases. Commonly set during an assignment, then unset prior to rejudging user submissions when the assignment ends.')) }}</label>
+                                        {% endif %}
                                     </div>
                                     {% if 'locked_after' not in restricted_fields %}
                                     <div class="form-row" style="margin-top:0.65rem;">

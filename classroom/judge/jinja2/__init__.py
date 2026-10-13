@@ -8,6 +8,7 @@ from statici18n.templatetags.statici18n import inlinei18n
 
 from judge.highlight_code import highlight_code
 from judge.impersonation import can_impersonate_user
+from judge.subjects import jinja as subjects_jinja  # noqa: F401  (registers has_feature() and friends)
 from judge.user_translations import gettext
 from judge.utils.assignment_harvest import assignment_harvest_enabled
 from judge.utils.problems import participation_submit_progress

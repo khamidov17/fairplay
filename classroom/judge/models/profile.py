@@ -30,6 +30,7 @@ from judge.models.choices import ACE_THEMES, MATH_ENGINES_CHOICES, SITE_THEMES, 
 from judge.models.runtime import Language
 from judge.ratings import rating_class
 from judge.storage import generate_class_material_key, submission_storage
+from judge.subjects.base import validate_subject_key
 from judge.utils.two_factor import webauthn_decode
 
 __all__ = ['Class', 'ClassMaterial', 'Organization', 'Profile', 'OrganizationRequest', 'WebAuthnCredential']
@@ -85,6 +86,14 @@ class Organization(models.Model):
     instructor_names = models.CharField(
         max_length=512, verbose_name=_('instructors'), blank=True, default='',
         help_text=_('Display names shown on course cards (comma-separated). Separate from course administrators.'),
+    )
+    # Which DKU subject the course belongs to; decides its feature packs (judge/subjects/definitions.py).
+    # No ``choices`` on purpose: adding a subject must not need a migration. The validator checks the key.
+    subject = models.CharField(
+        max_length=32, default='cs', db_index=True, verbose_name=_('subject'),
+        validators=[validate_subject_key],
+        help_text=_('Decides which question types and tools the course shows (e.g. the IDE and programming '
+                    'problems only for computer science).'),
     )
 
     def clean(self):

@@ -20,6 +20,7 @@ from django.utils.translation import gettext_lazy as _, ngettext_lazy
 
 from judge.models import Class, Contest, Language, Organization, Problem, ProblemPointsVote, Profile, Submission, \
     WebAuthnCredential
+from judge.subjects import infer_subject_key, subject_choices
 from judge.utils.mail import validate_email_domain
 from judge.utils.problem_create import generate_problem_code
 from judge.utils.subscription import newsletter_id
@@ -309,11 +310,12 @@ class OrganizationSiteForm(ModelForm):
 
     class Meta:
         model = Organization
-        fields = ['short_name', 'name', 'about', 'is_open', 'class_required', 'slots',
+        fields = ['short_name', 'name', 'subject', 'about', 'is_open', 'class_required', 'slots',
                   'admins', 'instructors', 'logo_override_image']
         labels = {
             'short_name': _('Course code'),
             'name': _('Course name'),
+            'subject': _('Subject'),
             'about': _('Course description'),
             'is_open': _('Is open organization?'),
             'class_required': _('Class membership required'),
@@ -345,9 +347,27 @@ class OrganizationSiteForm(ModelForm):
             'instructors': HeavySelect2MultipleWidget(data_view='profile_select2', attrs={'style': 'width: 100%'}),
         }
 
+    # Subject list comes from the registry (judge/subjects/definitions.py), so a new subject shows up here
+    # without a form or model change. On create, '' = detect from the course code prefix.
+    subject = ChoiceField(required=False, label=_('Subject'))
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         apply_profile_choice_labels(self)
+        if 'subject' in self.fields:
+            creating = self.instance is None or self.instance.pk is None
+            choices = list(subject_choices())
+            if creating:
+                choices = [('', _('Detect from course code'))] + choices
+                self.fields['subject'].help_text = _(
+                    'Decides which question types and tools the course shows. "Detect" uses the DKU course '
+                    'code prefix (COMPSCI, MATH, CHEM, BIOL, ...); unknown prefixes get Computer science.')
+            else:
+                self.fields['subject'].initial = self.instance.subject
+                self.fields['subject'].help_text = _(
+                    'Decides which question types and tools the course shows. Changing it does not delete '
+                    'existing problems; it only hides tools the new subject does not use.')
+            self.fields['subject'].choices = choices
         if 'slots' in self.fields:
             self.fields['slots'].required = False
         if 'logo_override_image' in self.fields:
@@ -372,6 +392,13 @@ class OrganizationSiteForm(ModelForm):
         cleaned = super().clean()
         if cleaned.get('class_required') and cleaned.get('is_open'):
             raise ValidationError(_('Class membership cannot be enforced when the course has open enrollment.'))
+        if 'subject' in self.fields and not cleaned.get('subject'):
+            if self.instance.pk is None:
+                cleaned['subject'] = infer_subject_key(cleaned.get('short_name'), cleaned.get('name'))
+            else:
+                # Edit posts without a subject (older clients) keep the course's current subject.
+                cleaned['subject'] = self.instance.subject
+            self.instance.subject = cleaned['subject']
         return cleaned
 
 

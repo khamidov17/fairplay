@@ -1,0 +1,23 @@
+{#- Per-subject part of the course page. Sections come from the course's feature packs
+    (judge/subjects/definitions.py); each pack section is one template under subjects/sections/.
+    Context: organization, subject_is_teacher. -#}
+{% set course = organization %}
+{% set subject = course_subject(course) %}
+{% set is_teacher = subject_is_teacher %}
+{% set sections = subject_sections('course', course, is_teacher=is_teacher) %}
+{% include "subjects/styles.html" %}
+<div class="subject-dashboard" data-subject="{{ subject.key }}">
+    <div class="subject-head">
+        <span class="subject-badge" style="--subject-color: {{ subject.color }}">{{ subject.label }}</span>
+    </div>
+    {% if sections %}
+        <div class="subject-sections">
+            {% for section in sections %}
+                <section class="subject-section" data-section="{{ section.key }}">
+                    <h3>{{ section.title }}</h3>
+                    {% include section.template %}
+                </section>
+            {% endfor %}
+        </div>
+    {% endif %}
+</div>

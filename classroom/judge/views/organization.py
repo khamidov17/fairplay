@@ -26,6 +26,7 @@ from judge.forms import ClassAssignmentsForm, ClassSiteForm, EditOrganizationFor
 from judge.models import AdminNotification, Class, ClassMaterial, Contest, InstructorVerificationRequest, \
     Organization, OrganizationRequest, Profile
 from judge.models.notification import ensure_instructors_group, user_in_instructors_group
+from judge.subjects import prefix_labels
 from judge.utils.admin_notify import (
     notify_class_join, notify_course_join, notify_instructor_verification,
 )
@@ -888,6 +889,10 @@ class OrganizationHome(OrganizationDetailView):
         context['can_manage'] = self.can_manage_organization()
         context['can_create_class'] = self.can_create_class()
         context['can_view_course'] = profile_can_view_course(profile, self.object, self.request.user)
+        # Subject registry (judge/subjects/): has_feature() in templates answers for this course.
+        context['subject_course'] = self.object
+        context['subject_is_teacher'] = bool(can_all or (
+            profile is not None and self.object.profile_teaches_course(profile)))
         context['can_review_requests'] = not self.object.is_open and self.request.user.is_authenticated and (
             self.object.can_review_all_requests(self.request.profile) or
             self.object.can_review_class_requests(self.request.profile) or
@@ -1677,6 +1682,7 @@ class CreateOrganization(LoginRequiredMixin, TitleMixin, FormView):
         context = super().get_context_data(**kwargs)
         context['form_mode'] = 'create'
         context['title'] = self.title
+        context['subject_prefixes'] = prefix_labels()
         context.update(course_inbox_chrome_context(self.request))
         return context
 

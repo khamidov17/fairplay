@@ -3,13 +3,14 @@ from django.conf import settings
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.cache import cache
 from django.db import transaction
-from django.http import JsonResponse
+from django.http import Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
 from django.views import View
 from django.views.generic import TemplateView
 
 from judge.models import Language, Problem, Submission, SubmissionSource
+from judge.subjects import has_feature
 from judge.utils.sandbox_output import sandbox_hide_contest_for_new_run, submission_output_hidden_for
 from judge.utils.views import TitleMixin
 
@@ -64,6 +65,12 @@ class IDEView(LoginRequiredMixin, TitleMixin, TemplateView):
     template_name = 'ide/ide.html'
     title = 'IDE'
 
+    def get(self, request, *args, **kwargs):
+        # The IDE is part of the code pack: users whose courses are all non-code subjects do not get it.
+        if not has_feature(request.user, 'ide'):
+            raise Http404()
+        return super().get(request, *args, **kwargs)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         languages = Language.objects.filter(
@@ -87,6 +94,8 @@ class IDESubmitView(LoginRequiredMixin, View):
     """
 
     def post(self, request):
+        if not has_feature(request.user, 'ide'):
+            return JsonResponse({'error': 'The IDE is not available for your courses.'}, status=403)
         # Rate limiting check (fast path; the binding check is the atomic
         # reservation below, just before the run is created).
         cache_key = f'ide_run:{request.profile.id}'

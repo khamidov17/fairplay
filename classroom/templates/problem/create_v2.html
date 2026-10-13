@@ -186,6 +186,7 @@
     .score-conf { margin-top: 0.5rem; padding: 0.6rem 0.75rem; background: var(--admin-bg, #fafafa); border: 1px dashed var(--admin-border); border-radius: 5px; }
     .profile-select2 + .select2-container,
     .org-select2 + .select2-container { max-width: 500px; width: 100% !important; }
+    .type-pill.subject-off { opacity: 0.45; text-decoration: line-through; }
     .unsaved-note { font-size: 12px; color: var(--muted); padding: 0.35rem 1rem 0.6rem; }
     .radio-list label { display: block; font-weight: normal; width: auto; padding: 0.2rem 0; }
     .inline-num input { width: 70px; }
@@ -287,8 +288,11 @@
             <label>{{ _('Type') }} <span class="req">*</span></label>
             <div class="field">
               <div class="type-pills" id="type-pills">
+                {# Programming is offered only where the course subject has the code pack (judge/subjects/). #}
+                {% if subject_caps is not defined or 'question_programming' in subject_caps %}
                 <label class="type-pill" data-save="programming" {% if not can_create_code %}title="{{ _('Requires permission to create problems') }}" style="opacity:0.45;"{% endif %}>
                   <input type="radio" name="qtype" value="programming" onchange="selectType('programming')" {% if not can_create_code %}disabled{% endif %}><span>{{ _('Programming') }}</span></label>
+                {% endif %}
                 <label class="type-pill" data-save="mcq">
                   <input type="radio" name="qtype" value="single" {% if can_create_mcq %}checked{% endif %} onchange="selectType('single')"><span>{{ _('Single choice') }}</span></label>
                 <label class="type-pill" data-save="mcq" {% if not can_create_mcq %}style="opacity:0.45;"{% endif %}>
@@ -969,6 +973,38 @@
     const MONACO_VS_URL = '{{ static("libs/monaco/vs") }}';
     const EDIT_DETAIL_URL = '{{ edit_detail_url }}';
     const EDIT_DATA = {{ edit_data_json|safe }};
+    {# Subject registry: question type -> capability, and each offered course's capabilities. #}
+    const CREATE_TYPE_CAPS = {{ create_type_caps_json|default('{}')|safe }};
+    const ORG_QUESTION_CAPS = {{ org_question_caps_json|default('{}')|safe }};
+    const PRESELECT_ORG_IDS = {{ preselect_organization_ids_json|default('[]')|safe }};
+    const SUBJECT_NOT_IN_COURSE_MSG = {{ _('This question type is not available in the course "{course}". Its subject does not include it.')|htmltojs }};
+    // Courses a problem is already in may keep its existing type (the server applies the same rule).
+    function subjectRefusal(type, orgIds) {
+      const cap = CREATE_TYPE_CAPS[type];
+      if (!cap) return null;
+      const keepIds = (EDIT_DATA && EDIT_DATA.type === type && EDIT_DATA.organizations)
+        ? EDIT_DATA.organizations.map(String) : [];
+      for (const id of (orgIds || []).map(String)) {
+        const caps = ORG_QUESTION_CAPS[id];
+        if (!caps || caps.includes(cap) || keepIds.includes(id)) continue;
+        const opt = document.querySelector('#f-org option[value="' + id + '"]');
+        return SUBJECT_NOT_IN_COURSE_MSG.replace('{course}', opt ? opt.textContent.trim() : id);
+      }
+      return null;
+    }
+    function refreshSubjectTypePills() {
+      const org = document.getElementById('f-org');
+      const ids = org ? Array.from(org.selectedOptions).map(o => o.value) : [];
+      document.querySelectorAll('#type-pills input[name="qtype"]').forEach(function (input) {
+        const pill = input.closest('.type-pill');
+        const refused = subjectRefusal(input.value, ids);
+        if (pill) {
+          pill.classList.toggle('subject-off', !!refused);
+          if (refused) pill.title = refused; else if (pill.dataset.subjectTitle === '1') pill.removeAttribute('title');
+          if (refused) pill.dataset.subjectTitle = '1';
+        }
+      });
+    }
     const IMPORT_EDITOR_MODE = {{ 'true' if import_editor_mode else 'false' }};
     const FROM_ASSIGNMENT = new URLSearchParams(window.location.search).get('from') === 'assignment';
     const IMPORT_ITEM_ID = '{{ import_item_id }}';
@@ -2479,6 +2515,8 @@
       if (['single', 'multiple', 'truefalse', 'blank', 'short'].includes(d.type) && !CAN_CREATE_MCQ) {
         return '{{ _("You do not have permission to create this problem type.") }}';
       }
+      const subjectMsg = subjectRefusal(d.type, d.organizations);
+      if (subjectMsg) return subjectMsg;
       if (d.type === 'file' && !CAN_CREATE_FILE) {
         return '{{ _("You do not have permission to create this problem type.") }}';
       }
@@ -2914,6 +2952,18 @@
         const f = input.files && input.files[0];
         nameEl.textContent = f ? f.name : noneLabel;
       });
+    })();
+
+    (function initSubjectCourseContext() {
+      const org = document.getElementById('f-org');
+      if (!org) return;
+      if (!EDIT_DATA && PRESELECT_ORG_IDS.length) {
+        PRESELECT_ORG_IDS.forEach(id => ensureOption(org, id, null, true));
+        if (window.jQuery && jQuery(org).data('select2')) jQuery(org).val(PRESELECT_ORG_IDS.map(String)).trigger('change');
+      }
+      if (window.jQuery) jQuery(org).on('change', refreshSubjectTypePills);
+      else org.addEventListener('change', refreshSubjectTypePills);
+      refreshSubjectTypePills();
     })();
 
     if (EDIT_DATA) {
