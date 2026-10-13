@@ -6,6 +6,8 @@ Goals: fix every bug from the review; make it subject-aware so that CS teachers 
 
 Branding: keep DKU OJ's name, branding, LICENSE (AGPL-3.0) and history as they are. FairPlay is the name of our separate locked exam app only.
 
+Exam lockdown (decided 2026-10-14): Classroom no longer has Safe Exam Browser support or an in-browser exam lock. Lockdown is the job of FairPlay's own Mac/Windows app, connected later through the Connector. Both were removed in one commit with migration 0223, so the DKU OJ team can take or leave that change.
+
 **Later, not now:** the Connector API between the FairPlay exam app and DKU OJ. Keep a clean service boundary.
 
 ## Architecture

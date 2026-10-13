@@ -999,7 +999,10 @@ class ForceContestMixin(object):
     def access_check(self, request):
         super(ForceContestMixin, self).access_check(request)
 
-        if not request.user.has_perm('judge.see_private_contest'):
+        # The assignment's own editors may look before it starts (and at drafts), as on the
+        # assignment page itself; the problem table links them here.
+        if not request.user.has_perm('judge.see_private_contest') and \
+                not self.contest.is_editable_by(request.user):
             if not self.contest.is_visible:
                 raise Http404()
             if self.contest.start_time is not None and self.contest.start_time > timezone.now():

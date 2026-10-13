@@ -35,8 +35,9 @@ register_pack(FeaturePack(
                          places=('course',), order=10, teacher_only=True),
     ),
     menu_items=(
+        # Same permission the problem creator checks; a class TA without it got a 404.
         MenuItem(key='new_question', label=_('New question'), url_name='problem_create_v2', icon='fa-plus',
-                 course_param=True),
+                 course_param=True, requires='judge.create_private_problem'),
         MenuItem(key='question_bank', label=_('Question bank'), url_name='problem_list', icon='fa-list',
                  course_param=True),
         MenuItem(key='new_assignment', label=_('New assignment'), url_name='contest_create', icon='fa-calendar-plus-o',

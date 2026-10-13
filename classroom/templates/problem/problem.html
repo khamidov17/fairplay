@@ -498,7 +498,8 @@
             <div><a href="{{ url('problem_mcq_edit', problem.code) }}">{{ _('Edit question') }}</a></div>
         {% elif problem.submission_type == 'B' %}
             <div><a href="{{ url('problem_fillblank_edit', problem.code) }}">{{ _('Edit question') }}</a></div>
-        {% elif problem.submission_type == 'F' %}
+        {% elif problem.submission_type in ('F', 'S') %}
+            {# Answer types have no test data; they are edited in the question editor. #}
             <div><a href="{{ url('problem_edit_v2', problem.code) }}">{{ _('Edit question') }}</a></div>
         {% else %}
             <div><a href="{{ url('admin:judge_problem_change', problem.id) }}">{{ _('Edit problem') }}</a></div>

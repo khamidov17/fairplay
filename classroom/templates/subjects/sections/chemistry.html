@@ -2,7 +2,7 @@
     chemistry question types exist. -#}
 <p class="muted">{{ _('Chemistry tools (formula and equation input, structure drawing, lab safety checklists) are planned.') }}</p>
 <p class="muted">{{ _('For now, numeric answers work as fill-in-the-blank questions and lab reports as file upload questions.') }}</p>
-{% if is_teacher %}
+{% if is_teacher and perms.judge.create_private_problem %}
     <ul class="subject-links">
         <li><a href="{{ url('problem_create_v2') }}?course={{ course.id }}" data-menu-item="chem_new_question"><i class="fa fa-flask"></i> {{ _('New chemistry question') }}</a></li>
     </ul>

@@ -413,7 +413,8 @@
 {% endblock %}
 
 {% block header %}
-    {% if data_form.instance.has_yml %}
+    {# has_yml is a method: without the call it is always true and the link 404s. #}
+    {% if data_form.instance.has_yml() %}
         <div class="title-line-action">
             [<a href="{{ url('problem_data_init', problem.code) }}">{{ _('View YAML') }}</a>]
         </div>

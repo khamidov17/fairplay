@@ -169,7 +169,7 @@
         {% include "contest/leave-form.html" %}
         {% if form %}<span class="submit-cluster-sep" aria-hidden="true"></span>{% endif %}
       {% endif %}
-      {% if form %}<button class="tool-btn submit-btn" type="button" id="btn-submit"{% if workspace_is_code and not form.fields.language.queryset.exists() %} disabled{% endif %}{% if workspace_show_timer and workspace_timer_seconds <= 0 %} disabled{% endif %}><i class="fa fa-cloud-upload"></i> {{ _('Submit') }}</button>{% endif %}
+      {% if form %}<button class="tool-btn submit-btn" type="button" id="btn-submit"{% if workspace_is_code and not form.fields.language.queryset.exists() %} disabled title="{{ _('No grading server is online for this problem right now, so code cannot be submitted. Your code is saved as a draft; try again later or tell your instructor.') }}"{% endif %}{% if workspace_show_timer and workspace_timer_seconds <= 0 %} disabled{% endif %}><i class="fa fa-cloud-upload"></i> {{ _('Submit') }}</button>{% endif %}
     </div>
   </div>
   <div class="ws-body layout-lr" id="ws-body">

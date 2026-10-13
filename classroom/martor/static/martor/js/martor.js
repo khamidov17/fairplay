@@ -49,7 +49,9 @@
             // Look the textarea and the editor div up inside this editor's own container, not by
             // id: a form may give the textarea its own id (the comment edit form uses id_edit),
             // and a page can hold two editors for the same field name (new comment + edit).
-            var textareaId   = mainMartor.find('textarea').first();
+            // The form's own textarea carries data-enable-configs; Ace adds a hidden textarea of
+            // its own inside the editor div (present in cloned reply forms too).
+            var textareaId   = mainMartor.find('textarea[data-enable-configs]').first();
             if (!textareaId.length) textareaId = $('#id_' + field_name);
             var editorId     = 'martor-' + field_name;
             var editorEl     = mainMartor.find('.martor-field-' + field_name)[0] || document.getElementById(editorId);

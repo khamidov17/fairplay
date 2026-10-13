@@ -24,8 +24,8 @@
 {% block extrahead %}
 {{ block.super }}
 {{ media.js }}
-{# Django 4.2's admin/js/actions.js initializes the action checkboxes itself; the jQuery
-   .actions() plugin this template used to call no longer exists. #}
+{% comment %}Django 4.2's admin/js/actions.js initializes the action checkboxes itself; the old jQuery
+   actions plugin this template used to call no longer exists.{% endcomment %}
 {% endblock %}
 
 {% block bodyclass %}{{ block.super }} app-{{ opts.app_label }} model-{{ opts.model_name }} change-list{% endblock %}

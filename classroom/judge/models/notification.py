@@ -18,9 +18,10 @@ INSTRUCTOR_GROUP_NAMES = (INSTRUCTORS_GROUP,) + INSTRUCTOR_GROUP_ALIASES
 # problems + creating assignments). Intentionally excludes edit_all_organization
 # / delete_organization / edit_all_contest (site-admin scope).
 # Frontend Add Assignment matches ContestAdmin.has_add_permission (``add_contest``);
-# create_private_contest still unlocks org/private fields. Live ``Instructor``
-# groups often also hold edit_own_contest / clone_contest / delete_contest —
-# those stay admin-granted extras and are not reset here.
+# create_private_contest still unlocks org/private fields. Editing an assignment needs
+# edit_own_contest (ContestCreate / ContestAdmin), so an instructor who may create one may
+# also edit their own. The group holds exactly this list (ensure_instructors_group resets it),
+# so anything else a site admin wants instructors to have must be added here.
 INSTRUCTOR_PERMISSION_CODENAMES = (
     'add_organization',
     'change_organization',
@@ -32,6 +33,8 @@ INSTRUCTOR_PERMISSION_CODENAMES = (
     'edit_own_problem',
     # Same gate as Django admin "Can add contest".
     'add_contest',
+    # Without it the instructor cannot open the assignment they just created.
+    'edit_own_contest',
     # Org/private field access on assignments the user can already change.
     'create_private_contest',
 )
@@ -60,6 +63,8 @@ def ensure_instructors_group():
         content_type__app_label='judge',
         codename__in=INSTRUCTOR_PERMISSION_CODENAMES,
     )
+    # Exactly these permissions: extras merged in from alias groups (e.g. site-wide add_problem)
+    # are dropped. Grant more to individual users, not to the group.
     group.permissions.set(perms)
     return group
 
