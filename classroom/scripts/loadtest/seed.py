@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Seed a 300-student course for the Classroom load test (scripts/loadtest/README.md).
+"""Seed a 300-student course for the Classroom load test (docs/classroom/reports/load-test.md).
 
 Creates, in the database named by the usual CLASSROOM_DB_* settings:
 

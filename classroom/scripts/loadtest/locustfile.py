@@ -1,4 +1,4 @@
-"""Locust scenario: 300 students sit an exam while a teacher grades (scripts/loadtest/README.md).
+"""Locust scenario: 300 students sit an exam while a teacher grades (docs/classroom/reports/load-test.md).
 
 Every student: log in, open the exam, join, then for each of the 10 questions open the
 workspace (page + its "my submissions" list), save a draft every DRAFT_MIN..DRAFT_MAX seconds
