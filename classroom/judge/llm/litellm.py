@@ -62,7 +62,9 @@ class LiteLLMBackend(Backend):
 
         elapsed_ms = int((_time.monotonic() - start) * 1000)
 
-        if not response.choices:
+        if not getattr(response, 'choices', None):
+            # A gateway that answers 200 with a non-JSON body (an HTML error page) makes the SDK
+            # return a plain string; treat it like any other unusable reply.
             raise LLMError('AI service returned no choices. Please try again.')
 
         choice = response.choices[0]

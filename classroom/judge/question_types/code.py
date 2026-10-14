@@ -206,7 +206,10 @@ def supplementary_ai_grade(submission):
         raw = call_llm(llm, messages)
         if raw is None:
             return None
-        calibrated = parse_calibrated_scores(raw, sub_questions, log_prefix='Code AI: ')
+        calibrated = parse_calibrated_scores(
+            raw, sub_questions, log_prefix='Code AI: ',
+            secrets=((config.ai_rubric if config else '') or '',),
+            public_text=f'{problem.description or ""}\n{source}')
     except Exception:
         logger.exception('Code AI rubric scoring failed for submission %d', submission.id)
         return None

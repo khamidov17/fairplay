@@ -150,3 +150,18 @@ def refund(user_id: int) -> None:
         cache.decr(_quota_key(user_id))
     except ValueError:
         pass
+
+
+def refund_rate(user_id: int, problem_id: int) -> None:
+    """Give back the newest per-problem window slot (the request did not produce a grade)."""
+    with cache_mutex(_rate_lock_key(user_id, problem_id)):
+        recent = sorted(_recent_timestamps(user_id, problem_id))
+        if recent:
+            recent.pop()
+            cache.set(_rate_key(user_id, problem_id), recent, rate_window_seconds())
+
+
+def refund_request(user_id: int, problem_id: int) -> None:
+    """Undo one ``try_reserve``: the global quota and the per-problem window slot."""
+    refund(user_id)
+    refund_rate(user_id, problem_id)

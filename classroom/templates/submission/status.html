@@ -227,7 +227,7 @@
                 box.textContent = data.hint;
                 box.style.display = 'block';
                 document.getElementById('ai-hint-quota').textContent =
-                    '(' + data.remaining + ' use' + (data.remaining === 1 ? '' : 's') + ' remaining today)';
+                    '(' + data.remaining + ' {{ _('uses remaining this window') }})';
                 btn.childNodes[0].nodeValue = '{{ _('Get AI Hint') }} ';
                 btn.disabled = data.remaining === 0;
             } else {

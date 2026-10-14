@@ -23,6 +23,9 @@ from django.utils.translation import gettext as _
 logger = logging.getLogger(__name__)
 
 AI_BATCH_PENDING = 'AI_BATCH_PENDING'
+# run_ai_for_submission() results that mean the model was asked but gave nothing usable.
+AI_UNAVAILABLE = 'ai-unavailable'
+AI_FAILED_STATUSES = (AI_UNAVAILABLE, 'no-rows')
 
 
 def problem_has_ai_grading(problem):
@@ -318,8 +321,28 @@ def run_ai_for_submission(submission, *, batch_pass=False, manual_trigger=False,
         persist_code_ai_rows(submission, rows)
         return 'code-ai'
     submission._ai_batch_pass = True
+    submission._ai_unavailable = False
     submission.judge(rejudge=True, force_judge=True, rejudge_user=rejudge_user)
+    if getattr(submission, '_ai_unavailable', False):
+        # The grader asked the model and got an error, a timeout or an unusable reply.
+        return AI_UNAVAILABLE
     return 'internal-ai'
+
+
+def _batch_outcome_key(contest_id):
+    return f'ai_batch_outcome:{contest_id}'
+
+
+def record_batch_ai_outcome(contest, *, graded, failed):
+    """Remember how the last Grade-page AI run went, for the teacher's status line."""
+    from django.core.cache import cache
+    cache.set(_batch_outcome_key(contest.id), {'graded': graded, 'failed': failed}, 60 * 60 * 24 * 30)
+
+
+def batch_ai_outcome(contest):
+    """``{'graded': n, 'failed': n}`` of the last finished AI run, or ``None``."""
+    from django.core.cache import cache
+    return cache.get(_batch_outcome_key(contest.id))
 
 
 def _notify_status(submission):
@@ -409,6 +432,10 @@ def student_can_trigger_ai(user, submission, *, contest=None):
         if problem_has_ai_grading(submission.problem):
             return True
         return contest is not None and student_allowed_ai_grading(contest)
+    if not submission.results_visible_to(user):
+        # Exam with hidden results: the AI score and feedback could not be shown, and
+        # whether the run "worked" must not hint at the verdict either.
+        return False
     if contest is not None:
         # Master switch: assignment Allow alone; no problem-level requirement.
         if not student_allowed_ai_grading(contest):

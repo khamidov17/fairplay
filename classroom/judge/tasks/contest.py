@@ -198,20 +198,29 @@ def batch_ai_grade(self, contest_key, auto=False):
 
     latest = latest_submissions_for_contest(contest)
     targets = [sub for sub in latest.values() if problem_has_ai_grading(sub.problem)]
-    graded = 0
+    from judge.utils.contest_ai import AI_FAILED_STATUSES, record_batch_ai_outcome
+
+    graded = failed = 0
+    logger = logging.getLogger(__name__)
     with Progress(self, max(len(targets), 1), stage=_('AI grading latest submissions')) as p:
         for submission in targets:
             try:
-                run_ai_for_submission(submission, batch_pass=True)
+                status = run_ai_for_submission(submission, batch_pass=True)
             except Exception:
-                logger = __import__('logging').getLogger(__name__)
                 logger.exception('Batch AI grading failed for submission %s', submission.id)
+                failed += 1
             else:
-                graded += 1
+                if status in AI_FAILED_STATUSES:
+                    # Left for manual grading (an earlier AI score, if any, is kept).
+                    logger.warning('Batch AI grading got no usable reply for submission %s', submission.id)
+                    failed += 1
+                elif not status.startswith('skipped'):
+                    graded += 1
             p.did(1)
 
     contest.ai_grading_batch_finished_at = timezone.now()
     contest.save(update_fields=['ai_grading_batch_finished_at'])
+    record_batch_ai_outcome(contest, graded=graded, failed=failed)
     for participation in contest.users.iterator():
         participation.recompute_results()
     return graded

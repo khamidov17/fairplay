@@ -1638,6 +1638,9 @@
             <div class="grade-actions">
                 {% if grade_ai_batch %}
                 <button type="button" class="tool-btn" id="btn-ai-grade" title="{{ _('Grade each student’s latest submission per problem with AI') }}"><i class="fa fa-magic"></i> {{ _('Batch grading') }}</button>
+                {% if grade_ai_batch_failed %}
+                <span class="ai-batch-failed" id="ai-batch-failed" style="color:#c0392b;font-size:12px;" title="{{ _('The AI service returned an error or no usable answer. These submissions keep any earlier score and need manual grading or another AI run.') }}"><i class="fa fa-exclamation-triangle"></i> {{ _('Last AI run: %(n)s submission(s) not graded', n=grade_ai_batch_failed) }}</span>
+                {% endif %}
                 {% endif %}
                 <button type="button" class="tool-btn" id="btn-rejudge" disabled title="{{ _('Requires staff + rejudge permission') }}"><i class="fa fa-refresh"></i> {{ _('Rejudge') }}</button>
                 <button type="button" class="tool-btn submit-btn" id="btn-save-current" disabled><i class="fa fa-check"></i> {{ _('Save grading') }}</button>

@@ -94,6 +94,20 @@ if _env('CLASSROOM_JUNIT') == '1':
     TEST_OUTPUT_DIR = 'test-reports'
     TEST_OUTPUT_VERBOSE = 2
 
+# LLM (AI grading, hints, difficulty, decompose, import). Off unless CLASSROOM_LLM_API_BASE is set,
+# e.g. to the local stub: `python3 scripts/ai_stub.py --port 8199` and
+# CLASSROOM_LLM_API_BASE=http://127.0.0.1:8199. Never applied to test runs (tests mock the LLM).
+if _env('CLASSROOM_LLM_API_BASE') and not _TESTING:
+    LLM_PROVIDER = 'litellm'
+    LITELLM_API_BASE = _env('CLASSROOM_LLM_API_BASE')
+    LITELLM_API_KEY = _env('CLASSROOM_LLM_API_KEY', '')
+    LITELLM_DEFAULT_MODEL = _env('CLASSROOM_LLM_MODEL', 'stub-model')
+    LITELLM_TIMEOUT = float(_env('CLASSROOM_LLM_TIMEOUT', '30'))
+
+# A separate broker per checkout keeps parallel dev workers from taking each other's tasks.
+if _env('CLASSROOM_CELERY_BROKER_URL'):
+    CELERY_BROKER_URL = CELERY_RESULT_BACKEND = _env('CLASSROOM_CELERY_BROKER_URL')
+
 # Not configured locally (left at the defaults in dmoj/settings.py): the judge bridge and
 # judge servers, the event daemon, S3/Box submission storage (falls back to local disk),
-# PDF export via pdfoid, MOSS, and every LLM provider (LITELLM_*/AZURE_*).
+# PDF export via pdfoid, MOSS, and LLM providers unless CLASSROOM_LLM_API_BASE is set.

@@ -489,10 +489,18 @@ class SubmissionAIGrade(LoginRequiredMixin, SubmissionMixin, DetailView):
                         'seconds': ctx.get('rate_limit_seconds', rate_window_seconds()),
                     },
                 }, status=429)
-            return JsonResponse(
-                {'error': _('You can only request AI grading on your latest submission.')},
-                status=403,
-            )
+            from judge.utils.contest_ai import is_latest_submission, problem_supports_ai_feedback
+            if not problem_supports_ai_feedback(submission.problem):
+                error = _('AI grading is not available for this question type.')
+            elif not submission.results_visible_to(request.user):
+                error = _('AI grading is not available while results are hidden.')
+            elif not is_latest_submission(submission):
+                error = _('You can only request AI grading on your latest submission.')
+            elif submission.status != 'D':
+                error = _('Wait until this submission has been graded.')
+            else:
+                error = _('AI grading is not enabled for this problem.')
+            return JsonResponse({'error': error}, status=403)
         if not llm.is_configured():
             return JsonResponse({'error': _('AI grading is not configured on this server.')}, status=503)
 
@@ -510,13 +518,14 @@ class SubmissionAIGrade(LoginRequiredMixin, SubmissionMixin, DetailView):
                     return JsonResponse({'error': _('AI grading is not available for students yet.')}, status=403)
                 return JsonResponse({'error': _('AI grading quota exhausted.')}, status=429)
 
+        from judge.ai_grading_quota import refund_request
+        from judge.utils.contest_ai import AI_FAILED_STATUSES
         try:
             status = run_ai_for_submission(submission, manual_trigger=True)
         except Exception:
             import logging
-            from judge.ai_grading_quota import refund
             if not is_teacher_viewer(request.user, submission):
-                refund(submission.user_id)
+                refund_request(submission.user_id, submission.problem_id)
             logging.getLogger(__name__).exception(
                 'Manual AI grade failed for submission %d', submission.id,
             )
@@ -524,6 +533,19 @@ class SubmissionAIGrade(LoginRequiredMixin, SubmissionMixin, DetailView):
                 {'error': _('Could not reach the AI service. Please try again later.')},
                 status=503,
             )
+        if status in AI_FAILED_STATUSES:
+            # The model errored, timed out or returned nothing usable. The answer stays saved
+            # (and any earlier score stays), so the request does not count against the student.
+            import logging
+            logging.getLogger(__name__).warning(
+                'Manual AI grade for submission %d got no usable reply (%s)', submission.id, status)
+            if not is_teacher_viewer(request.user, submission):
+                refund_request(submission.user_id, submission.problem_id)
+            return JsonResponse({
+                'error': _('The AI grader is unavailable right now. Your answer is saved; '
+                           'try again later or wait for your teacher to grade it.'),
+                'status': status,
+            }, status=503)
         rate_remaining = None
         if not is_teacher_viewer(request.user, submission):
             from judge.ai_grading_quota import rate_limit_remaining_count

@@ -1749,7 +1749,7 @@
           if (payload.remaining != null) {
             app.dataset.aiHintsRemaining = String(payload.remaining);
             var quota = $('#ai-hint-quota');
-            if (quota) quota.textContent = '(' + payload.remaining + ' ' + gettext('uses remaining today') + ')';
+            if (quota) quota.textContent = '(' + payload.remaining + ' ' + gettext('uses remaining this window') + ')';
             btn.disabled = Number(payload.remaining) <= 0;
           } else {
             btn.disabled = false;

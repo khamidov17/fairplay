@@ -124,7 +124,10 @@ def _keeps_stored_ai_score(submission, outcome):
     from judge.utils.contest_ai import problem_supports_ai_feedback, should_run_ai_now
     if not problem_supports_ai_feedback(submission.problem):
         return False
-    # An explicit AI run (batch pass / manual trigger) always re-scores.
+    # An explicit AI run (batch pass / manual trigger) re-scores, unless the model failed:
+    # an AI outage must not wipe a score an earlier AI run stored.
+    if getattr(submission, '_ai_unavailable', False):
+        return True
     return not should_run_ai_now(submission)
 
 
