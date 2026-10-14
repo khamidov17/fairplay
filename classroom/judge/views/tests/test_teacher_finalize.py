@@ -5,13 +5,16 @@ now the one for editing the assignment (``Contest.is_changeable_by``: ``edit_own
 author/curator), on the editor page, its POST endpoints and the Django admin action alike.
 """
 from datetime import timedelta
+from io import StringIO
 from unittest import mock
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.core.management import call_command
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
 
+from judge.models import Contest
 from judge.models.notification import ensure_instructors_group
 from judge.models.tests.util import CommonDataMixin, create_contest, create_user
 from judge.views.tests.test_hidden_results import HiddenResultsBase
@@ -129,6 +132,19 @@ class AdminFinalizeSameRuleTestCase(CommonDataMixin, TestCase):
         response, fin = self._post(self.grader)
         self.assertEqual(response.status_code, 403)
         fin.s.assert_not_called()
+
+
+@override_settings(DEBUG=True)
+class SeededAssignmentsAreEditableTestCase(TestCase):
+    """The dev seed's assignments must pass model validation, or the editor 400s on every save
+    ("Contest id must be ^[a-z0-9]+$"): they had keys like ``cs101_exam1``."""
+    fixtures = ['language_small']
+
+    def test_seeded_contests_validate(self):
+        call_command('seed_dev_data', stdout=StringIO())
+        self.assertTrue(Contest.objects.exists())
+        for contest in Contest.objects.all():
+            contest.full_clean()
 
 
 class FinalizedAnswerOnSubmissionPageTestCase(HiddenResultsBase):
