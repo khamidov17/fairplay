@@ -31,7 +31,9 @@ jQuery(function ($) {
                     });
                 }
             }
-            window.dkuojMathJaxLoading.then(update_math);
+            window.dkuojMathJaxLoading.then(update_math, function () {
+                window.dkuojMathJaxLoading = null;  // let the next preview try again
+            });
         }
     });
 });

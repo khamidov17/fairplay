@@ -25,7 +25,7 @@ def get_resource(request):
     return {
         'INLINE_JQUERY': settings.INLINE_JQUERY,
         'INLINE_FONTAWESOME': settings.INLINE_FONTAWESOME,
-        'JQUERY_JS': settings.JQUERY_JS,
+        'JQUERY_JS': _static_or_url(settings.JQUERY_JS),
         'FONTAWESOME_CSS': settings.FONTAWESOME_CSS,
         'DMOJ_SCHEME': scheme,
         'DMOJ_CANONICAL': settings.DMOJ_CANONICAL,
@@ -109,3 +109,11 @@ def math_setting(request):
     if engine == 'auto':
         engine = 'mml' if bool(settings.MATHOID_URL) and caniuse.mathml == SUPPORT else 'jax'
     return {'MATH_ENGINE': engine, 'REQUIRE_JAX': engine == 'jax', 'caniuse': caniuse}
+
+
+def _static_or_url(path):
+    """A path under STATIC_URL, unless it is already a URL (http(s):// or //)."""
+    from django.templatetags.static import static
+    if not path or path.startswith(('http://', 'https://', '//', '/')):
+        return path
+    return static(path)

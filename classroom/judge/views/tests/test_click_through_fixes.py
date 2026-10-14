@@ -170,3 +170,32 @@ class TestDataPageTestCase(CommonDataMixin, TestCase):
         self.client.force_login(teacher)
         response = self.client.get(reverse('problem_detail', args=[problem.code]))
         self.assertNotContains(response, reverse('problem_data', args=[problem.code]))
+
+
+class ReviewFollowUpTestCase(CommonDataMixin, TestCase):
+    """Small findings from the independent review of the click-through fixes."""
+
+    def test_staff_with_add_problem_get_the_new_question_menu(self):
+        from judge.subjects.access import menu_items_for
+        course = create_organization(name='ctstaffcourse')
+        staff = create_user(username='ct_staff', is_staff=True, user_permissions=('add_problem',))
+        keys = [item.key for item, _href in menu_items_for(staff, course, is_teacher=True)]
+        self.assertIn('new_question', keys)
+
+    def test_jquery_url_follows_static_url(self):
+        # Changing STATIC_URL with override_settings breaks response.context for later tests, so
+        # check the resolver itself.
+        from judge.template_context import _static_or_url
+        self.assertEqual(_static_or_url('libs/jquery-3.4.1.min.js'),
+                         settings.STATIC_URL + 'libs/jquery-3.4.1.min.js')
+        self.assertEqual(_static_or_url('https://example.com/jq.js'), 'https://example.com/jq.js')
+
+    def test_solved_visibility_checked_once_per_problem(self):
+        from unittest import mock
+        from judge.jinja2 import submission as sub_mod
+        problem = create_problem(code='ctonce', is_public=True, submission_source_visibility_mode='S')
+        with mock.patch('judge.utils.result_visibility.solved_source_visibility_applies',
+                        return_value=True) as check:
+            for _ in range(5):
+                sub_mod._solved_visibility_applies(problem)
+        self.assertEqual(check.call_count, 1)

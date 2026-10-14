@@ -9,6 +9,16 @@ def get_editor_ids(contest):
     return set(map(attrgetter('id'), contest.authors.all())) | set(map(attrgetter('id'), contest.curators.all()))
 
 
+def _solved_visibility_applies(problem):
+    # One query per problem per request, not one per submission row (a list shows up to 50).
+    from judge.utils.result_visibility import solved_source_visibility_applies
+    cache = getattr(problem, '_solved_visibility_applies_cache', None)
+    if cache is None:
+        cache = solved_source_visibility_applies(problem)
+        problem._solved_visibility_applies_cache = cache
+    return cache
+
+
 @registry.function
 def submission_layout(submission, profile_id, user, completed_problem_ids, editable_problem_ids, tester_problem_ids):
     problem_id = submission.problem_id
@@ -36,8 +46,7 @@ def submission_layout(submission, profile_id, user, completed_problem_ids, edita
         # never while the problem's results are hidden in an exam (G-6). Otherwise the row
         # offers a link that ends in "permission denied".
         if submission_source_visibility == SubmissionSourceAccess.SOLVED:
-            from judge.utils.result_visibility import solved_source_visibility_applies
             can_view = can_view or (submission.problem.is_public and
-                                    solved_source_visibility_applies(submission.problem))
+                                    _solved_visibility_applies(submission.problem))
 
     return can_view, can_edit

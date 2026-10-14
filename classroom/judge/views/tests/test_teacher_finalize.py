@@ -134,14 +134,18 @@ class AdminFinalizeSameRuleTestCase(CommonDataMixin, TestCase):
         fin.s.assert_not_called()
 
 
-@override_settings(DEBUG=True)
 class SeededAssignmentsAreEditableTestCase(TestCase):
     """The dev seed's assignments must pass model validation, or the editor 400s on every save
     ("Contest id must be ^[a-z0-9]+$"): they had keys like ``cs101_exam1``."""
     fixtures = ['language_small']
 
     def test_seeded_contests_validate(self):
-        call_command('seed_dev_data', stdout=StringIO())
+        # Not override_settings(DEBUG=True): its setting_changed signal leaves later tests in the
+        # same process without response.context. The command only reads settings.DEBUG.
+        from unittest import mock
+        from judge.management.commands import seed_dev_data
+        with mock.patch.object(seed_dev_data, 'settings', mock.Mock(DEBUG=True)):
+            call_command('seed_dev_data', stdout=StringIO())
         self.assertTrue(Contest.objects.exists())
         for contest in Contest.objects.all():
             contest.full_clean()

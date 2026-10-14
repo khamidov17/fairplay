@@ -223,10 +223,13 @@ class GradePageTypeLabelTestCase(TestCase):
 class SeedDevDataTestCase(TestCase):
     fixtures = ['language_small.json']
 
-    @override_settings(DEBUG=True)
     def test_seed_creates_the_hidden_ide_problem(self):
         # /ide/ and the workspace "Run test" answer 500 "IDE feature not configured" without it.
-        call_command('seed_dev_data', stdout=io.StringIO())
+        # Not override_settings(DEBUG=True): it leaves later tests without response.context.
+        from unittest import mock
+        from judge.management.commands import seed_dev_data
+        with mock.patch.object(seed_dev_data, 'settings', mock.Mock(DEBUG=True)):
+            call_command('seed_dev_data', stdout=io.StringIO())
         ide = Problem.objects.get(code='idepractice')
         self.assertFalse(ide.is_public)
         self.assertTrue(ide.allowed_languages.filter(key='PY3').exists())

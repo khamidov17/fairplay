@@ -178,7 +178,7 @@ class SeedDataTestCase(TestCase):
         # Not override_settings: its setting_changed signal leaves later tests without response.context.
         with mock.patch.object(seed_dev_data, 'settings', mock.Mock(DEBUG=True)):
             call_command('seed_dev_data', stdout=io.StringIO())
-        scores = sorted(ContestParticipation.objects.filter(contest__key='cs101_quiz1')
+        scores = sorted(ContestParticipation.objects.filter(contest__key='cs101quiz1')
                         .values_list('score', flat=True))
         self.assertTrue(any(scores), scores)
 

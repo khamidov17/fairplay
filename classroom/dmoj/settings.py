@@ -207,7 +207,8 @@ DEFAULT_USER_LANGUAGE = 'PY3'
 
 INLINE_JQUERY = True
 INLINE_FONTAWESOME = True
-JQUERY_JS = '/static/libs/jquery-3.4.1.min.js'  # only used when INLINE_JQUERY is off
+# Only used when INLINE_JQUERY is off. A static path (resolved with static()) or a full URL.
+JQUERY_JS = 'libs/jquery-3.4.1.min.js'
 FONTAWESOME_CSS = '//maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css'
 DMOJ_CANONICAL = ''
 

@@ -85,7 +85,7 @@ class MenuItem:
     icon: str = 'fa-link'
     course_param: bool = False
     teacher_only: bool = True
-    requires: Optional[str] = None      # an extra capability/permission check, see access.menu_items_for
+    requires: Optional[object] = None   # permission name or callable(user), see access.menu_items_for
 
     def href(self, course=None):
         try:

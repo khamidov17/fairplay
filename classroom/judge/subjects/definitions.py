@@ -13,6 +13,12 @@ from django.utils.translation import gettext_lazy as _
 from judge.subjects.base import (Cap, DashboardSection, FeaturePack, MenuItem, Subject, register_pack,
                                  register_subject)
 
+
+def can_open_problem_creator(user):
+    from judge.views.problem_create_v2 import _can_create_any
+    return user.is_authenticated and _can_create_any(user)
+
+
 # Existing courses (migration default) and courses whose code prefix is not recognised.
 DEFAULT_SUBJECT = 'cs'
 # Used when a course row holds a key that is no longer registered (e.g. a subject was removed).
@@ -35,9 +41,9 @@ register_pack(FeaturePack(
                          places=('course',), order=10, teacher_only=True),
     ),
     menu_items=(
-        # Same permission the problem creator checks; a class TA without it got a 404.
+        # The problem creator's own rule (a class TA without it got a 404).
         MenuItem(key='new_question', label=_('New question'), url_name='problem_create_v2', icon='fa-plus',
-                 course_param=True, requires='judge.create_private_problem'),
+                 course_param=True, requires=can_open_problem_creator),
         MenuItem(key='question_bank', label=_('Question bank'), url_name='problem_list', icon='fa-list',
                  course_param=True),
         MenuItem(key='new_assignment', label=_('New assignment'), url_name='contest_create', icon='fa-calendar-plus-o',

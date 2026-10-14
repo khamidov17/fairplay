@@ -244,6 +244,15 @@ def sections_for(user, place, course=None, is_teacher=None):
     return [s for s in sorted_sections(pack_keys, place) if teacher or not s.teacher_only]
 
 
+def _meets(user, requires):
+    """``requires`` is a permission name, or a callable taking the user (for rules with an OR)."""
+    if user is None:
+        return False
+    if callable(requires):
+        return bool(requires(user))
+    return user.has_perm(requires)
+
+
 def menu_items_for(user, course, is_teacher=None, pack=None):
     """``[(MenuItem, href), ...]`` the course's packs (or only ``pack``, if the course has it)
     contribute for ``user``."""
@@ -257,7 +266,7 @@ def menu_items_for(user, course, is_teacher=None, pack=None):
         for item in get_pack(key).menu_items:
             if item.teacher_only and not teacher:
                 continue
-            if item.requires and not (user is not None and user.has_perm(item.requires)):
+            if item.requires and not _meets(user, item.requires):
                 continue
             href = item.href(course)
             if href:
