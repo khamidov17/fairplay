@@ -103,12 +103,23 @@ def csv_row_to_user_fields(raw_row: dict, header_map: Dict[str, str]) -> dict:
             return ''
         return (raw_row.get(src) or '').strip()
 
+    email = get('email')
+    if not email:
+        # Canvas rosters have both "Email" and "netid@duke.edu"; a student with a blank
+        # Email cell still gets the NetID address from the other column.
+        by_key = {_header_key(k): k for k in raw_row if k is not None}
+        for alias in CSV_FIELD_ALIASES['email']:
+            src = by_key.get(_header_key(alias))
+            if src and (raw_row.get(src) or '').strip():
+                email = raw_row[src].strip()
+                break
+
     return {
         'username': get('username'),
         'first_name': get('first_name'),
         'last_name': get('last_name'),
         'student': get('student'),
-        'email': get('email'),
+        'email': email,
     }
 
 
@@ -592,11 +603,13 @@ def _upsert_user(row: dict, update_existing: bool, activate: bool,
                 user.is_active = True
                 updated_fields.append('is_active')
 
+            _ensure_profile(user)
             if updated_fields:
                 user.save(update_fields=updated_fields)
-
-            _ensure_profile(user)
-            return 'updated', user
+                return 'updated', user
+            # Nothing changed (protected account or same data): report it as skipped,
+            # so "Updated: N" on the result page means N accounts were really changed.
+            return 'skipped', user
         else:
             return 'skipped', user
     except User.DoesNotExist:
