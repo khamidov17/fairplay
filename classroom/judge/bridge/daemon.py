@@ -19,13 +19,20 @@ def reset_judges():
 
 
 def judge_daemon():
+    judges = JudgeList()
+
+    # Bind the ports first. If another bridge is already running, this fails here, before the
+    # reset below would mark its judges offline and its submissions in progress as IE.
+    judge_server = Server(settings.BRIDGED_JUDGE_ADDRESS, partial(JudgeHandler, judges=judges))
+    try:
+        django_server = Server(settings.BRIDGED_DJANGO_ADDRESS, partial(DjangoHandler, judges=judges))
+    except BaseException:
+        judge_server.close()
+        raise
+
     reset_judges()
     Submission.objects.filter(status__in=Submission.IN_PROGRESS_GRADING_STATUS) \
         .update(status='IE', result='IE', error=None)
-    judges = JudgeList()
-
-    judge_server = Server(settings.BRIDGED_JUDGE_ADDRESS, partial(JudgeHandler, judges=judges))
-    django_server = Server(settings.BRIDGED_DJANGO_ADDRESS, partial(DjangoHandler, judges=judges))
 
     threading.Thread(target=django_server.serve_forever).start()
     threading.Thread(target=judge_server.serve_forever).start()

@@ -7,7 +7,8 @@ Only for local development and click-testing (refuses to run unless DEBUG is on)
   ``fairplay-dev``.
 * Courses ``CS101`` (subject cs) and ``MATH201`` (subject math), class ``CS101-001``.
 * One problem of each question type in CS101: code, multiple choice, fill in the blank,
-  short answer and file upload, plus one MCQ in MATH201.
+  short answer and file upload, plus one MCQ in MATH201, and the hidden ``idepractice`` problem
+  that IDE runs use (judge data for it: ``scripts/dev-judge.sh``).
 * Assignments: a running homework, a running exam (results hidden), an upcoming quiz, and an
   ended, finalized quiz with graded answers.
 
@@ -152,6 +153,14 @@ class Command(BaseCommand):
         ProblemMCQConfig.objects.create(problem=quiz2_mcq, multiple_select=False)
         for i, text in enumerate(('int', 'float')):
             ProblemMCQOption.objects.create(problem=quiz2_mcq, order=i, text=text, is_correct=(text == 'float'))
+        # The hidden problem that /ide/ and the workspace "Run test" are judged as (judge/views/ide.py).
+        # Its judge-side data comes from scripts/dev-judge.sh.
+        ide = Problem.objects.create(
+            code='idepractice', name='IDE sandbox', description='Code runs from the IDE.', points=1,
+            partial=False, time_limit=2, memory_limit=65536, group=self.group, is_public=False,
+        )
+        ide.types.add(self.ptype)
+        ide.allowed_languages.set(Language.objects.exclude(key='ANSWER'))
         math_mcq = self._problem('math_det', 'Determinant of the identity', 'M', math, prof,
                                  'What is $\\det(I_3)$?', points=5)
         ProblemMCQConfig.objects.create(problem=math_mcq, multiple_select=False)

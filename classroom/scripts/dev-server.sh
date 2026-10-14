@@ -7,7 +7,7 @@
 #
 # Starts MariaDB/Redis if needed and applies migrations first. Create an admin with
 #   classroom/.venv/bin/python classroom/manage.py createsuperuser
-# The judge bridge, judges and event daemon are not started.
+# The judge bridge, judges and event daemon are not started; scripts/dev-judge.sh does that.
 source "$(dirname "${BASH_SOURCE[0]}")/_dev-common.sh"
 
 CELERY=0
