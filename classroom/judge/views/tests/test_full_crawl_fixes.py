@@ -237,6 +237,31 @@ class LanguageFixtureEditorModesTestCase(TestCase):
         self.assertEqual(missing, [])
 
 
+class PhoneLayoutRulesTestCase(TestCase):
+    """The phone layout was checked in a browser at 390x844 (see the report); these guard the rules
+    that stopped the sideways scrolling, since the test suite has no browser."""
+
+    def scss(self, name):
+        from pathlib import Path
+        from django.conf import settings
+        return (Path(settings.BASE_DIR) / 'resources' / name).read_text()
+
+    def test_content_stretches_to_the_screen(self):
+        import re
+        mobile = re.search(r'@media \(max-width: 760px\) \{\s*#content \{(.*?)\}', self.scss('base.scss'), re.S)
+        self.assertIsNotNone(mobile)
+        self.assertIn('margin-left: 0', mobile.group(1))
+        self.assertIn('margin-right: 0', mobile.group(1))
+
+    def test_segmented_control_wraps(self):
+        import re
+        seg = re.search(r'\n\.seg \{(.*?)\n    label', self.scss('contest_v2.scss'), re.S)
+        self.assertIn('flex-wrap: wrap', seg.group(1))
+
+    def test_problem_list_hidden_selects_stay_one_pixel(self):
+        self.assertIn('select.select:not(.select2-hidden-accessible)', self.scss('problem.scss'))
+
+
 class SeedDevDataTestCase(TestCase):
     fixtures = ['navbar']
 

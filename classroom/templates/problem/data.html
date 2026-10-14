@@ -331,6 +331,15 @@
             text-align: initial;
         }
 
+        /* Phones: the two wide tables scroll inside themselves, not the whole page. */
+        @media (max-width: 760px) {
+            #content-body form > table.table {
+                display: block;
+                max-width: 100%;
+                overflow-x: auto;
+            }
+        }
+
         .order-column {
             width: 1em;
         }
