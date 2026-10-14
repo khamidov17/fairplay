@@ -1833,6 +1833,10 @@ class ContestClone(ContestMixin, PermissionRequiredMixin, TitleMixin, SingleObje
 
         tags = contest.tags.all()
         organizations = contest.organizations.all()
+        # Without these the copy of a class-scoped assignment is open to the whole course, and one
+        # limited to joining organizations can be joined by nobody.
+        classes = list(contest.classes.all())
+        join_organizations = list(contest.join_organizations.all())
         private_contestants = contest.private_contestants.all()
         view_contest_scoreboard = contest.view_contest_scoreboard.all()
         contest_problems = list(contest.contest_problems.all())
@@ -1850,6 +1854,8 @@ class ContestClone(ContestMixin, PermissionRequiredMixin, TitleMixin, SingleObje
             contest.save()
             contest.tags.set(tags)
             contest.organizations.set(organizations)
+            contest.classes.set(classes)
+            contest.join_organizations.set(join_organizations)
             contest.private_contestants.set(private_contestants)
             contest.view_contest_scoreboard.set(view_contest_scoreboard)
             contest.authors.add(self.request.profile)

@@ -7,8 +7,8 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
-from judge.models import Class, ProblemImportDraft
-from judge.models.tests.util import create_organization, create_user
+from judge.models import Class, Contest, ProblemImportDraft
+from judge.models.tests.util import create_contest, create_organization, create_user
 from judge.utils.import_export import process_user_csv
 from judge.utils.simple_xlsx import build_xlsx_workbook
 
@@ -93,3 +93,20 @@ class ExcelImportTestCase(TestCase):
         response = self._upload([['name', 'description'], ['Q1', 'text']], follow=True)
         self.assertEqual(response.redirect_chain[-1][0], reverse('problem_list'))
         self.assertContains(response, 'does not contain a recognizable problem sheet')
+
+
+class ContestCloneScopeTestCase(TestCase):
+    def test_clone_keeps_classes_and_join_organizations(self):
+        org = create_organization(name='clonescope', slug='clonescope')
+        klass = Class.objects.create(organization=org, name='Clone Class', slug='clone-class')
+        contest = create_contest(key='clonesrc', is_organization_private=True, limit_join_organizations=True)
+        contest.organizations.add(org)
+        contest.classes.add(klass)
+        contest.join_organizations.add(org)
+        admin = create_user(username='clone_admin', is_superuser=True, is_staff=True)
+        self.client.force_login(admin)
+        response = self.client.post(reverse('contest_clone', args=['clonesrc']), {'key': 'clonedst'})
+        self.assertRedirects(response, reverse('contest_edit', args=['clonedst']))
+        cloned = Contest.objects.get(key='clonedst')
+        self.assertEqual(list(cloned.classes.all()), [klass])
+        self.assertEqual(list(cloned.join_organizations.all()), [org])
