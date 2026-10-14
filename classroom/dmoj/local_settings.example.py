@@ -110,6 +110,20 @@ if _env('CLASSROOM_EVENT_DAEMON') == '1' and not _TESTING:
     import hashlib as _hashlib
     EVENT_DAEMON_SUBMISSION_KEY = _hashlib.sha256(('events:' + SECRET_KEY).encode()).hexdigest()
 
-# Not configured locally (left at the defaults in dmoj/settings.py): S3/Box submission
-# storage (falls back to local disk), PDF export via pdfoid, MOSS, and every LLM provider
-# (LITELLM_*/AZURE_*).
+# LLM (AI grading, hints, difficulty, decompose, import). Off unless CLASSROOM_LLM_API_BASE is set,
+# e.g. to the local stub: `python3 scripts/ai_stub.py --port 8199` and
+# CLASSROOM_LLM_API_BASE=http://127.0.0.1:8199. Never applied to test runs (tests mock the LLM).
+if _env('CLASSROOM_LLM_API_BASE') and not _TESTING:
+    LLM_PROVIDER = 'litellm'
+    LITELLM_API_BASE = _env('CLASSROOM_LLM_API_BASE')
+    LITELLM_API_KEY = _env('CLASSROOM_LLM_API_KEY', '')
+    LITELLM_DEFAULT_MODEL = _env('CLASSROOM_LLM_MODEL', 'stub-model')
+    LITELLM_TIMEOUT = float(_env('CLASSROOM_LLM_TIMEOUT', '30'))
+
+# A separate broker per checkout keeps parallel dev workers from taking each other's tasks.
+if _env('CLASSROOM_CELERY_BROKER_URL'):
+    CELERY_BROKER_URL = CELERY_RESULT_BACKEND = _env('CLASSROOM_CELERY_BROKER_URL')
+
+# Not configured locally (left at the defaults in dmoj/settings.py): S3/Box submission storage
+# (falls back to local disk), PDF export via pdfoid, MOSS. The judge, event daemon and LLM are
+# off unless their variables above are set.

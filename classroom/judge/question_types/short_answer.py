@@ -110,6 +110,10 @@ class ShortAnswerQuestionType(QuestionType):
             return GradingResult(case_points=0, case_total=case_total, result='IR', cases=cases)
 
         scored = self._grade_ai(problem, config, answer)
+        if scored is None or not scored[0]:
+            # The model was asked and gave nothing usable. Flag it so the caller can refund the
+            # student's request and keep any score a previous AI run stored.
+            submission._ai_unavailable = True
         if scored is None:
             # AI unavailable/failed is an infrastructure issue, not a wrong student answer (WA).
             cases = [{'case': 1, 'status': 'IR', 'points': 0, 'total': case_total,
@@ -175,7 +179,10 @@ class ShortAnswerQuestionType(QuestionType):
             logger.info('Short-answer raw LLM response (submission): %s', raw)
             if raw is None:
                 return None
-            calibrated = parse_calibrated_scores(raw, sub_questions, log_prefix='Short-answer: ')
+            calibrated = parse_calibrated_scores(
+                raw, sub_questions, log_prefix='Short-answer: ',
+                secrets=(reference, rubric),
+                public_text=f'{problem.description or ""}\n{answer}')
         except Exception:
             logger.exception('Short-answer AI grading failed for submission')
             return None

@@ -125,6 +125,9 @@ class FillBlankQuestionType(QuestionType):
                 graded = self._grade_ai(problem, config, blanks, answers)
                 if graded is not None:
                     return graded
+                # The model failed: exact matching below still scores the answer, but the
+                # caller is told so it can say so (and refund a student's request).
+                submission._ai_unavailable = True
             elif config is not None and config.grading_mode == GRADE_AI:
                 if contest_defers_ai(submission):
                     weights = _blank_weights(blanks)
@@ -211,7 +214,11 @@ class FillBlankQuestionType(QuestionType):
             logger.info('Fill-blank raw LLM response (submission): %s', raw)
             if raw is None:
                 return None
-            calibrated = parse_calibrated_scores(raw, sub_questions, log_prefix='Fill-blank: ')
+            accepted = [line for blank in blanks for line in (blank.answers or '').splitlines()]
+            calibrated = parse_calibrated_scores(
+                raw, sub_questions, log_prefix='Fill-blank: ',
+                secrets=accepted + [getattr(config, 'ai_rubric', '') or ''],
+                public_text='\n'.join([str(problem.description or '')] + [str(a) for a in answers]))
         except Exception:
             logger.exception('Fill-blank AI grading failed for submission')
             return None

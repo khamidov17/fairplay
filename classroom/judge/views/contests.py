@@ -2367,6 +2367,9 @@ class ContestGrade(TitleMixin, ContestMixin, DetailView):
             )
         )
         context['grade_ai_batch_done'] = bool(contest.ai_grading_batch_finished_at)
+        from judge.utils.contest_ai import batch_ai_outcome
+        outcome = batch_ai_outcome(contest) if context['grade_ai_batch_done'] else None
+        context['grade_ai_batch_failed'] = (outcome or {}).get('failed') or 0
         context['grade_save_url'] = reverse('contest_grade_save', args=[contest.key])
         context['grade_release_url'] = reverse('contest_grade_release', args=[contest.key])
         context['grade_status_url'] = reverse('contest_grade_status', args=[contest.key])
@@ -2559,13 +2562,17 @@ class ContestBatchAIGrade(View):
 
     def get(self, request, *args, **kwargs):
         contest = self.object
+        from judge.utils.contest_ai import batch_ai_outcome
         started = contest.ai_grading_batch_started_at
         finished = contest.ai_grading_batch_finished_at
+        outcome = batch_ai_outcome(contest) if finished else None
         return JsonResponse({
             'ok': True,
             'mode': contest.ai_grading_mode,
             'started_at': started.isoformat() if started else None,
             'finished_at': finished.isoformat() if finished else None,
+            'graded': outcome['graded'] if outcome else None,
+            'failed': outcome['failed'] if outcome else None,
         })
 
     def post(self, request, *args, **kwargs):

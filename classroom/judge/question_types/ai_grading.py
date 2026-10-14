@@ -7,11 +7,14 @@ provides the prompt and the sub-question table.
 """
 import json
 import logging
+import re
 import time
+
+from django.utils.translation import gettext_lazy as _
 
 from judge.utils.calibration import calibrate
 
-__all__ = ['call_llm', 'parse_calibrated_scores', 'sub_score_cases']
+__all__ = ['call_llm', 'feedback_leaks', 'parse_calibrated_scores', 'sub_score_cases', 'WITHHELD_FEEDBACK']
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +100,53 @@ def _match_sub_scores(sub_scores, sub_questions, log_prefix):
     return matched
 
 
-def parse_calibrated_scores(raw, sub_questions, *, log_prefix=''):
+# A CJK character is one token (those scripts have no spaces); other words are runs of letters/digits.
+_CJK = '぀-ヿ㐀-䶿一-鿿豈-﫿가-힯'
+_TOKEN_RE = re.compile(f'[{_CJK}]|[^\\W_{_CJK}]+')
+_TAG_RE = re.compile(r'<[^>]+>')
+# A verbatim run this long from a long secret counts as quoting it.
+_LEAK_RUN = 5
+
+WITHHELD_FEEDBACK = _('Feedback withheld: it quoted confidential grading material.')
+
+
+def _tokens(text):
+    return _TOKEN_RE.findall(_TAG_RE.sub(' ', str(text or '')).casefold())
+
+
+def _joined(tokens):
+    return ' ' + ' '.join(tokens) + ' '
+
+
+def feedback_leaks(feedback, secrets, public_text=''):
+    """Whether model *feedback* quotes any of *secrets* (reference answer, accepted blank answers,
+    rubric) verbatim.
+
+    Matching is on word tokens (case, punctuation and markup ignored). A short secret (up to
+    ``_LEAK_RUN`` tokens) leaks when it appears whole; a longer one when any ``_LEAK_RUN``-token run
+    of it appears. Runs that also occur in *public_text* (the question and the student's own
+    answer) are not secret and never count.
+    """
+    fb = _joined(_tokens(feedback))
+    if not fb.strip():
+        return False
+    public = _joined(_tokens(public_text))
+    for secret in secrets:
+        sec = _tokens(secret)
+        if not sec:
+            continue
+        if len(sec) <= _LEAK_RUN:
+            runs = [sec]
+        else:
+            runs = [sec[i:i + _LEAK_RUN] for i in range(len(sec) - _LEAK_RUN + 1)]
+        for run in runs:
+            needle = _joined(run)
+            if needle in fb and needle not in public:
+                return True
+    return False
+
+
+def parse_calibrated_scores(raw, sub_questions, *, log_prefix='', secrets=(), public_text=''):
     """Parse an LLM JSON reply and calibrate each sub-score.
 
     *sub_questions* is the ordered list of dicts ``{name, max_points, strictness}`` sent to the
@@ -107,6 +156,10 @@ def parse_calibrated_scores(raw, sub_questions, *, log_prefix=''):
     ``_match_sub_scores``). Returns a list of ``{name, max_points, score, feedback}`` dicts, or
     ``None`` when the reply is missing/empty or matches no row (caller decides whether that means
     "fall back" or "error").
+
+    Feedback that quotes any of *secrets* (see ``feedback_leaks``) is replaced with
+    ``WITHHELD_FEEDBACK``; the score is kept. The prompt forbids quoting them, but the student sees
+    this text, so it is checked here rather than trusted.
     """
     try:
         parsed = json.loads(raw)
@@ -148,11 +201,15 @@ def parse_calibrated_scores(raw, sub_questions, *, log_prefix=''):
             raw_score = 0.0
         name = str(item.get('name', '') or sq.get('name', ''))[:30]
         cal_score = calibrate(raw_score, max_pts, sq.get('strictness', 'normal'))
+        feedback = str(item.get('feedback', ''))[:2000]
+        if secrets and feedback_leaks(feedback, secrets, public_text):
+            logger.warning('%sLLM feedback for row %d quoted grading material; withheld.', log_prefix, idx + 1)
+            feedback = str(WITHHELD_FEEDBACK)
         calibrated.append({
             'name': name,
             'max_points': max_pts,
             'score': cal_score,
-            'feedback': str(item.get('feedback', ''))[:2000],
+            'feedback': feedback,
         })
     return calibrated
 
