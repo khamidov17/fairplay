@@ -1553,19 +1553,19 @@ class ContestTagCreateView(LoginRequiredMixin, View):
 class ContestFinalizeView(LoginRequiredMixin, View):
     """Finalize (or un-finalize) an exam-style contest from the editor.
 
-    Only full editors may trigger this (``judge.edit_all_contest``): finalizing
-    reveals hidden problem results, rejudges latest submissions and recomputes
-    the standings, so it must not be reachable by mere curators. The heavy work
-    runs as a celery task via ``transaction.on_commit``, exactly like the admin.
+    The assignment's own editors may trigger this: the same rule as editing it
+    (``Contest.is_changeable_by``: ``edit_own_contest`` plus author/curator, or
+    ``edit_all_contest``), which is also what the Django admin's finalize action
+    checks (``ContestAdmin.has_change_permission``). Grade-only curators without
+    ``edit_own_contest``, TAs and students are refused. The heavy work runs as a
+    celery task via ``transaction.on_commit``, exactly like the admin.
     """
 
     def post(self, request, *args, **kwargs):
         contest = get_object_or_404(Contest, key=kwargs['contest'])
         if not request.user.is_authenticated:
             return JsonResponse({'error': _('Not authenticated.')}, status=401)
-        if not contest.is_editable_by(request.user):
-            return JsonResponse({'error': _('Permission denied.')}, status=403)
-        if not request.user.has_perm('judge.edit_all_contest'):
+        if not contest.is_changeable_by(request.user):
             return JsonResponse({'error': _('Permission denied.')}, status=403)
         from judge.tasks import finalize_contest_results, unfinalize_contest_results
         task = finalize_contest_results if self.finalize else unfinalize_contest_results

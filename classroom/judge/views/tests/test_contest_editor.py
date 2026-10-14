@@ -1864,8 +1864,16 @@ class ContestEditorNewEndpointsTestCase(CommonDataMixin, TestCase):
 
     # ── finalize / unfinalize ───────────────────────────────────────────────
 
-    def test_finalize_denied_for_curator(self):
+    def test_finalize_allowed_for_curator_who_can_edit(self):
+        # Same rule as editing the assignment (edit_own_contest + curator): see test_teacher_finalize.
         self.client.force_login(self.curator)
+        response = self.client.post(reverse('contest_finalize', args=['endpointcontest']))
+        self.assertEqual(response.status_code, 200, response.content)
+
+    def test_finalize_denied_for_curator_without_edit_own_contest(self):
+        grader = create_user(username='endpoints_grader')
+        self.contest.curators.add(grader.profile)
+        self.client.force_login(grader)
         response = self.client.post(reverse('contest_finalize', args=['endpointcontest']))
         self.assertEqual(response.status_code, 403)
 
