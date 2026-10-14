@@ -1,0 +1,7 @@
+# Judge data for the hidden IDE problem (see ide_grader.py). Copied by scripts/dev-judge.sh.
+custom_judge: ide_grader.py
+test_cases:
+- in: ide.in
+  out: ide.out
+  points: 1
+  output_prefix_length: 10240

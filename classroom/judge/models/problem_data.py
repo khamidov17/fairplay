@@ -59,9 +59,14 @@ class ProblemData(models.Model):
         self.__original_zipfile = self.zipfile
 
     def save(self, *args, **kwargs):
-        if self.zipfile != self.__original_zipfile:
-            self.__original_zipfile.delete(save=False)
-        return super(ProblemData, self).save(*args, **kwargs)
+        original = self.__original_zipfile
+        if original and self.zipfile != original:
+            # Remove the old file through the storage. FieldFile.delete() would also set this
+            # instance's zipfile to None, dropping the zip that is being uploaded in its place.
+            original.storage.delete(original.name)
+        result = super(ProblemData, self).save(*args, **kwargs)
+        self.__original_zipfile = self.zipfile
+        return result
 
     def has_yml(self):
         return problem_data_storage.exists('%s/init.yml' % self.problem.code)

@@ -4,6 +4,8 @@
     {% set prefix_length = None %}
 {% endif %}
 {% set is_pretest = submission.is_pretested %}
+{# Read by the status page's polling fallback (no event daemon) to know when to stop. #}
+<span class="sub-graded-marker" data-graded="{{ '1' if submission.is_graded else '0' }}" hidden></span>
 
 {% if not submission.results_visible_to(request.user) %}
     <h3>{{ _('Results hidden') }}</h3>

@@ -94,6 +94,22 @@ if _env('CLASSROOM_JUNIT') == '1':
     TEST_OUTPUT_DIR = 'test-reports'
     TEST_OUTPUT_VERBOSE = 2
 
-# Not configured locally (left at the defaults in dmoj/settings.py): the judge bridge and
-# judge servers, the event daemon, S3/Box submission storage (falls back to local disk),
-# PDF export via pdfoid, MOSS, and every LLM provider (LITELLM_*/AZURE_*).
+# Local judge (scripts/dev-judge.sh sets these). Off unless CLASSROOM_PROBLEM_DATA_ROOT is
+# set; the default ports are the ones in dmoj/settings.py, so tests are unaffected.
+if _env('CLASSROOM_PROBLEM_DATA_ROOT'):
+    DMOJ_PROBLEM_DATA_ROOT = _env('CLASSROOM_PROBLEM_DATA_ROOT')
+BRIDGED_JUDGE_ADDRESS = [('localhost', int(_env('CLASSROOM_BRIDGE_JUDGE_PORT', '9999')))]
+BRIDGED_DJANGO_ADDRESS = [('localhost', int(_env('CLASSROOM_BRIDGE_DJANGO_PORT', '9998')))]
+# Event daemon (websocket/daemon.js) for live submission status. Off unless
+# CLASSROOM_EVENT_DAEMON=1; the ports match websocket/config.js (WS_GET_PORT / WS_POST_PORT).
+if _env('CLASSROOM_EVENT_DAEMON') == '1' and not _TESTING:
+    EVENT_DAEMON_USE = True
+    EVENT_DAEMON_GET = 'ws://127.0.0.1:%s/' % _env('WS_GET_PORT', '15100')
+    EVENT_DAEMON_POST = 'ws://127.0.0.1:%s/' % _env('WS_POST_PORT', '15101')
+    # Channel names are derived from this key; take a per-checkout value from SECRET_KEY.
+    import hashlib as _hashlib
+    EVENT_DAEMON_SUBMISSION_KEY = _hashlib.sha256(('events:' + SECRET_KEY).encode()).hexdigest()
+
+# Not configured locally (left at the defaults in dmoj/settings.py): S3/Box submission
+# storage (falls back to local disk), PDF export via pdfoid, MOSS, and every LLM provider
+# (LITELLM_*/AZURE_*).

@@ -79,6 +79,14 @@ class ProblemDataForm(ModelForm):
 class ProblemCaseForm(ModelForm):
     clean_checker_args = checker_args_cleaner
 
+    def has_changed(self):
+        # The page numbers every row, including the blank one it always shows. A new row
+        # where only that number is set is still blank: saving it would add an empty case
+        # and make the first zip upload fail with "Points must be defined for case #1".
+        if self.instance.pk is None:
+            return bool(set(self.changed_data) - {'order'})
+        return super().has_changed()
+
     class Meta:
         model = ProblemTestCase
         fields = ('order', 'type', 'input_file', 'output_file', 'points', 'is_pretest', 'output_limit',

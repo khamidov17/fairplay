@@ -790,6 +790,14 @@
                 var p = problemMeta(code);
                 return p && p.letter ? p.letter + '. ' + p.name : problemName(code);
             }
+            // "Programming", "Multiple choice", ... from the Type filter, instead of the one-letter code.
+            function problemTypeLabel(type) {
+                var opts = document.querySelectorAll('#f-type option');
+                for (var i = 0; i < opts.length; i++) {
+                    if (opts[i].value && opts[i].value === type) return opts[i].textContent;
+                }
+                return type || '—';
+            }
             function getSubmission(id) {
                 for (var i = 0; i < submissions.length; i++) {
                     if (submissions[i].id === id) return submissions[i];
@@ -1020,7 +1028,7 @@
                     '<div class="grade-section">' +
                         '<div class="gd-top"><h3>#' + s.id + ' · ' + esc(s.user) + '</h3></div>' +
                         '<div class="grade-meta-line">' +
-                            esc(problemLabel(s.problem)) + ' · ' + esc(s.problem_type || '—') + ' · ' + esc(s.lang || '—') +
+                            esc(problemLabel(s.problem)) + ' · ' + esc(problemTypeLabel(s.problem_type)) + ' · ' + esc(s.lang || '—') +
                         '</div>' +
                         '<div class="grade-meta-line muted">' +
                             esc(s.date) + ' · ' +

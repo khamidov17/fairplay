@@ -68,6 +68,39 @@
                 )
             });
         </script>
+    {% elif not submission.is_graded and submission.results_visible_to(request.user) and submission.problem.submission_type != 'F' %}
+        <script type="text/javascript">
+            // No event daemon (EVENT_DAEMON_USE off): poll the test cases until the submission is graded.
+            $(function () {
+                var list = $('#test-cases'), tries = 0;
+
+                function poll() {
+                    if (++tries > 300) return;
+                    $.ajax({
+                        url: '{{ url('submission_testcases_query') }}',
+                        data: {id: '{{ submission.id }}'}
+                    }).done(function (data) {
+                        list.empty().html(data).find('.toggle').each(function () {
+                            register_toggle($(this));
+                        });
+                        if (list.find('.sub-graded-marker').attr('data-graded') !== '1') {
+                            setTimeout(poll, 2000);
+                            return;
+                        }
+                        $('#abort-button').remove();
+                        $('#grading-label').remove();
+                        var resultEl = document.getElementById('submission-result');
+                        var result = resultEl && resultEl.getAttribute('data-result');
+                        if (result && result !== 'AC' && result !== 'AB')
+                            $('#ai-hint-section').show();
+                    }).fail(function () {
+                        setTimeout(poll, 5000);
+                    });
+                }
+
+                setTimeout(poll, 2000);
+            });
+        </script>
     {% endif %}
     {% if not submission.is_graded and submission.problem.submission_type != 'F' %}
         <script type="text/javascript">
