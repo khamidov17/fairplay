@@ -171,10 +171,12 @@ class SeedDataTestCase(TestCase):
     fixtures = ['language_small']
 
     def test_finalized_quiz_has_scores(self):
+        from unittest import mock
         from django.core.management import call_command
-        from django.test import override_settings
+        from judge.management.commands import seed_dev_data
         from judge.models import ContestParticipation
-        with override_settings(DEBUG=True):
+        # Not override_settings: its setting_changed signal leaves later tests without response.context.
+        with mock.patch.object(seed_dev_data, 'settings', mock.Mock(DEBUG=True)):
             call_command('seed_dev_data', stdout=io.StringIO())
         scores = sorted(ContestParticipation.objects.filter(contest__key='cs101_quiz1')
                         .values_list('score', flat=True))
