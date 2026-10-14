@@ -684,6 +684,15 @@ MOSS_API_KEY = None
 
 CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 
+# With a Redis broker a task scheduled with an ETA stays unacknowledged in the worker until it
+# runs, and Redis hands every message unacknowledged for longer than ``visibility_timeout`` to a
+# worker again. An ETA further away than that therefore gains one more copy per timeout and runs
+# once per copy (a homework deadline a week out: ~170 copies). Deadline tasks (auto-submit,
+# post-deadline auto-grade) are scheduled in hops of at most CLASSROOM_ETA_HORIZON, which must
+# stay well below the visibility timeout; each hop re-schedules the next one.
+CELERY_BROKER_TRANSPORT_OPTIONS = {'visibility_timeout': 3600}
+CLASSROOM_ETA_HORIZON = datetime.timedelta(minutes=45)
+
 WEBAUTHN_RP_ID = None
 
 # LLM access layer (judge.llm). Supported: 'azure', 'litellm'

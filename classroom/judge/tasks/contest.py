@@ -230,6 +230,18 @@ def auto_grade_contest(self, contest_key):
     )
 
     contest = Contest.objects.get(key=contest_key)
+    if not self.request.called_directly:
+        # Scheduled run: a far ETA is reached in hops (``judge.utils.celery.eta_hop``). Before
+        # it is due, the hop the contest still points at schedules the next one; any other early
+        # run is a stale task from before a deadline change and must not grade yet.
+        delay = int(contest.ai_grading_auto_delay_minutes)
+        if delay < 0:
+            return 0  # auto-grade was switched off after this task was queued
+        if timezone.now() < contest.end_time + timedelta(minutes=delay):
+            if self.request.id and self.request.id == contest.ai_grading_scheduled_task_id:
+                from judge.utils.contest_ai import schedule_batch_ai_grade
+                schedule_batch_ai_grade(contest.id)
+            return 0
     # With a zero delay this runs at the same instant as auto-submit, and re-grading before the
     # papers are in would miss them. Harvesting here is idempotent and normally a no-op; skipped
     # entirely when the harvest switch is off.

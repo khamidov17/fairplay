@@ -78,6 +78,7 @@ class AutoSubmitScheduleMixin:
 class ContestLevelScheduleTestCase(AutoSubmitScheduleMixin, TestCase):
     """One shared deadline gets one task, and it fans out only to students who left work behind."""
 
+    @override_settings(CLASSROOM_ETA_HORIZON=timedelta(days=1))  # deadline within one hop
     def test_the_assignment_is_scheduled_at_its_end_time(self):
         with mock.patch(CONTEST_APPLY_ASYNC) as apply_async:
             apply_async.return_value = mock.Mock(id='task-contest')
@@ -183,6 +184,7 @@ class DeadlineChangeTestCase(AutoSubmitScheduleMixin, TestCase):
             harvest_scheduled_task_id='task-old', end_time=timezone.now() + delta,
         )
 
+    @override_settings(CLASSROOM_ETA_HORIZON=timedelta(days=1))  # deadline within one hop
     def test_extending_the_deadline_moves_the_collection_later(self):
         self._move_end_time(timedelta(hours=3))
         apply_async, async_result = self._reschedule()
