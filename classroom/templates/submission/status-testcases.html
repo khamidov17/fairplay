@@ -21,6 +21,22 @@
     <p>{{ _('Your answer has been saved.') }}</p>
 {% elif submission.problem.submission_type in ('F', 'M') %}
     {# File uploads wait for a human grader. MCQ uses the summary (Result + Score), not fake test cases. #}
+    {% if submission.problem.submission_type == 'M' and submission.is_graded %}
+        <div class="gd-result-summary" id="mcq-result-summary">
+            <div>
+                <div class="rs-label">{{ _('Result') }}</div>
+                <div class="rs-value"><span class="case-{{ submission.result_class or submission.result or 'QU' }}">{{ submission.result or '—' }}</span></div>
+            </div>
+            <div>
+                <div class="rs-label">{{ _('Points') }}</div>
+                <div class="rs-value">
+                    {% with points=submission.display_points|floatformat(-1), total=submission.display_points_total|floatformat(-1) %}
+                        {{ points }}/{{ total }}
+                    {% endwith %}
+                </div>
+            </div>
+        </div>
+    {% endif %}
 {% elif submission.status != 'IE' %}
     {% if submission.status == 'QU' %}
         <div class="ai-grading-loading">

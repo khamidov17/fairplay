@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from judge.models.notification import ensure_instructors_group
 from judge.models.tests.util import CommonDataMixin, create_contest, create_user
+from judge.views.tests.test_hidden_results import HiddenResultsBase
 
 
 def _instructor(username, **kwargs):
@@ -128,3 +129,23 @@ class AdminFinalizeSameRuleTestCase(CommonDataMixin, TestCase):
         response, fin = self._post(self.grader)
         self.assertEqual(response.status_code, 403)
         fin.s.assert_not_called()
+
+
+class FinalizedAnswerOnSubmissionPageTestCase(HiddenResultsBase):
+    """After finalize the student sees the result and score of a multiple-choice answer on its
+    submission page (it showed nothing at all: no test cases and no summary for MCQ)."""
+
+    def test_hidden_before_finalize(self):
+        self._login(self.student)
+        response = self.client.get(reverse('submission_status', args=[self.sub.id]))
+        self.assertContains(response, 'Results hidden')
+        self.assertNotContains(response, 'mcq-result-summary')
+
+    def test_result_and_points_after_finalize(self):
+        self._finalize()
+        self._login(self.student)
+        response = self.client.get(reverse('submission_status', args=[self.sub.id]))
+        self.assertNotContains(response, 'Results hidden')
+        self.assertContains(response, 'id="mcq-result-summary"')
+        self.assertContains(response, 'class="case-AC"')
+        self.assertRegex(response.content.decode(), r'10\s*/\s*10')
