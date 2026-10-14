@@ -314,5 +314,17 @@ math {
     #content {
         width: auto;
         padding: 0 5px;
+        // #page-container is a flex column: with auto side margins #content is sized to its
+        // content's min width (a row of tabs, a long title), so the whole page scrolled
+        // sideways on phones. Zero side margins let it stretch to the screen instead.
+        margin-left: 0;
+        margin-right: 0;
+        min-width: 0;
+        max-width: 100%;
+        box-sizing: border-box;
+    }
+
+    .tabs > ul {
+        flex-wrap: wrap;
     }
 }

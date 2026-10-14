@@ -105,6 +105,9 @@ class CommentRevisionAjax(CommentMixin, DetailView):
     def get_context_data(self, **kwargs):
         context = super(CommentRevisionAjax, self).get_context_data(**kwargs)
         revisions = Version.objects.get_for_object(self.object).order_by('-revision')
+        # Comments made outside the site (admin, imports, scripts) have no saved versions.
+        if not revisions:
+            raise Http404()
         try:
             wanted = min(max(int(self.request.GET.get('revision', 0)), 0), len(revisions) - 1)
         except ValueError:

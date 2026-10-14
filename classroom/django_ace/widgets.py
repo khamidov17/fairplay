@@ -52,6 +52,8 @@ class AceWidget(forms.Textarea):
         # add toolbar
         html = ('<div style="width: 100%%" class="django-ace-editor">'
                 '<div style="width: 100%%" class="django-ace-toolbar">'
-                '<a href="./" class="django-ace-max_min"></a></div>%s</div>') % html
+                # href="#": the script handles the click; "./" was a real link to the parent path,
+                # a 404 on pages such as /problem/<code>/resubmit/<id>.
+                '<a href="#" role="button" class="django-ace-max_min"></a></div>%s</div>') % html
 
         return mark_safe(html)

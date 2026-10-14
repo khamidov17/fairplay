@@ -20,6 +20,8 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.contrib.flatpages.models import FlatPage
+from django.contrib.sites.models import Site
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
@@ -31,6 +33,14 @@ from judge.models import (Class, Contest, ContestParticipation, ContestProblem, 
 from judge.models.notification import ensure_instructors_group
 
 PASSWORD = 'fairplay-dev'
+
+
+def create_about_page():
+    """The navigation bar (``loaddata navbar``) links to /about/, a flat page every site creates."""
+    about, _created = FlatPage.objects.get_or_create(url='/about/', defaults={
+        'title': 'About', 'content': '<p>DKU OJ: courses, assignments and an online judge.</p>'})
+    about.sites.add(Site.objects.get_current())
+    return about
 
 
 class Command(BaseCommand):
@@ -203,3 +213,5 @@ class Command(BaseCommand):
             part.recompute_results()
         quiz.results_finalized = True
         quiz.save(update_fields=['results_finalized'])
+
+        create_about_page()
