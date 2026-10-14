@@ -166,6 +166,14 @@ class AceFullscreenToggleTestCase(TestCase):
         self.assertIn('class="django-ace-max_min"', html)
         self.assertNotIn('href="./"', html)
 
+    def test_toggle_icons_are_not_missing_images(self):
+        # ace/img/expand.png and contract.png are not shipped: each toggle was a 404.
+        import re
+        from pathlib import Path
+        from django.conf import settings
+        scss = (Path(settings.BASE_DIR) / 'resources' / 'ace-dmoj.scss').read_text()
+        self.assertIsNone(re.search(r"url\([^)]*ace/img/", scss))
+
 
 class SubmitPageWithoutJudgeTestCase(CommonDataMixin, TestCase):
     def test_template_request_needs_a_language(self):

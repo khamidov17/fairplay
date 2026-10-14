@@ -80,9 +80,9 @@
     z-index: 2147483000;
     overflow: auto;
 
-    .django-ace-max_min {
-        background-image: url($path_to_root + '/ace/img/contract.png');
-        @include vars-img;
+    /* FontAwesome "compress" (ace/img/contract.png is not shipped either: a 404 on every toggle). */
+    .django-ace-max_min::before {
+        content: "\f066";
     }
 }
 
