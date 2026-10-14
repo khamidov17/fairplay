@@ -62,7 +62,7 @@ def _apply(e: Exam, body: ExamIn, creating: bool = False) -> None:
     e.total_points = float(sum(q["points"] for q in qs))
     e.updated_at = utcnow()
     # Optional slice-2 fields: on PUT, a field the client did not send keeps its value.
-    for f in ("course", "room", "scheduled_at", "shuffle_questions", "class_id"):
+    for f in ("course", "room", "scheduled_at", "shuffle_questions", "class_id", "allowed_apps"):
         if creating or f in body.model_fields_set:
             setattr(e, f, getattr(body, f))
     # Slice 3: mode and its fields always come from the body (already normalised by
@@ -114,6 +114,13 @@ async def create_exam(body: ExamIn, request: Request, p: Principal = Depends(req
     session.add(e)
     await session.commit()
     return exam_out(e)
+
+
+@router.get("/allowed-apps")
+async def allowed_apps_catalog(p: Principal = Depends(require_teacher)):
+    """2026-10-14: the apps a teacher may allow during an exam (exam editor list)."""
+    from .allowed_apps import catalog_out
+    return catalog_out()
 
 
 @router.get("/{exam_id}")

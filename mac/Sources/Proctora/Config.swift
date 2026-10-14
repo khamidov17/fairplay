@@ -2,9 +2,10 @@ import Foundation
 
 /// Settings (audit 2026-10-12 #4).
 ///
-/// Release builds read NOTHING a student can change: the server, app key and pins are
-/// compiled in by build.sh, there is no safety auto-unlock, no window-level switch and
-/// no local invigilator code (the server checks it).
+/// Release builds read NOTHING a student can change: the server, app key and pins come
+/// from Contents/Resources/FairPlayBuild.plist, which build.sh writes into the bundle before
+/// it is signed (BuildConfig.swift only holds dev defaults); there is no safety auto-unlock,
+/// no window-level switch and no local invigilator code (the server checks it).
 ///
 /// Dev builds (build.sh with FAIRPLAY_BUILD=dev, the default) keep the old overrides:
 ///   defaults write ai.proctora.student ServerURL http://192.168.1.20:8000

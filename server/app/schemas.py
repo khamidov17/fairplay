@@ -248,6 +248,14 @@ class ExamIn(BaseModel):
     # Audit S-03: the class that takes this exam (one of the teacher's classes). Required
     # before the exam can be opened, unless it is linked to an LMS course.
     class_id: int | None = Field(default=None, ge=1)
+    # 2026-10-14: apps allowed during the exam (allowed_apps.CATALOG keys); [] = none.
+    allowed_apps: list[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("allowed_apps")
+    @classmethod
+    def _apps(cls, v: list[str]) -> list[str]:
+        from .allowed_apps import normalize
+        return normalize(v)
 
     @field_validator("title")
     @classmethod

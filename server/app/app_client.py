@@ -58,6 +58,8 @@ CLIENT_EVENT_TYPES = frozenset({
     "offline_exit", "offline_exit_rejected", "watchdog_app_killed",
     # 2026-10-13: a windowed app left running behind the exam (noticed, not quit)
     "app_in_background",
+    # review 2026-10-14: a reply the app expected to be signed was not
+    "server_reply_unsigned", "watchdog_stopped", "events_capped",
 })
 SERVER_EVENT_TYPES = frozenset({
     "second_device", "foreign_session", "re_entry", "app_gap", "no_app_signal",

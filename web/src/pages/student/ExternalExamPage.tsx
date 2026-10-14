@@ -104,6 +104,7 @@ export default function ExternalExamPage() {
         title: a.course ? `${a.course} ${a.title}` : a.title,
         token,
         session,
+        allowed_apps: bridge.allowedAppIds(a.allowed_apps),
       });
       if (!sent) setPhase("openFailed");
     },
@@ -125,7 +126,9 @@ export default function ExternalExamPage() {
     const session = getAttemptSession(attempt.attempt_id);
     const res = await bridge.requestLock(
       10000,
-      token && session ? { attempt_id: attempt.attempt_id, token, session } : undefined,
+      token && session
+        ? { attempt_id: attempt.attempt_id, token, session, allowed_apps: bridge.allowedAppIds(attempt.allowed_apps) }
+        : undefined,
     );
     lockingRef.current = false;
     if (res.ok) open(attempt);
@@ -134,6 +137,20 @@ export default function ExternalExamPage() {
       setPhase("lockFailed");
     }
   }, [attempt, open]);
+
+  // Review 2026-10-14: the app answers openExternal with "externalFailed" when it can't
+  // open the site (a session the app does not accept while locked, a bad URL...). Without
+  // this the page stayed on the "opening" spinner forever.
+  useEffect(() => {
+    if (phase !== "opening") return;
+    return bridge.onNative((msg) => {
+      if (msg.type !== "externalFailed") return;
+      if (msg.reason === "bad_session") {
+        setLoadError("This exam was opened somewhere else. Type the start code again.");
+        setPhase("reenter");
+      } else setPhase("openFailed");
+    });
+  }, [phase]);
 
   useEffect(() => {
     if (phase === "locking" && attempt && !lockingRef.current) void lock();

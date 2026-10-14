@@ -43,6 +43,7 @@ REENTRY_QUIET_S = 15
 CHALLENGES_PER_MIN = 30
 ANSWER_WRITES_PER_MIN = 240
 SUBMIT_RETRIES = 3
+OFFLINE_KEY_ASKS = 10
 
 
 async def take_code_try(store, lock_key: str, count_key: str, limit: int, window_s: int,
@@ -516,7 +517,11 @@ async def handin_status(aid: str, request: Request, nonce: str, device: str | No
     if sess and not ac.AppSafe.token(sess, 1, 128):
         raise HTTPException(422, "bad session")
     a = await session.get(Attempt, aid)
-    if a is None or a.student_id != p.user_id:
+    if a is not None and a.student_id != p.user_id:
+        # Review 2026-10-14: someone else's attempt is not "gone" (which ends a lock): a page
+        # that swapped in another student's token gets an unsigned 404, i.e. "not yet".
+        raise HTTPException(404, "Attempt not found")
+    if a is None:
         status = "gone"
     elif a.session_id and a.session_id != sess and not (device and a.device_id == device):
         # Audit 2026-10-13: "moved" means the attempt now lives on ANOTHER computer. The
@@ -584,10 +589,13 @@ async def offline_key(aid: str, body: OfflineKeyIn, request: Request,
     msg = ac.offline_key_message(aid, body.session, body.device_id, body.ts)
     if not ac.verify(settings, msg, body.signature):
         raise HTTPException(403, ac.APP_PROOF_DETAIL)
-    if await store.incr(f"offkey:{aid}:{body.session}", LIVE_TTL) > 1:
+    # Review 2026-10-14: the bound device may ask again (a relaunch after a crash, a lost
+    # reply); the key is the same and only that signed device gets here. Unusually many asks
+    # are still flagged once.
+    if await store.incr(f"offkey:{aid}:{body.session}", LIVE_TTL) > OFFLINE_KEY_ASKS \
+            and await ac.once_per(store, f"offkey-flag:{aid}:{body.session}", LIVE_TTL):
         await ac.add_event(session, store, aid, a.exam_id, "offline_key_requested_twice",
-                           "the offline exit key for this session was asked for again")
-        raise HTTPException(409, "Already issued for this session")
+                           f"the offline exit key for this session was asked for more than {OFFLINE_KEY_ASKS} times")
     key_hex = ac.offline_key(settings.secret, aid, body.session).hex()
     out = {"key": key_hex}
     if settings.app_keys:   # Windows app verifies the reply (RequireSignedVerdicts)

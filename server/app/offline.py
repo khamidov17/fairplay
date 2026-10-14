@@ -146,8 +146,15 @@ def package_plaintext(exam: dict) -> dict:
         "duration_min": exam["duration_min"], "mode": exam.get("mode") or "questions",
         "shuffle_questions": bool(exam.get("shuffle_questions")),
         "questions": inline_images(exam.get("questions") or []),
+        # 2026-10-14: an offline start closes the same apps as an online one
+        "allowed_apps": _apps_for_student(exam.get("allowed_apps")),
         "generated_at": iso(utcnow()),
     }
+
+
+def _apps_for_student(keys):
+    from .allowed_apps import for_student
+    return for_student(keys)
 
 
 def _build(exam: dict, package_key: str) -> dict:

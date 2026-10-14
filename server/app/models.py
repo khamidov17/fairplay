@@ -56,6 +56,10 @@ class Exam(Base):
     allowed_domains: Mapped[list] = mapped_column(JSON, nullable=False, default=list,
                                                   server_default=text("'[]'"))
     finish_url_contains: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # 2026-10-14: apps the teacher allows during the exam (keys of allowed_apps.CATALOG);
+    # every other windowed app is closed when the computer locks.
+    allowed_apps: Mapped[list] = mapped_column(JSON, nullable=False, default=list,
+                                               server_default=text("'[]'"))
     # slice 5: LMS sync. Plain (non-FK) columns so db._add_missing_columns can ALTER them in.
     course_link_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, index=True)
     # Audit S-03: the class whose students see and may take this exam (or course_link_id).

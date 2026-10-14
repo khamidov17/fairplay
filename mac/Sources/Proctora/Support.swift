@@ -10,19 +10,19 @@ enum Allowlist {
         "com.apple.coreautha.autha", "com.apple.loginwindow"
     ]
 
-    /// Audit M-01: Finder is no longer kept while locked (it opens any file or app). It is
-    /// quit like other apps; if macOS keeps relaunching it, LockdownController stops
-    /// fighting and only keeps it from the front (see finderRelaunches).
+    /// macOS itself: kept running (never in front of the exam).
     private static let system: Set<String> = [
         "com.apple.dock", "com.apple.systemuiserver", "com.apple.controlcenter",
         "com.apple.notificationcenterui", "com.apple.WindowManager",
         "com.apple.universalaccessd"
     ]
+    /// Finder: macOS relaunches it at once when quit, so it is hidden and kept behind
+    /// the exam instead (the focus guard never lets it in front).
     static let finder = "com.apple.finder"
 
     /// Dev builds only: terminals (local server) and browsers (teacher dashboard) stay
     /// running while you test the lock on one Mac. They stay hidden behind the locked
-    /// window. Release builds quit them like any other app.
+    /// window. Release builds close them like any other app the teacher didn't allow.
     #if FAIRPLAY_DEV
     static let devKeep: Set<String> = [
         "com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable",
@@ -40,31 +40,96 @@ enum Allowlist {
         "com.paloaltonetworks.GlobalProtect", "com.fortinet", "net.openvpn", "com.wireguard"
     ]
 
-    /// Kept running regardless of the deny lists (VPN, and dev-build tools).
-    /// Prefix match, so an app's helpers stay too ("com.anthropic.claudefordesktop.helper"
-    /// etc.): killing only the helpers made the parent respawn them every few seconds,
-    /// which kept the "apps must be closed" screen up for good.
-    static func keeps(_ id: String) -> Bool {
+    /// Never allowed, whatever the exam says: terminals (a script left running there can
+    /// kill FairPlay) and web browsers (the whole internet). Lowercase bundle-id prefixes.
+    static let neverAllowed: [String] = [
+        "com.apple.terminal", "com.googlecode.iterm2", "dev.warp", "io.alacritty", "net.kovidgoyal.kitty",
+        "com.github.wez.wezterm", "co.zeit.hyper", "com.mitchellh.ghostty",
+        "com.apple.safari", "com.google.chrome", "org.mozilla.firefox", "company.thebrowser",
+        "com.microsoft.edgemac", "com.brave.browser", "com.operasoftware", "com.vivaldi",
+        "org.chromium", "com.kagi.kagimacos", "com.sigmaos", "app.zen-browser"
+    ]
+
+    /// 2026-10-14: bundle ids the teacher allowed for this exam (the page passes the
+    /// exam's "allowed_apps"; the server only offers a curated catalog). Lowercase.
+    private(set) static var teacherAllowed: Set<String> = []
+
+    /// From the bridge ("lock" / "session" / "openExternal"): keeps only well-formed
+    /// macOS bundle ids (Windows process names have no dot and are skipped), never a
+    /// terminal or a browser, at most 40.
+    /// Set before the lock; once locked the list only changes if it was empty (an offline
+    /// start that learns its exam later), so a page can't widen it mid-exam.
+    static func updateTeacherAllowed(_ raw: Any?) {
+        guard !LockdownController.shared.isLocked || teacherAllowed.isEmpty else { return }
+        setTeacherAllowed(raw)
+    }
+
+    static func setTeacherAllowed(_ raw: Any?) {
+        teacherAllowed = parseTeacherAllowed(raw)
+        DebugLog.log("lock", "teacher-allowed apps: \(teacherAllowed.sorted().joined(separator: ", "))")
+    }
+
+    static func parseTeacherAllowed(_ raw: Any?) -> Set<String> {
+        let ids = ((raw as? [Any]) ?? []).compactMap { $0 as? String }
+        var out: Set<String> = []
+        for id in ids.prefix(40) {
+            let lower = id.lowercased()
+            guard looksLikeBundleId(lower), !matches(lower, neverAllowed) else { continue }
+            out.insert(lower)
+        }
+        return out
+    }
+
+    static func looksLikeBundleId(_ s: String) -> Bool {
+        guard (3...200).contains(s.count), s.contains("."), !s.hasPrefix("."), !s.hasSuffix(".") else { return false }
+        return s.unicodeScalars.allSatisfy {
+            ($0.value >= 48 && $0.value <= 57) || ($0.value >= 97 && $0.value <= 122) || $0 == "." || $0 == "-" || $0 == "_"
+        }
+    }
+
+    /// Review 2026-10-14: an id matches a listed one exactly or as a sub-id
+    /// ("com.cisco.anyconnect.gui"), never by plain prefix ("com.fortinetnotes").
+    static func matches(_ lowerId: String, _ list: [String]) -> Bool {
+        list.contains { let p = $0.lowercased(); return lowerId == p || lowerId.hasPrefix(p + ".") }
+    }
+
+    /// The name test alone (unit-testable). VPN prefixes, dev tools and teacher-allowed apps.
+    static func keepsId(_ id: String) -> Bool {
         let lower = id.lowercased()
         guard !lower.isEmpty else { return false }
-        return devKeep.contains { lower == $0.lowercased() || lower.hasPrefix($0.lowercased() + ".") }
-            || alwaysPrefixes.contains { lower.hasPrefix($0.lowercased()) }
+        return matches(lower, Array(devKeep)) || matches(lower, alwaysPrefixes)
     }
 
+    /// Kept running regardless of the deny lists: VPN clients (and dev-build tools).
+    /// Review 2026-10-14: a VPN name only counts when the app is really signed with an
+    /// Apple-issued certificate, so a home-made "com.cisco.anyconnect.x" gets no pass.
+    static func keeps(_ app: NSRunningApplication) -> Bool {
+        guard let id = app.bundleIdentifier, keepsId(id) else { return false }
+        if matches(id.lowercased(), Array(devKeep)) { return true }          // dev builds only
+        return CodeSign.isDeveloperSigned(pid: app.processIdentifier)
+    }
+
+    static func isTeacherAllowed(_ app: NSRunningApplication) -> Bool {
+        guard let id = app.bundleIdentifier?.lowercased(), !teacherAllowed.isEmpty else { return false }
+        guard teacherAllowed.contains(where: { id == $0 || id.hasPrefix($0 + ".") }) else { return false }
+        return CodeSign.isDeveloperSigned(pid: app.processIdentifier)
+    }
+
+    /// A real Apple security dialog (by bundle id AND Apple's signature, never by name).
     static func isSystemDialog(_ app: NSRunningApplication) -> Bool {
-        if let id = app.bundleIdentifier, systemDialogs.contains(id) { return true }
-        if let name = app.localizedName, name.contains("SecurityAgent") { return true }
-        return false
+        guard let id = app.bundleIdentifier, systemDialogs.contains(id) else { return false }
+        return CodeSign.isApple(pid: app.processIdentifier)
     }
 
-    /// May this app keep running while locked? Windowed (.regular) apps only when they are
-    /// macOS itself (audit M-05: the never-wired "teacher-allowed apps" list is gone);
-    /// background/menu-bar apps unless on the deny list
+    /// May this app keep running while locked? Windowed (.regular) apps: macOS itself,
+    /// VPN clients and the apps the teacher allowed for this exam. Everything else is
+    /// closed (2026-10-14). Background/menu-bar apps unless on the deny list
     /// (SystemChecks.deniedBundlePrefixes, checked separately).
     static func permits(_ app: NSRunningApplication) -> Bool {
         guard let id = app.bundleIdentifier else { return app.activationPolicy != .regular }
         if id == Bundle.main.bundleIdentifier { return true }
-        if system.contains(id) || systemDialogs.contains(id) || keeps(id) { return true }
+        if system.contains(id) || systemDialogs.contains(id) { return CodeSign.isApple(pid: app.processIdentifier) }
+        if keeps(app) || isTeacherAllowed(app) { return true }
         return app.activationPolicy != .regular
     }
 }
@@ -98,6 +163,11 @@ final class EventLog {
         case offlineExitRejected
         /// 2026-10-13: a windowed app left running behind the exam (noticed, not quit).
         case appInBackground(String)
+        /// Review 2026-10-14: a server reply that should be signed was not (man in the
+        /// middle, or a server too old for this app). Not a TLS pin failure.
+        case serverReplyUnsigned(String)
+        /// Review 2026-10-14: the watchdog stopped while locked (started again).
+        case watchdogStopped
 
         /// (type, detail) as sent to the server.
         var pair: (String, String) {
@@ -128,6 +198,8 @@ final class EventLog {
             case .offlineExit: return ("offline_exit", "offline invigilator code accepted")
             case .offlineExitRejected: return ("offline_exit_rejected", "wrong offline invigilator code")
             case .appInBackground(let s): return ("app_in_background", s)
+            case .serverReplyUnsigned(let s): return ("server_reply_unsigned", s)
+            case .watchdogStopped: return ("watchdog_stopped", "the FairPlay watchdog stopped while locked; started again")
             }
         }
     }
@@ -151,22 +223,72 @@ final class EventLog {
         url = folder.appendingPathComponent("events.log")
     }
 
-    /// Thread-safe: the event tap callback and URLSession delegates run off the main thread.
+    /// Review 2026-10-14: the same event repeating (a key mashed, an app reactivating in a
+    /// loop) is sent once per `repeatWindow`, and at most `maxPerType` of one type per run,
+    /// so the server's per-attempt cap (5000) can't be used up to bury real evidence.
+    static let repeatWindow: TimeInterval = 10
+    static let maxPerType = 300
+    private var lastSent: [String: Date] = [:]
+    private var perType: [String: Int] = [:]
+    private var capped: Set<String> = []
+    private static let maxLogBytes: UInt64 = 5_000_000
+
+    /// Decides (under `queue`) whether an event goes out. Pure state, testable.
+    /// Only these noisy kinds are throttled; lock / exit / watchdog events always go out.
+    static let throttled: Set<String> = [
+        "other_app_foreground", "other_app_launched", "blocked_shortcut", "synthetic_input",
+        "blocked_navigation", "space_changed", "process_blocked", "app_in_background",
+    ]
+
+    static func shouldSend(type: String, detail: String, at now: Date, lastSent: inout [String: Date],
+                           perType: inout [String: Int]) -> Bool {
+        guard throttled.contains(type) else { return true }
+        let key = type + "|" + detail
+        if let t = lastSent[key], now.timeIntervalSince(t) < repeatWindow { return false }
+        lastSent[key] = now
+        if lastSent.count > 2000 { lastSent.removeAll() }
+        let n = (perType[type] ?? 0) + 1
+        perType[type] = n
+        return n <= maxPerType
+    }
+
+    /// Thread-safe and non-blocking: the event tap callback calls this on its own thread,
+    /// so all formatting and file work happens on `queue` (review 2026-10-14: it used to
+    /// wait there behind file writes).
     func record(_ e: Event) {
         let (type, detail) = e.pair
-        let now = queue.sync { iso.string(from: Date()) }
-        let text = "\(now) \(type) \(detail)\n"
-        NSLog("[FairPlay] \(type) \(detail)")
-        DebugLog.log("event", "\(type) \(detail)")
-        queue.async { [url] in
-            guard let data = text.data(using: .utf8) else { return }
-            if let h = try? FileHandle(forWritingTo: url) {
-                h.seekToEndOfFile(); h.write(data); try? h.close()
-            } else {
-                try? data.write(to: url)
+        let at = Date()
+        queue.async { [weak self] in
+            guard let self else { return }
+            let now = self.iso.string(from: at)
+            self.append("\(now) \(type) \(detail)\n")
+            DebugLog.log("event", "\(type) \(detail)")
+            var out: [(String, String)] = []
+            if EventLog.shouldSend(type: type, detail: detail, at: at, lastSent: &self.lastSent, perType: &self.perType) {
+                out.append((type, detail))
+            } else if (self.perType[type] ?? 0) > EventLog.maxPerType, !self.capped.contains(type) {
+                self.capped.insert(type)
+                out.append(("events_capped", "more than \(EventLog.maxPerType) \(type) events; later ones only in the local log"))
             }
+            guard !out.isEmpty else { return }
+            DispatchQueue.main.async { [weak self] in for (t, d) in out { self?.onEvent?(t, d, now) } }
         }
-        DispatchQueue.main.async { [weak self] in self?.onEvent?(type, detail, now) }
+    }
+
+    /// On `queue`. The local log rolls over at 5 MB (one old copy kept).
+    private func append(_ text: String) {
+        guard let data = text.data(using: .utf8) else { return }
+        if let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.uint64Value,
+           size > EventLog.maxLogBytes {
+            let old = url.appendingPathExtension("1")
+            try? FileManager.default.removeItem(at: old)
+            try? FileManager.default.moveItem(at: url, to: old)
+        }
+        if let h = try? FileHandle(forWritingTo: url) {
+            h.seekToEndOfFile(); h.write(data); try? h.close()
+        } else {
+            try? data.write(to: url)
+        }
     }
 
     var logPath: String { url.path }

@@ -70,9 +70,26 @@ enum Watchdog {
         if rename(tmp.path, markerURL.path) != 0 { try? FileManager.default.removeItem(at: tmp) }
     }
 
+    /// While locked: true when the watchdog runs. If it died (killed), it is started
+    /// again and false is returned once so the lock can report it.
+    @discardableResult
+    static func ensureRunning() -> Bool {
+        guard FileManager.default.fileExists(atPath: markerURL.path) else { return true }
+        if let c = child, c.isRunning { return true }
+        let hadOne = child != nil
+        spawn()
+        return !hadOne
+    }
+
+    /// Review 2026-10-14: the watchdog runs as Contents/MacOS/FairPlayGuard (a copy of the
+    /// app's executable made by build.sh), so `killall Proctora` doesn't end it too.
+    static var guardExecutable: URL? {
+        Bundle.main.url(forAuxiliaryExecutable: "FairPlayGuard") ?? Bundle.main.executableURL
+    }
+
     private static func spawn() {
         if let c = child, c.isRunning { return }
-        guard let exe = Bundle.main.executableURL else { return }
+        guard let exe = guardExecutable else { return }
         let p = Process()
         p.executableURL = exe
         p.arguments = ["--watchdog", String(ProcessInfo.processInfo.processIdentifier)]

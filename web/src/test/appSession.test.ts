@@ -47,7 +47,7 @@ describe("app session", () => {
     const view = await studentApi.start("e_1", "123456");
     expect(view.attempt_id).toBe("a_1");
     expect(getAttemptSession("a_1")).toBe("sess-1");
-    expect(postMessage).toHaveBeenCalledWith({ action: "session", attempt_id: "a_1", token: "tok", session: "sess-1" });
+    expect(postMessage).toHaveBeenCalledWith({ action: "session", attempt_id: "a_1", token: "tok", session: "sess-1", allowed_apps: [] });
 
     await studentApi.saveAnswers("a_1", {}, 1);
     const [, init] = fetchMock.mock.calls[fetchMock.mock.calls.length - 1];

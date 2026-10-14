@@ -74,15 +74,22 @@ enum OfflineExit {
     enum Result { case ok, wrong, tooMany, unavailable }
 
     static func check(_ typed: String) -> Result {
-        if Date() < lockedUntil { return .tooMany }
         let digits = typed.filter { !$0.isWhitespace && $0 != "-" }
-        if devCodeMatches(digits) { return .ok }
-        guard let key = keyData else { return .unavailable }
-        if constantTimeEqual(digits, expectedCode(for: challenge, key: key)) { return .ok }
+        if Date() >= lockedUntil, devCodeMatches(digits) { return .ok }
+        return check(typed, key: keyData, now: Date())
+    }
+
+    /// The rule itself with the key and the clock passed in (unit-tested): 5 wrong codes
+    /// -> wait `waitAfterWrong`, during which even the right code is refused.
+    static func check(_ typed: String, key: Data?, now: Date) -> Result {
+        if now < lockedUntil { return .tooMany }
+        let digits = typed.filter { !$0.isWhitespace && $0 != "-" }
+        guard let key else { return .unavailable }
+        if AppSession.constantTimeEqual(digits, expectedCode(for: challenge, key: key)) { return .ok }
         wrong += 1
         if wrong >= maxWrong {
             wrong = 0
-            lockedUntil = Date().addingTimeInterval(waitAfterWrong)
+            lockedUntil = now.addingTimeInterval(waitAfterWrong)
             return .tooMany
         }
         return .wrong
@@ -93,17 +100,9 @@ enum OfflineExit {
     static func devCodeMatches(_ typed: String) -> Bool {
         #if FAIRPLAY_DEV
         let dev = UserDefaults.standard.string(forKey: "DevExitCode") ?? "0000"
-        return !dev.isEmpty && constantTimeEqual(typed, dev)
+        return !dev.isEmpty && AppSession.constantTimeEqual(typed, dev)
         #else
         return false
         #endif
-    }
-
-    private static func constantTimeEqual(_ a: String, _ b: String) -> Bool {
-        let x = Array(a.utf8), y = Array(b.utf8)
-        guard x.count == y.count else { return false }
-        var diff: UInt8 = 0
-        for i in 0..<x.count { diff |= x[i] ^ y[i] }
-        return diff == 0
     }
 }

@@ -14,30 +14,41 @@ enum SystemChecks {
 
     /// Audit M-10: three independent signals, any one is enough. A VM that hides one of
     /// them (patched hv_vmm_present, stock hw.model) still shows another.
+    /// Hardware does not change during a run: computed once (the 3 s checks reuse it).
+    static let isVirtualMachineOnce: Bool = isVirtualMachine()
+
     static func isVirtualMachine() -> Bool {
         var flag: Int32 = 0
         var size = MemoryLayout<Int32>.size
-        if sysctlbyname("kern.hv_vmm_present", &flag, &size, nil, 0) == 0, flag == 1 { return true }
-        let model = sysctlString("hw.model").lowercased()
-        if vmWords.contains(where: { model.contains($0) }) { return true }
+        let hv = sysctlbyname("kern.hv_vmm_present", &flag, &size, nil, 0) == 0 ? flag : 0
+        return looksVirtual(hvFlag: hv, model: sysctlString("hw.model"),
+                            cpuFeatures: sysctlString("machdep.cpu.features"), platformText: platformText())
+    }
+
+    /// The decision alone, on fixed inputs (unit-tested): any one signal is enough.
+    static func looksVirtual(hvFlag: Int32, model: String, cpuFeatures: String, platformText: String) -> Bool {
+        if hvFlag == 1 { return true }
+        let m = model.lowercased()
+        if vmWords.contains(where: { m.contains($0) }) { return true }
         // Intel: the CPU's "hypervisor present" bit.
-        if sysctlString("machdep.cpu.features").uppercased().split(separator: " ").contains("VMM") { return true }
-        return platformLooksVirtual()
+        if cpuFeatures.uppercased().split(separator: " ").contains("VMM") { return true }
+        let p = platformText.lowercased()
+        return vmWords.contains { p.contains($0) }
     }
 
     /// IOKit platform entry: manufacturer / model strings of the machine itself.
-    static func platformLooksVirtual() -> Bool {
+    static func platformText() -> String {
         let entry = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("IOPlatformExpertDevice"))
-        guard entry != 0 else { return false }
+        guard entry != 0 else { return "" }
         defer { IOObjectRelease(entry) }
         var text = ""
         for key in ["manufacturer", "model", "product-name"] {
             if let v = IORegistryEntryCreateCFProperty(entry, key as CFString, kCFAllocatorDefault, 0)?
                 .takeRetainedValue() as? Data {
-                text += String(decoding: v.prefix(while: { $0 != 0 }), as: UTF8.self).lowercased() + " "
+                text += String(decoding: v.prefix(while: { $0 != 0 }), as: UTF8.self) + " "
             }
         }
-        return vmWords.contains { text.contains($0) }
+        return text
     }
 
     /// Audit M-07: the Mac's hardware UUID (same after reinstalling FairPlay or copying
@@ -144,7 +155,10 @@ enum SystemChecks {
 
     /// Same idea for processes without a bundle (lowercase "contains" on the process name).
     static let deniedProcessNames: [String] = [
-        "teamviewer", "anydesk", "rustdesk", "parsec", "remotedesktop", "screensharingd",
+        // Review 2026-10-14: no "parsec" here: it also matches Apple's own parsecd (Siri
+        // Suggestions), which was killed and reported every 3 s. The Parsec app is caught by
+        // its bundle id (com.parsec) above.
+        "teamviewer", "anydesk", "rustdesk", "remotedesktop", "screensharingd",
         "screensharingagent", "vncserver", "x11vnc", "todesk", "sunlogin", "sshd",
     ]
 
@@ -155,7 +169,23 @@ enum SystemChecks {
         "expect", "killall", "pkill", "kill", "at", "caffeinate",
     ]
     /// Reported, not ended (could be a real background service).
-    static let reportedOrphans: Set<String> = ["python", "python3", "perl", "ruby", "node", "tmux", "screen"]
+    static let reportedOrphans: Set<String> = ["python", "python3", "perl", "ruby", "node"]
+    /// Review 2026-10-14: terminal sessions that outlive their (closed) terminal app. A
+    /// script waiting inside one is invisible otherwise, so they are ended whatever their age,
+    /// like the terminal apps themselves.
+    static let terminalServers: Set<String> = ["tmux", "screen", "zellij", "abduco", "dtach"]
+
+    enum OrphanKind: Equatable { case none, end, report }
+
+    /// One process: end it, report it, or leave it (pure, for the tests).
+    static func classify(name: String, uid: uid_t, ppid: pid_t, started: Date, myUid: uid_t, since: Date) -> OrphanKind {
+        guard uid == myUid else { return .none }
+        let lower = name.lowercased()
+        if terminalServers.contains(lower) { return .end }
+        guard ppid == 1 else { return .none }
+        if killableOrphans.contains(lower) { return started >= since ? .end : .report }
+        return reportedOrphans.contains(lower) ? .report : .none
+    }
 
     struct ProcessFindings {
         var deniedApps: [NSRunningApplication] = []
@@ -175,7 +205,7 @@ enum SystemChecks {
         let me = ProcessInfo.processInfo.processIdentifier
         for app in NSWorkspace.shared.runningApplications where app.processIdentifier != me {
             guard let id = app.bundleIdentifier?.lowercased() else { continue }
-            if Allowlist.keeps(app.bundleIdentifier ?? "") { continue }
+            if Allowlist.keeps(app) { continue }
             if deniedBundlePrefixes.contains(where: { id.hasPrefix($0) }) { f.deniedApps.append(app) }
         }
         let appPids = Set(f.deniedApps.map { $0.processIdentifier })
@@ -189,12 +219,69 @@ enum SystemChecks {
             let lower = p.name.lowercased()
             if !appPids.contains(p.pid), deniedProcessNames.contains(where: { lower.contains($0) }) {
                 f.deniedProcs.append(p)
-            } else if p.uid == uid && p.ppid == 1 {
-                if killableOrphans.contains(lower) && p.started >= since { f.orphanScripts.append(p) }
-                else if killableOrphans.contains(lower) || reportedOrphans.contains(lower) { f.orphanReported.append(p) }
+            } else {
+                switch classify(name: p.name, uid: p.uid, ppid: p.ppid, started: p.started, myUid: uid, since: since) {
+                case .end: f.orphanScripts.append(p)
+                case .report: f.orphanReported.append(p)
+                case .none: break
+                }
             }
         }
         return f
+    }
+
+    // MARK: - Sharing services listening (review 2026-10-14)
+
+    static let sharingPorts: [(UInt16, String)] = [
+        (22, "Remote Login (SSH)"), (5900, "Screen Sharing"), (3283, "Remote Management"),
+    ]
+
+    /// True when something accepts TCP connections on 127.0.0.1:<port> (200 ms limit).
+    static func localPortOpen(_ port: UInt16, timeoutMs: Int32 = 200) -> Bool {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+        _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK)
+        var addr = sockaddr_in()
+        addr.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let r = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        if r == 0 { return true }
+        guard errno == EINPROGRESS else { return false }
+        var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
+        guard poll(&pfd, 1, timeoutMs) == 1 else { return false }
+        var err: Int32 = 0
+        var len = socklen_t(MemoryLayout<Int32>.size)
+        guard getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) == 0 else { return false }
+        return err == 0
+    }
+
+    // MARK: - Windows over the exam (review 2026-10-14)
+
+    struct Overlay: Equatable { let pid: pid_t; let owner: String }
+
+    /// From CGWindowListCopyWindowInfo: on-screen windows of other processes whose layer is
+    /// at or above ours (our locked window sits at the maximum level, so only a window at
+    /// that same level can be drawn over it), visible and bigger than a few points.
+    static func overlays(in list: [[String: Any]], myPid: pid_t, myLevel: Int) -> [Overlay] {
+        var out: [Overlay] = []
+        for w in list {
+            guard let pid = (w[kCGWindowOwnerPID as String] as? NSNumber)?.int32Value, pid != myPid,
+                  let layer = (w[kCGWindowLayer as String] as? NSNumber)?.intValue, layer >= myLevel else { continue }
+            let alpha = (w[kCGWindowAlpha as String] as? NSNumber)?.doubleValue ?? 1
+            guard alpha > 0.01 else { continue }
+            if let b = w[kCGWindowBounds as String] as? [String: Any] {
+                let wd = (b["Width"] as? NSNumber)?.doubleValue ?? 0, ht = (b["Height"] as? NSNumber)?.doubleValue ?? 0
+                guard wd >= 20, ht >= 20 else { continue }
+            }
+            let owner = (w[kCGWindowOwnerName as String] as? String) ?? "pid \(pid)"
+            if !out.contains(where: { $0.pid == pid }) { out.append(Overlay(pid: pid, owner: owner)) }
+        }
+        return out
     }
 
     // MARK: - Keyboard input source (third-party IMEs with cloud/AI candidates)
@@ -206,8 +293,24 @@ enum SystemChecks {
     }
 
     /// Apple's own keyboards and input methods only (ABC, Russian, Uzbek, Pinyin - Simplified...).
+    /// The id test alone (a third-party input method can name its sources com.apple.*;
+    /// see `currentInputSourceIsApple`).
     static func inputSourceAllowed(_ id: String) -> Bool {
         id.hasPrefix("com.apple.")
+    }
+
+    /// Review 2026-10-14: the current input source has an Apple id AND, when it belongs to
+    /// an input-method bundle, that bundle lives in /System (Apple's own). Keyboard layouts
+    /// have no bundle and are plain system data.
+    static func currentInputSourceIsApple() -> Bool {
+        guard let src = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue(),
+              let idPtr = TISGetInputSourceProperty(src, kTISPropertyInputSourceID) else { return true }
+        let id = Unmanaged<CFString>.fromOpaque(idPtr).takeUnretainedValue() as String
+        guard inputSourceAllowed(id) else { return false }
+        guard let bPtr = TISGetInputSourceProperty(src, kTISPropertyBundleID) else { return true }
+        let bundleId = Unmanaged<CFString>.fromOpaque(bPtr).takeUnretainedValue() as String
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) else { return true }
+        return url.path.hasPrefix("/System/")
     }
 
     /// Switch to an Apple ASCII-capable keyboard; false if none is enabled.

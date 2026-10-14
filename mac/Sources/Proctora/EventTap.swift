@@ -34,8 +34,6 @@ final class EventTap {
     static var userHotkeys: Set<Hotkey> = []
     /// Audit M-09: VoiceOver on -> its Ctrl-Opt chords pass.
     static var voiceOverOn = false
-    /// Audit M-08: last input posted by a non-Apple program (pid, app name, time).
-    static var lastForeignInput: (pid: Int32, name: String, at: Date)?
 
     struct Hotkey: Hashable {
         let keyCode: Int
@@ -51,7 +49,12 @@ final class EventTap {
         guard let all = UserDefaults(suiteName: "com.apple.symbolichotkeys")?
             .dictionary(forKey: "AppleSymbolicHotKeys") else { return [] }
         var out: Set<Hotkey> = []
-        for case let entry as [String: Any] in all.values {
+        // Review 2026-10-14: 60/61 are "select previous / next input source" (Ctrl-Space by
+        // default). Students switch Pinyin / Russian / Uzbek with them, and the blocking
+        // screen tells them to press Ctrl-Space, so they must stay usable.
+        let inputSourceSwitching: Set<String> = ["60", "61"]
+        for (id, raw) in all where !inputSourceSwitching.contains(id) {
+            guard let entry = raw as? [String: Any] else { continue }
             guard (entry["enabled"] as? Bool) == true || (entry["enabled"] as? Int) == 1,
                   let value = entry["value"] as? [String: Any],
                   let params = value["parameters"] as? [Any], params.count >= 3,
@@ -102,19 +105,18 @@ final class EventTap {
             if EventTap.isSynthetic(event) {
                 // Audit M-08: Apple's own helpers (Accessibility Keyboard, Voice Control,
                 // Switch Control, Universal Control) post input too: log, don't swallow.
-                // Any other program's input is swallowed and the student is told.
+                // Any other program's input is swallowed and reported to the teacher.
                 let pid = Int32(truncatingIfNeeded: event.getIntegerValueField(.eventSourceUnixProcessID))
-                let poster = EventTap.posterName(pid)
-                let apple = poster.bundleId.hasPrefix("com.apple.")
+                // Review 2026-10-14: "Apple" means signed by Apple, not a bundle id that
+                // says com.apple (any app can claim that). Cached per pid by CodeSign.
+                let apple = CodeSign.isApple(pid: pid)
                 let now = Date()
                 if now.timeIntervalSince(EventTap.lastSyntheticLog) > 5 {
                     EventTap.lastSyntheticLog = now
+                    let poster = EventTap.posterName(pid)
                     EventLog.shared.record(.syntheticInput("type=\(type.rawValue) pid=\(pid) \(poster.bundleId.isEmpty ? poster.name : poster.bundleId)\(apple ? " (Apple, allowed)" : "")"))
                 }
-                if !apple {
-                    EventTap.lastForeignInput = (pid, poster.name, now)
-                    return nil
-                }
+                if !apple { return nil }
             }
             switch type {
             case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
@@ -169,6 +171,7 @@ final class EventTap {
     func stop() {
         guard isRunning, let tap else { return }
         CGEvent.tapEnable(tap: tap, enable: false)
+        CFMachPortInvalidate(tap)            // one tap port per lock: don't leak it
         if let source, let loop = threadLoop {
             CFRunLoopRemoveSource(loop, source, .commonModes)
             CFRunLoopStop(loop)

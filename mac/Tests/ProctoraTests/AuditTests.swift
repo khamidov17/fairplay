@@ -178,8 +178,12 @@ import Carbon.HIToolbox
         #expect(EventLog.Event.appInBackground("Cisco AnyConnect").pair == ("app_in_background", "Cisco AnyConnect"))
     }
 
-    @Test func thisMacIsNotAVirtualMachine() {
-        // The test Mac is real hardware; a false positive here would block every exam.
-        #expect(!SystemChecks.isVirtualMachine())
+    @Test func vmSignalsAreClassified() {
+        // Review 2026-10-14: the decision on fixed inputs (CI Macs are virtual machines).
+        #expect(SystemChecks.looksVirtual(hvFlag: 1, model: "Mac14,2", cpuFeatures: "", platformText: ""))
+        #expect(SystemChecks.looksVirtual(hvFlag: 0, model: "VirtualMac2,1", cpuFeatures: "", platformText: ""))
+        #expect(SystemChecks.looksVirtual(hvFlag: 0, model: "MacBookPro18,3", cpuFeatures: "FPU VME VMM SSE", platformText: ""))
+        #expect(SystemChecks.looksVirtual(hvFlag: 0, model: "MacBookPro18,3", cpuFeatures: "", platformText: "Parallels Software"))
+        #expect(!SystemChecks.looksVirtual(hvFlag: 0, model: "MacBookPro18,3", cpuFeatures: "FPU VME SSE", platformText: "Apple Inc. Mac14,2"))
     }
 }

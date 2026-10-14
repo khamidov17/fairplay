@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { ApiError, NetworkError, currentStudentId, getToken, slice6Api, studentApi } from "../../api/client";
-import type { AnswerMap, AnswerValue, AttemptView, IntegrityEvent } from "../../api/types";
+import type { AllowedApp, AnswerMap, AnswerValue, AttemptView, IntegrityEvent } from "../../api/types";
 import { NotLockedBanner } from "../../components/LockBanner";
 import { AnswerInput, RubricPanel } from "../../components/student/AnswerInput";
 import { LockedBar } from "../../components/student/LockedBar";
@@ -110,6 +110,7 @@ function ExamTakingInner() {
   // realAidRef is the server attempt id; null while an offline attempt has not reached the
   // server yet. Every API call goes through call(): online attempts call straight through,
   // offline ones first POST start with offline_started_at (once), then use the real id.
+  const appsRef = useRef<AllowedApp[] | undefined>(undefined);
   const offline = isOfflineAttemptId(attemptId);
   const offlineExamId = offline ? examIdOfOffline(attemptId) : "";
   const realAidRef = useRef<string | null>(
@@ -300,6 +301,7 @@ function ExamTakingInner() {
         queueRef.current = queue;
         queue.init(a.answers);
         setAnswers(queue.getAnswers());
+        appsRef.current = a.allowed_apps;   // 2026-10-14: handed to the app with "lock"
         setAttempt(a);
         setDeadline(a.deadline_at);
         setOffset(clockOffset(a.server_time));
@@ -349,7 +351,9 @@ function ExamTakingInner() {
     const token = getToken("student");
     const res = await bridge.requestLock(
       10000,
-      aid && session && token ? { attempt_id: aid, token, session } : undefined,
+      aid && session && token
+        ? { attempt_id: aid, token, session, allowed_apps: bridge.allowedAppIds(appsRef.current) }
+        : { allowed_apps: bridge.allowedAppIds(appsRef.current) },   // offline start
     );
     lockingRef.current = false;
     if (finishedRef.current) return;
@@ -377,7 +381,8 @@ function ExamTakingInner() {
     const aid = realAidRef.current;
     const session = aid ? getAttemptSession(aid) : null;
     const token = getToken("student");
-    if (attempt && aid && session && token) bridge.setExamSession({ attempt_id: aid, token, session });
+    if (attempt && aid && session && token)
+      bridge.setExamSession({ attempt_id: aid, token, session, allowed_apps: bridge.allowedAppIds(attempt.allowed_apps) });
   }, [attempt, connected]);
 
   // ----- native messages: lock state + integrity events -----
@@ -413,6 +418,7 @@ function ExamTakingInner() {
         void flushEvents();
       }
     });
+    bridge.requestEvents();   // review 2026-10-14: events the app held for us
     return () => {
       off();
       if (eventTimerRef.current) clearTimeout(eventTimerRef.current);

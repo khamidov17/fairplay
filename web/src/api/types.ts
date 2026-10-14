@@ -89,6 +89,26 @@ export interface Exam {
   external_url?: string | null;
   allowed_domains?: string[];
   finish_url_contains?: string | null;
+  /** 2026-10-14: apps allowed during the exam (catalog keys); everything else is closed. */
+  allowed_apps?: string[];
+}
+
+/** 2026-10-14: an app a teacher may allow (GET /api/exams/allowed-apps). */
+export interface AllowedAppOption {
+  key: string;
+  name: string;
+  /** can open files or reach the internet on its own */
+  risky: boolean;
+  mac: boolean;
+  windows: boolean;
+}
+
+/** An allowed app as the exam page hands it to FairPlay (ids per platform). */
+export interface AllowedApp {
+  key: string;
+  name: string;
+  mac: string[];
+  windows: string[];
 }
 
 export interface ExamInput {
@@ -106,6 +126,7 @@ export interface ExamInput {
   finish_url_contains?: string | null;
   /** slice 4: total points of an exam held on another website (default 100). */
   external_points?: number;
+  allowed_apps?: string[];
 }
 
 export interface LiveStudent {
@@ -411,6 +432,8 @@ export interface AttemptView {
   finish_url_contains?: string | null;
   /** Only in the POST start response: the app session (X-FairPlay-Session). */
   session?: string;
+  /** 2026-10-14: apps the locked computer keeps open (everything else is closed). */
+  allowed_apps?: AllowedApp[];
 }
 
 export interface SaveAnswersResponse {
@@ -593,6 +616,8 @@ export interface OfflineExam {
   mode: ExamMode;
   shuffle_questions: boolean;
   questions: StudentQuestion[];
+  /** 2026-10-14 (packages built since): apps kept open while locked */
+  allowed_apps?: AllowedApp[];
   generated_at: string;
 }
 

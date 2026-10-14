@@ -351,3 +351,25 @@ def test_app_signal_from_new_network_is_flagged(app_client, exam):
 def test_background_app_event_is_a_client_type():
     from app.app_client import client_event_type
     assert client_event_type("app_in_background") == "app_in_background"
+
+
+# ---------------------------------------------------------------- allowed apps (2026-10-14)
+def test_allowed_apps_catalog_and_exam(client, teacher, alice):
+    cat = client.get("/api/exams/allowed-apps", headers=teacher).json()
+    assert {"key": "calculator", "name": "Calculator", "risky": False, "mac": True, "windows": True} in cat
+    assert client.get("/api/exams/allowed-apps", headers=alice).status_code == 403
+    bad = client.post("/api/exams", headers=teacher, json={**SAMPLE_EXAM, "allowed_apps": ["terminal"]})
+    assert bad.status_code == 422
+    e = client.post("/api/exams", headers=teacher,
+                    json={**SAMPLE_EXAM, "allowed_apps": ["excel", "calculator", "calculator"]}).json()
+    assert e["allowed_apps"] == ["calculator", "excel"]          # catalog order, no duplicates
+    e = client.post(f"/api/exams/{e['id']}/open", headers=teacher).json()
+    a = client.post(f"/api/student/exams/{e['id']}/start", headers=alice,
+                    json={"start_code": e["start_code"]}).json()
+    apps = a["allowed_apps"]
+    assert [x["key"] for x in apps] == ["calculator", "excel"]
+    assert apps[0]["mac"] == ["com.apple.calculator"] and "excel" in apps[1]["windows"]
+    # PUT without the field keeps it
+    r = client.put(f"/api/exams/{e['id']}", headers=teacher, json={**SAMPLE_EXAM, "title": "T2"})
+    if r.status_code == 200:
+        assert r.json()["allowed_apps"] == ["calculator", "excel"]

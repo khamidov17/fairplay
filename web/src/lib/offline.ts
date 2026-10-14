@@ -397,6 +397,7 @@ export function offlineAttemptView(exam: OfflineExam, now = Date.now()): Attempt
     external_url: null,
     allowed_domains: [],
     finish_url_contains: null,
+    allowed_apps: exam.allowed_apps ?? [],
   };
 }
 

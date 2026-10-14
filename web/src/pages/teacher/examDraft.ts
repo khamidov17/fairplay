@@ -58,6 +58,8 @@ export interface DraftExam {
   externalPoints: string;
   /** Slice 6: on computers / on paper / on another website (website <=> external.mode). */
   delivery: Delivery;
+  /** 2026-10-14: apps students may keep open (catalog keys); all others are closed. */
+  allowedApps: string[];
 }
 
 export type QuestionErrors = Partial<
@@ -173,6 +175,7 @@ export function draftFromExam(exam?: Exam): DraftExam {
       external: { ...EMPTY_EXTERNAL_SETTINGS },
       externalPoints: "100",
       delivery: "computer",
+      allowedApps: [],
     };
   const sched = splitSchedule(exam.scheduled_at);
   return {
@@ -187,6 +190,7 @@ export function draftFromExam(exam?: Exam): DraftExam {
     external: externalSettingsFrom(exam),
     externalPoints: exam.mode === "external" && exam.total_points ? String(exam.total_points) : "100",
     delivery: exam.delivery ?? (exam.mode === "external" ? "website" : "computer"),
+    allowedApps: [...(exam.allowed_apps ?? [])],
     questions: exam.questions.map((q) => ({
       key: newKey(),
       type: q.type,
@@ -358,6 +362,7 @@ export function toExamInput(d: DraftExam): ExamInput {
     ...externalExamInput(d.external),
     ...(d.external.mode === "external" ? { external_points: Number(d.externalPoints) } : {}),
     delivery: d.external.mode === "external" ? "website" : d.delivery === "paper" ? "paper" : "computer",
+    allowed_apps: d.delivery === "paper" && d.external.mode !== "external" ? [] : [...d.allowedApps],
   };
 }
 

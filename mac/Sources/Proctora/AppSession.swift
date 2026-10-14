@@ -90,13 +90,23 @@ final class AppSession {
         return mac.map { String(format: "%02x", $0) }.joined()
     }
 
+    // Signed message formats (server: app_client.start_message / beat_message /
+    // offline_key_message). Kept here so the tests can compare them with the server's.
+    static func startMessage(nonce: String, deviceId: String) -> String { "start|\(nonce)|\(deviceId)" }
+    static func beatMessage(aid: String, session: String, deviceId: String, ts: Int64, locked: Bool, checks: String) -> String {
+        "beat|\(aid)|\(session)|\(deviceId)|\(ts)|\(locked ? 1 : 0)|\(checks)"
+    }
+    static func offkeyMessage(aid: String, session: String, deviceId: String, ts: Int64) -> String {
+        "offkey|\(aid)|\(session)|\(deviceId)|\(ts)"
+    }
+
     /// Bridge reply to {"action": "attest", "nonce": ...}.
     func attestation(nonce: String) -> [String: Any] {
         guard AppSession.isSafeToken(nonce, min: 8, max: 128) else {
             return ["type": "attestationFailed", "nonce": nonce, "reason": "bad_nonce"]
         }
         return ["type": "attestation", "nonce": nonce, "device_id": deviceId,
-                "signature": AppSession.sign("start|\(nonce)|\(deviceId)"),
+                "signature": AppSession.sign(AppSession.startMessage(nonce: nonce, deviceId: deviceId)),
                 "version": Config.version, "build": Config.isDevBuild ? "dev" : "release"]
     }
 
@@ -117,9 +127,10 @@ final class AppSession {
         // Audit 2026-10-13: while locked, the lock belongs to the attempt it was taken for.
         // The page can't swap in another attempt (whose hand-in / "gone" would then end
         // this lock); it gets the same attempt with a new session or token only.
-        if LockdownController.shared.isLocked, let cur = exam, cur.attemptId != attemptId {
-            DebugLog.log("exam", "exam session REFUSED: locked for \(cur.attemptId), page asked for \(attemptId)")
-            EventLog.shared.record(.blockedNavigation("another exam while locked"))
+        if LockdownController.shared.isLocked, let cur = exam,
+           !AppSession.mayReplace(current: cur, attemptId: attemptId, token: token) {
+            DebugLog.log("exam", "exam session REFUSED: locked for \(cur.attemptId), page asked for \(attemptId) / another account")
+            EventLog.shared.record(.blockedNavigation("another exam or account while locked"))
             return false
         }
         let moved = exam?.attemptId != attemptId || exam?.session != session
@@ -138,6 +149,26 @@ final class AppSession {
             fetchOfflineKey()
         }
         return true
+    }
+
+    /// While locked: same attempt, and (review 2026-10-14) a token of the same student.
+    /// Otherwise another account's token would make the server answer "gone" for this
+    /// attempt, which ends the lock.
+    static func mayReplace(current: Exam, attemptId: String, token: String) -> Bool {
+        guard current.attemptId == attemptId else { return false }
+        guard let was = tokenUserId(current.token) else { return true }
+        return tokenUserId(token) == was
+    }
+
+    /// The account id inside a FairPlay token ("<uid>:<role>:..." base64url, then "."
+    /// signature). Not verified here: the server checks every request.
+    static func tokenUserId(_ token: String) -> String? {
+        guard let payload = token.split(separator: ".").first else { return nil }
+        var b64 = payload.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+        while b64.count % 4 != 0 { b64 += "=" }
+        guard let data = Data(base64Encoded: b64), let text = String(data: data, encoding: .utf8) else { return nil }
+        let uid = text.split(separator: ":").first.map(String.init) ?? ""
+        return !uid.isEmpty && uid.allSatisfy(\.isNumber) ? uid : nil
     }
 
     func clearExam() {
@@ -164,7 +195,7 @@ final class AppSession {
         lastTs = ts
         let locked = LockdownController.shared.isLocked
         let checks = String((checksProvider?() ?? "").prefix(200))
-        let msg = "beat|\(exam.attemptId)|\(exam.session)|\(deviceId)|\(ts)|\(locked ? 1 : 0)|\(checks)"
+        let msg = AppSession.beatMessage(aid: exam.attemptId, session: exam.session, deviceId: deviceId, ts: ts, locked: locked, checks: checks)
         let body: [String: Any] = ["session": exam.session, "device_id": deviceId, "ts": NSNumber(value: ts),
                                    "locked": locked, "checks": checks, "signature": AppSession.sign(msg)]
         Net.request("POST", path: "api/student/attempts/\(exam.attemptId)/app-beat", token: exam.token,
@@ -183,7 +214,8 @@ final class AppSession {
         offlineKeyTries += 1
         var ts = Int64(Date().timeIntervalSince1970 * 1000)
         if ts <= lastTs { ts = lastTs + 1 }
-        let msg = "offkey|\(exam.attemptId)|\(exam.session)|\(deviceId)|\(ts)"
+        lastTs = ts
+        let msg = AppSession.offkeyMessage(aid: exam.attemptId, session: exam.session, deviceId: deviceId, ts: ts)
         let body: [String: Any] = ["session": exam.session, "device_id": deviceId, "ts": NSNumber(value: ts),
                                    "signature": AppSession.sign(msg)]
         Net.request("POST", path: "api/student/attempts/\(exam.attemptId)/offline-key", token: exam.token,
@@ -193,7 +225,8 @@ final class AppSession {
             if status == 200, let hex = json?["key"] as? String, let key = AppSession.data(hex: hex), key.count == 32 {
                 self.offlineKey = key
                 DebugLog.log("exam", "offline exit key received")
-            } else if status == nil && self.offlineKeyTries < 30 {
+            } else if AppSession.offlineKeyRetryable(status) && self.offlineKeyTries < 30 {
+                // Review 2026-10-14: also after a 5xx / 429 (a whole room starting at once).
                 DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in self?.fetchOfflineKey() }
             } else {
                 DebugLog.log("exam", "offline exit key NOT available (HTTP \(status.map(String.init) ?? "none"))")
@@ -201,9 +234,18 @@ final class AppSession {
         }
     }
 
+    /// No answer, a server error or "busy": try again. 4xx is a definite no.
+    static func offlineKeyRetryable(_ status: Int?) -> Bool {
+        guard let status else { return true }
+        return status == 429 || status >= 500
+    }
+
     static func data(hex: String) -> Data? {
         let chars = Array(hex.utf8)
         guard chars.count % 2 == 0 else { return nil }
+        // Review 2026-10-14: hex digits only (UInt8(_:radix:) alone accepts "+f").
+        guard chars.allSatisfy({ ($0 >= 48 && $0 <= 57) || ($0 >= 65 && $0 <= 70) || ($0 >= 97 && $0 <= 102) })
+        else { return nil }
         var out = Data(capacity: chars.count / 2)
         var i = 0
         while i < chars.count {
@@ -235,17 +277,28 @@ final class AppSession {
                 done(status == nil ? .unreachable : .notYet)
                 return
             }
-            let expected = AppSession.sign("handin|\(exam.attemptId)|\(exam.session)|\(st)|\(nonce)")
-            let genuine = proofs.contains { AppSession.constantTimeEqual($0, expected) }
+            let genuine = AppSession.handInReplyIsGenuine(proofs: proofs, attemptId: exam.attemptId,
+                                                          session: exam.session, status: st, nonce: nonce)
             DebugLog.log("exam", "hand-in check: \(st), signature \(genuine ? "ok" : "WRONG")")
             guard genuine else {
-                EventLog.shared.record(.pinMismatch("hand-in answer not signed by the server"))
+                EventLog.shared.record(.serverReplyUnsigned("hand-in answer"))
                 done(.notYet)
                 return
             }
-            done(["submitted", "gone", "moved"].contains(st) ? .confirmed : .notYet)
+            done(AppSession.unlockAllowed(status: st) ? .confirmed : .notYet)
         }
     }
+
+    /// The signed hand-in answer (audit M-04), as a pure check for the tests.
+    static func handInReplyIsGenuine(proofs: [String], attemptId: String, session: String,
+                                     status: String, nonce: String) -> Bool {
+        let expected = AppSession.sign("handin|\(attemptId)|\(session)|\(status)|\(nonce)")
+        return proofs.contains { AppSession.constantTimeEqual($0, expected) }
+    }
+
+    /// Statuses that end the lock: handed in, attempt deleted by the teacher, or moved to
+    /// another computer by the teacher.
+    static func unlockAllowed(status: String) -> Bool { ["submitted", "gone", "moved"].contains(status) }
 
     static func exitReplyIsGenuine(proofs: [String], attemptId: String, session: String, nonce: String) -> Bool {
         let expected = AppSession.sign("exit|\(attemptId)|\(session)|ok|\(nonce)")
@@ -273,22 +326,26 @@ final class AppSession {
         Net.request("POST", path: "api/student/attempts/\(exam.attemptId)/exit-code", token: exam.token,
                     appSession: exam.session,
                     body: ["code": String(code.prefix(16)), "nonce": nonce]) { status, json in
-            switch status {
-            case 200?:
-                guard (json?["ok"] as? Bool) == true else { done(.wrong); return }
-                let proofs = (json?["proofs"] as? [String]) ?? []
-                guard AppSession.exitReplyIsGenuine(proofs: proofs, attemptId: exam.attemptId,
-                                                    session: exam.session, nonce: nonce) else {
-                    EventLog.shared.record(.pinMismatch("exit-code answer not signed by the server"))
-                    done(.serverError(200))
-                    return
-                }
-                done(.ok)
-            case 403?: done(.wrong)
-            case 429?: done(.tooMany)
-            case nil: done(.unreachable)
-            case let other?: done(.serverError(other))
-            }
+            let r = AppSession.exitResult(status: status, json: json, attemptId: exam.attemptId,
+                                          session: exam.session, nonce: nonce)
+            if r == .serverError(200) { EventLog.shared.record(.serverReplyUnsigned("exit-code answer")) }
+            done(r)
+        }
+    }
+
+    /// The server's answer to an invigilator code, as a pure mapping for the tests.
+    static func exitResult(status: Int?, json: [String: Any]?, attemptId: String, session: String,
+                           nonce: String) -> ExitResult {
+        switch status {
+        case 200?:
+            guard (json?["ok"] as? Bool) == true else { return .wrong }
+            let proofs = (json?["proofs"] as? [String]) ?? []
+            return exitReplyIsGenuine(proofs: proofs, attemptId: attemptId, session: session, nonce: nonce)
+                ? .ok : .serverError(200)
+        case 403?: return .wrong
+        case 429?: return .tooMany
+        case nil: return .unreachable
+        case let other?: return .serverError(other)
         }
     }
 }

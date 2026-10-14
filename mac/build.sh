@@ -36,7 +36,7 @@ case "$MODE" in
     [[ "$KEY" != "$DEV_KEY" && ${#KEY} -ge 32 ]] || { echo "FAIRPLAY_APP_KEY must be a private value of 32+ characters"; exit 1; }
     # Audit M-04: without pins any CA an admin installs can read and change the traffic
     # (and fake the hand-in). Release builds must pin the server's CA (see pin.sh).
-    [[ -n "${FAIRPLAY_PINS:-}" ]] || { echo "Release builds need FAIRPLAY_PINS (run: bash pin.sh https://your-exam-server)"; exit 1; }
+    [[ -n "${FAIRPLAY_PINS:-}" ]] || { echo "Release builds need FAIRPLAY_PINS (run: bash pin.sh your-exam-server[:port])"; exit 1; }
     SWIFT_FLAGS=()
     ;;
   *) echo "FAIRPLAY_BUILD must be dev or release"; exit 1 ;;
@@ -81,6 +81,10 @@ BIN="$(swift build -c release ${ARCH_FLAGS[@]+"${ARCH_FLAGS[@]}"} --show-bin-pat
 echo "==> Assembling $BUNDLE..."
 rm -rf "$BUNDLE"; mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 cp "$BIN" "$BUNDLE/Contents/MacOS/$APP"
+# Review 2026-10-14: the watchdog runs as its own executable name, so `killall Proctora`
+# (e.g. from a script left running before the exam) can't take it down with the app.
+cp "$BIN" "$BUNDLE/Contents/MacOS/FairPlayGuard"
+GUARD="$BUNDLE/Contents/MacOS/FairPlayGuard"
 CONF="$BUNDLE/Contents/Resources/FairPlayBuild.plist"
 plutil -create xml1 "$CONF"
 plutil -insert ServerURL -string "$SERVER" "$CONF"
@@ -92,7 +96,7 @@ for p in "${PIN_LIST[@]:-}"; do
   [ -n "$p" ] || continue
   plutil -insert "Pins.$i" -string "$p" "$CONF"; i=$((i + 1))
 done
-chmod 600 "$CONF"
+chmod 644 "$CONF"   # readable when the app is installed by root (MDM / .pkg); the key is not secret from the student anyway (M-20)
 if [ "$MODE" = dev ]; then
   # Dev: plain http to local addresses only (127.0.0.1, .local, LAN IPs). No arbitrary loads.
   ATS='<key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>'
@@ -120,6 +124,7 @@ PLIST
 
 if [ -n "${FAIRPLAY_SIGN_ID:-}" ]; then
   echo "==> Signing with '$FAIRPLAY_SIGN_ID' (hardened runtime)..."
+  codesign --force --options runtime --timestamp --sign "$FAIRPLAY_SIGN_ID" "$GUARD"
   codesign --force --options runtime --timestamp --sign "$FAIRPLAY_SIGN_ID" "$BUNDLE"
   if [ -n "${FAIRPLAY_NOTARY_PROFILE:-}" ]; then
     echo "==> Notarizing..."
@@ -135,9 +140,11 @@ elif security find-identity -p codesigning 2>/dev/null | grep -q "Proctora Dev";
   # Accessibility permission is tied to the code signature: the self-signed
   # "Proctora Dev" certificate keeps the grant across rebuilds.
   echo "==> Signing with 'Proctora Dev'..."
+  codesign --force --options runtime --sign "Proctora Dev" "$GUARD"
   codesign --force --options runtime --sign "Proctora Dev" "$BUNDLE"
 else
   echo "==> Ad-hoc signing (Accessibility will be asked again after each rebuild)..."
+  codesign --force --options runtime --sign - "$GUARD"
   codesign --force --options runtime --sign - "$BUNDLE"
 fi
 [ "$MODE" = release ] && [ -z "${FAIRPLAY_SIGN_ID:-}" ] && \

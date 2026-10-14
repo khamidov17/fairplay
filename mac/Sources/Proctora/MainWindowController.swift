@@ -117,11 +117,21 @@ final class MainWindowController: NSWindowController, LockSurface,
         // URL itself: a teacher page inside the student app goes back to the student login.
         urlWatch = wv.observe(\.url, options: [.new]) { [weak self] view, _ in
             DispatchQueue.main.async {
-                guard let self, let u = view.url, self.isServerURL(u),
-                      MainWindowController.isTeacherPath(u.path) else { return }
-                EventLog.shared.record(.blockedNavigation("teacher page \(u.path)"))
-                DebugLog.log("web", "teacher page opened in-page, sent back: \(u.path)")
-                view.load(URLRequest(url: Config.startURL))
+                guard let self, let u = view.url, self.isServerURL(u) else { return }
+                if MainWindowController.isTeacherPath(u.path) {
+                    EventLog.shared.record(.blockedNavigation("teacher page \(u.path)"))
+                    DebugLog.log("web", "teacher page opened in-page, sent back: \(u.path)")
+                    view.load(URLRequest(url: Config.startURL))
+                    return
+                }
+                // Review 2026-10-14: in-page route changes away from the locked attempt
+                // (e.g. a "Back to home" link) go back to it.
+                let aid = AppSession.shared.exam?.attemptId
+                if LockdownController.shared.isLocked,
+                   !MainWindowController.allowedWhileLocked(path: u.path, attemptId: aid), let aid {
+                    EventLog.shared.record(.blockedNavigation("left the exam: \(u.path)"))
+                    view.load(URLRequest(url: Config.serverURL.appendingPathComponent("student/exam/\(aid)")))
+                }
             }
         }
         external.attach(webView: wv, container: content, window: window)
@@ -167,11 +177,14 @@ final class MainWindowController: NSWindowController, LockSurface,
         return "if (location.origin === '\(origin)') { window.__fairplayNonce = '\(safeNonce)'; }"
     }
 
-    private func isServerURL(_ url: URL?) -> Bool {
+    private func isServerURL(_ url: URL?) -> Bool { MainWindowController.isServerURL(url, server: server) }
+
+    /// Same scheme, host (any case) and port as the exam server (default ports filled in).
+    static func isServerURL(_ url: URL?, server: URL) -> Bool {
         guard let url, let host = url.host else { return false }
-        let port = url.port ?? defaultPort(url.scheme)
-        let serverPort = server.port ?? defaultPort(server.scheme)
-        return host == server.host && port == serverPort && url.scheme?.lowercased() == server.scheme?.lowercased()
+        func port(_ u: URL) -> Int { u.port ?? (u.scheme?.lowercased() == "https" ? 443 : 80) }
+        return host.lowercased() == (server.host ?? "").lowercased() && port(url) == port(server)
+            && url.scheme?.lowercased() == server.scheme?.lowercased()
     }
 
     func userContentController(_ c: WKUserContentController, didReceive message: WKScriptMessage) {
@@ -197,11 +210,15 @@ final class MainWindowController: NSWindowController, LockSurface,
         switch action {
         case "hello":
             sendState()
+        case "flushEvents":
+            flushEventQueue()
         case "attest":
             send(AppSession.shared.attestation(nonce: (body["nonce"] as? String) ?? ""))
         case "session":
-            AppSession.shared.setExam(attemptId: body["attempt_id"] as? String, token: body["token"] as? String,
-                                      session: body["session"] as? String)
+            if AppSession.shared.setExam(attemptId: body["attempt_id"] as? String, token: body["token"] as? String,
+                                         session: body["session"] as? String) {
+                Allowlist.updateTeacherAllowed(body["allowed_apps"])
+            }
         case "lock":
             // Audit M-06: lock only for a valid exam session -- or an explicit offline start
             // (no server session yet; then only the invigilator or a hand-in that reaches the
@@ -215,6 +232,7 @@ final class MainWindowController: NSWindowController, LockSurface,
                 return
             }
             if offlineStart { DebugLog.log("lock", "offline start: locking without a server session") }
+            Allowlist.updateTeacherAllowed(body["allowed_apps"])
             if LockdownController.shared.lock() {
                 hidePermission()
                 send(["type": "locked"])
@@ -228,6 +246,7 @@ final class MainWindowController: NSWindowController, LockSurface,
                 send(["type": "externalFailed", "reason": "bad_session"])
                 return
             }
+            Allowlist.updateTeacherAllowed(body["allowed_apps"])
             if !LockdownController.shared.isLocked {
                 guard LockdownController.shared.lock() else {
                     showPermission()
@@ -262,8 +281,8 @@ final class MainWindowController: NSWindowController, LockSurface,
             switch result {
             case .confirmed:
                 self.unlockRetry?.invalidate(); self.unlockRetry = nil
-                AppSession.shared.clearExam()
                 LockdownController.shared.unlock()       // onUnlocked sends "unlocked"
+                AppSession.shared.clearExam()   // after unlock: its last beat (locked=0) still needs the session
             case .notYet, .unreachable:
                 self.send(["type": "unlockPending",
                            "reason": result == .unreachable ? "offline" : "not_submitted"])
@@ -286,8 +305,8 @@ final class MainWindowController: NSWindowController, LockSurface,
         AppSession.shared.confirmHandIn { [weak self] result in
             guard let self, result == .confirmed, LockdownController.shared.isLocked else { return }
             self.unlockRetry?.invalidate(); self.unlockRetry = nil
-            AppSession.shared.clearExam()
             LockdownController.shared.unlock()
+            AppSession.shared.clearExam()   // after unlock: its last beat (locked=0) still needs the session
         }
     }
 
@@ -305,13 +324,33 @@ final class MainWindowController: NSWindowController, LockSurface,
               "version": Config.version])
     }
 
+    /// Review 2026-10-14: integrity events wait here until a page that forwards them to the
+    /// server (the exam page) has asked for them ("flushEvents"), instead of being dropped
+    /// while no such page is listening (between loads, the error page, the start page...).
+    private var eventsReady = false
+    private var eventQueue: [[String: Any]] = []
+    private let eventQueueMax = 300
+
     func sendEvent(type: String, detail: String, time: String) {
         if external.isActive {
             // Our JS page is gone while the exam website is open: the controller sends events itself.
             external.queueEvent(type: type, detail: detail, time: time)
             return
         }
-        send(["type": "event", "event": ["type": type, "detail": detail, "client_time": time]])
+        let event: [String: Any] = ["type": type, "detail": detail, "client_time": time]
+        if eventsReady, let webView, isServerURL(webView.url) {
+            send(["type": "event", "event": event])
+        } else {
+            eventQueue.append(event)
+            if eventQueue.count > eventQueueMax { eventQueue.removeFirst(eventQueue.count - eventQueueMax) }
+        }
+    }
+
+    private func flushEventQueue() {
+        eventsReady = true
+        let queued = eventQueue
+        eventQueue.removeAll()
+        for e in queued { send(["type": "event", "event": e]) }
     }
 
     func send(_ detail: [String: Any]) {
@@ -346,8 +385,19 @@ final class MainWindowController: NSWindowController, LockSurface,
         let ownLocalPage = isLocal && ownPageLoadPending && navigationAction.navigationType == .other
             && (navigationAction.targetFrame?.isMainFrame ?? true)
         if ownLocalPage { ownPageLoadPending = false }
+        // Review 2026-10-14: while locked, only the locked attempt's own pages.
+        if isServerURL(url), (navigationAction.targetFrame?.isMainFrame ?? true), LockdownController.shared.isLocked,
+           !MainWindowController.allowedWhileLocked(path: url.path, attemptId: AppSession.shared.exam?.attemptId) {
+            EventLog.shared.record(.blockedNavigation("left the exam: \(url.path)"))
+            DebugLog.log("web", "navigation BLOCKED while locked: \(url.path)")
+            decisionHandler(.cancel)
+            return
+        }
         if ownLocalPage || isServerURL(url) || external.allows(url) {
-            if navigationAction.targetFrame?.isMainFrame ?? true { external.checkFinishURL(url) }
+            if navigationAction.targetFrame?.isMainFrame ?? true {
+                external.checkFinishURL(url)
+                eventsReady = false            // the new page asks again when it listens
+            }
             decisionHandler(.allow)
         } else {
             EventLog.shared.record(.blockedNavigation(url.host ?? url.absoluteString))
@@ -366,6 +416,17 @@ final class MainWindowController: NSWindowController, LockSurface,
             return Config.serverURL.appendingPathComponent("student/exam/\(args[i + 1])")
         }
         return Config.startURL
+    }
+
+    /// Pages a locked computer may show: the locked attempt's exam / website-exam / done
+    /// pages (and any attempt's while the attempt is not known yet, i.e. an offline start).
+    static func allowedWhileLocked(path: String, attemptId: String?) -> Bool {
+        let p = path.lowercased()
+        let roots = ["/student/exam/", "/student/external/", "/student/external-done/", "/student/done/"]
+        guard let aid = attemptId?.lowercased() else { return roots.contains { p.hasPrefix($0) } }
+        let offlineOK = ["/student/exam/offline:", "/student/exam/offline%3a",
+                         "/student/done/offline:", "/student/done/offline%3a"].contains { p.hasPrefix($0) }
+        return offlineOK || roots.contains { p == $0 + aid || p.hasPrefix($0 + aid + "/") }
     }
 
     static func isTeacherPath(_ path: String) -> Bool {
@@ -558,7 +619,9 @@ final class MainWindowController: NSWindowController, LockSurface,
     func coverAllScreens() {
         guard let win = window, LockdownController.shared.isLocked else { return }
         let union = NSScreen.screens.reduce(NSRect.zero) { $0.union($1.frame) }
-        win.setFrame(union.isEmpty ? (NSScreen.main?.frame ?? win.frame) : union, display: true)
+        let target = union.isEmpty ? (NSScreen.main?.frame ?? win.frame) : union
+        // Called every 3 s: only touch the window when the screens really changed.
+        if win.frame != target { win.setFrame(target, display: true) }
     }
 
     private var blockingAction: (() -> Void)?
@@ -653,8 +716,8 @@ final class MainWindowController: NSWindowController, LockSurface,
             if OfflineExit.devCodeMatches(typed.filter { !$0.isWhitespace && $0 != "-" }) {
                 DebugLog.log("exit", "dev test code accepted (dev build only)")
                 EventLog.shared.record(.offlineExit)
-                AppSession.shared.clearExam()
                 LockdownController.shared.unlock()
+                AppSession.shared.clearExam()   // after unlock: its last beat (locked=0) still needs the session
                 return
             }
             AppSession.shared.checkExitCode(typed) { result in
@@ -662,13 +725,13 @@ final class MainWindowController: NSWindowController, LockSurface,
                 guard LockdownController.shared.isLocked else { return }
                 switch result {
                 case .ok:
-                    AppSession.shared.clearExam()
                     LockdownController.shared.unlock()
+                    AppSession.shared.clearExam()   // after unlock: its last beat (locked=0) still needs the session
                 case .wrong:
                     NSSound.beep()
                     self?.notice("Wrong invigilator code. Press Ctrl-Opt-Cmd-E to try again.")
                 case .tooMany:
-                    self?.notice("Too many wrong codes. Wait 5 minutes.")
+                    self?.notice("Too many wrong codes. Wait 5 minutes.")   // server: WRONG_EXIT_LOCK_S
                 case .unreachable:
                     self?.promptOfflineExit(reason: "The exam server cannot be reached.")
                 case .noSession:
@@ -717,15 +780,15 @@ final class MainWindowController: NSWindowController, LockSurface,
             switch result {
             case .ok:
                 EventLog.shared.record(.offlineExit)
-                AppSession.shared.clearExam()
                 LockdownController.shared.unlock()
+                AppSession.shared.clearExam()   // after unlock: its last beat (locked=0) still needs the session
             case .wrong:
                 NSSound.beep()
                 EventLog.shared.record(.offlineExitRejected)
                 DispatchQueue.main.async { self?.promptOfflineExit(reason: "Wrong code, try again.") }
             case .tooMany:
                 EventLog.shared.record(.offlineExitRejected)
-                DispatchQueue.main.async { self?.notice("Too many wrong codes. Wait 5 minutes, then press Ctrl-Opt-Cmd-E.") }
+                DispatchQueue.main.async { self?.notice("Too many wrong codes. Wait \(Int(OfflineExit.waitAfterWrong / 60)) minutes, then press Ctrl-Opt-Cmd-E.") }
             case .unavailable:
                 DispatchQueue.main.async { self?.promptOfflineExit(reason: nil) }   // shows why
             }

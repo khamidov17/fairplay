@@ -13,13 +13,25 @@ export type NativeMessage =
   | { type: "event"; event: IntegrityEvent }
   | { type: "attestation"; nonce: string; device_id: string; signature: string; version: string; build: string }
   | { type: "attestationFailed"; nonce: string; reason: string }
-  | { type: "preflight"; problems: string[] };
+  | { type: "preflight"; problems: string[] }
+  /** Review 2026-10-14: the app could not open the website exam (e.g. "bad_session"). */
+  | { type: "externalFailed"; reason: string };
 
 /** The attempt the app is locking for: it sends its own signed beats with these. */
 export interface ExamSessionParams {
   attempt_id: string;
   token: string;
   session: string;
+  /** 2026-10-14: app ids (macOS bundle ids and Windows process names) kept open while
+   *  locked; every other windowed app is closed. */
+  allowed_apps?: string[];
+}
+
+/** Flatten an attempt's allowed apps into the ids both apps understand. */
+export function allowedAppIds(apps: { mac: string[]; windows: string[] }[] | undefined): string[] {
+  const out: string[] = [];
+  for (const a of apps ?? []) for (const id of [...a.mac, ...a.windows]) if (!out.includes(id)) out.push(id);
+  return out;
 }
 
 /** Signed proof for POST start (CONTRACT.md "App session"). */
@@ -44,6 +56,7 @@ export interface OpenExternalParams {
   token: string;
   /** App session of the attempt (X-FairPlay-Session); "" for an attempt still offline. */
   session: string;
+  allowed_apps?: string[];
 }
 
 type OutMessage =
@@ -52,6 +65,7 @@ type OutMessage =
   | { action: "attest"; nonce: string }
   | { action: "unlock" }
   | { action: "hello" }
+  | { action: "flushEvents" }
   | { action: "preflight" }
   | ({ action: "openExternal" } & OpenExternalParams);
 
@@ -180,6 +194,12 @@ export function hello(): void {
   post({ action: "hello" });
 }
 
+/** Review 2026-10-14: this page forwards integrity events now; the app sends the ones it
+ *  held while no such page was listening, and the next ones as they happen. */
+export function requestEvents(): void {
+  post({ action: "flushEvents" });
+}
+
 export function unlock(): void {
   post({ action: "unlock" });
 }
@@ -201,6 +221,7 @@ export function openExternal(params: OpenExternalParams): boolean {
     title: params.title,
     token: params.token,
     session: params.session,
+    allowed_apps: [...(params.allowed_apps ?? [])],
   });
   return true;
 }
@@ -211,7 +232,13 @@ export function openExternal(params: OpenExternalParams): boolean {
  */
 export function setExamSession(params: ExamSessionParams): void {
   if (!params.session) return;
-  post({ action: "session", attempt_id: params.attempt_id, token: params.token, session: params.session });
+  post({
+    action: "session",
+    attempt_id: params.attempt_id,
+    token: params.token,
+    session: params.session,
+    allowed_apps: [...(params.allowed_apps ?? [])],
+  });
 }
 
 /**
@@ -275,7 +302,11 @@ export function requestLock(timeoutMs = 10000, exam?: Partial<ExamSessionParams>
     // Audit M-06: the app locks only for a valid exam session, or when the page says
     // this is an offline start (no server session yet; the app then can't unlock by itself
     // until the attempt reaches the server).
-    post(exam && exam.session ? { action: "lock", ...exam } : { action: "lock", offline: true });
+    post(
+      exam && exam.session
+        ? { action: "lock", ...exam }
+        : { action: "lock", offline: true, allowed_apps: [...(exam?.allowed_apps ?? [])] },
+    );
   });
 }
 

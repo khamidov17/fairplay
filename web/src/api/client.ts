@@ -1,4 +1,4 @@
-import type {
+import type { AllowedAppOption,
   AnswerMap,
   AttemptView,
   EventsResponse,
@@ -213,6 +213,7 @@ function gbQuery(course: string, classId: number | null): string {
 
 export const teacherApi = {
   listExams: () => request<Exam[]>("teacher", "GET", "/api/exams"),
+  allowedApps: () => request<AllowedAppOption[]>("teacher", "GET", "/api/exams/allowed-apps"),
   createExam: (input: ExamInput) => request<Exam>("teacher", "POST", "/api/exams", input),
   getExam: (id: string) => request<Exam>("teacher", "GET", `/api/exams/${enc(id)}`),
   updateExam: (id: string, input: ExamInput) => request<Exam>("teacher", "PUT", `/api/exams/${enc(id)}`, input),

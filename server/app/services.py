@@ -101,6 +101,7 @@ def exam_out(e: Exam, pending_grading: int = 0) -> dict:
         "course_link_id": e.course_link_id, "lms_assignment_id": e.lms_assignment_id,
         "delivery": exam_delivery(e),  # slice 6
         "class_id": e.class_id,        # audit S-03
+        "allowed_apps": list(e.allowed_apps or []),   # 2026-10-14
     }
 
 
@@ -189,6 +190,7 @@ async def get_exam_cached(store: Store, session: AsyncSession, exam_id: str) -> 
         "class_id": e.class_id,              # audit S-03: ... or to the exam's class
         "delivery": exam_delivery(e),  # slice 6: paper exams are never started in the app
         "scheduled_at": iso(e.scheduled_at),
+        "allowed_apps": list(e.allowed_apps or []),   # 2026-10-14
         "questions": [student_question(q) for q in e.questions or []],
         **external_fields(e),
     }
@@ -258,4 +260,11 @@ def attempt_view(a: Attempt, exam: dict, now: datetime) -> dict:
         "external_url": exam.get("external_url") if external else None,
         "allowed_domains": list(exam.get("allowed_domains") or []) if external else [],
         "finish_url_contains": exam.get("finish_url_contains") if external else None,
+        # 2026-10-14: apps the app keeps open while locked (everything else is closed)
+        "allowed_apps": _student_apps(exam.get("allowed_apps")),
     }
+
+
+def _student_apps(keys):
+    from .allowed_apps import for_student
+    return for_student(keys)

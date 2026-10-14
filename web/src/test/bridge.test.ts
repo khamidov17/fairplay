@@ -27,7 +27,7 @@ describe("native bridge", () => {
     bridge.hello();
     expect(post).toHaveBeenCalledWith({ action: "hello" });
     const p = bridge.requestLock();
-    expect(post).toHaveBeenCalledWith({ action: "lock", offline: true }); // audit M-06: no session = offline start
+    expect(post).toHaveBeenCalledWith({ action: "lock", offline: true, allowed_apps: [] }); // audit M-06: no session = offline start
     send({ type: "locked" });
     await expect(p).resolves.toEqual({ ok: true });
     expect(bridge.isLocked()).toBe(true);
@@ -67,7 +67,7 @@ describe("native bridge", () => {
     expect(bridge.openExternal(params)).toBe(false);
     const post = native();
     expect(bridge.openExternal(params)).toBe(true);
-    expect(post).toHaveBeenCalledWith({ action: "openExternal", ...params });
+    expect(post).toHaveBeenCalledWith({ action: "openExternal", ...params, allowed_apps: [] });
   });
 
   it("requestLock passes the exam session to the app", async () => {
@@ -93,7 +93,7 @@ describe("native bridge", () => {
     bridge.setExamSession({ attempt_id: "a_1", token: "t", session: "" });
     expect(post).not.toHaveBeenCalled();
     bridge.setExamSession({ attempt_id: "a_1", token: "t", session: "s" });
-    expect(post).toHaveBeenCalledWith({ action: "session", attempt_id: "a_1", token: "t", session: "s" });
+    expect(post).toHaveBeenCalledWith({ action: "session", attempt_id: "a_1", token: "t", session: "s", allowed_apps: [] });
   });
 
   it("forwards native events to listeners", () => {
@@ -103,5 +103,17 @@ describe("native bridge", () => {
     send({ type: "event", event: { type: "blocked_shortcut", detail: "Cmd-key48", client_time: "x" } });
     expect(got).toHaveBeenCalledWith({ type: "event", event: { type: "blocked_shortcut", detail: "Cmd-key48", client_time: "x" } });
     off();
+  });
+});
+
+describe("allowed apps (2026-10-14)", () => {
+  it("flattens mac and windows ids without duplicates", () => {
+    expect(
+      bridge.allowedAppIds([
+        { mac: ["com.apple.calculator"], windows: ["calculatorapp", "calc"] },
+        { mac: ["com.microsoft.Excel"], windows: ["excel", "calc"] },
+      ]),
+    ).toEqual(["com.apple.calculator", "calculatorapp", "calc", "com.microsoft.Excel", "excel"]);
+    expect(bridge.allowedAppIds(undefined)).toEqual([]);
   });
 });

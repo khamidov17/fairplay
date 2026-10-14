@@ -282,7 +282,11 @@ def test_offline_exit_per_attempt_key(app_client, exam):
     assert r.status_code == 200
     key = bytes.fromhex(r.json()["key"])
     assert len(key) == 32
-    assert _fetch_offline_key(app_client, h, a, ts=2).status_code == 409
+    # review 2026-10-14: the same signed device may ask again (relaunch): same key, no flag
+    again = _fetch_offline_key(app_client, h, a, ts=2)
+    assert again.status_code == 200 and bytes.fromhex(again.json()["key"]) == key
+    for ts in range(3, 13):          # ... but asking very often is flagged once
+        _fetch_offline_key(app_client, h, a, ts=ts)
     # the teacher picks the student and types the Mac code
     url = f"/api/exams/{exam['id']}/attempts/{a['attempt_id']}/offline-exit"
     r = app_client.post(url, headers=t, json={"mac_code": "k7qm-3xpa"})
@@ -349,9 +353,13 @@ def test_signed_handin_status(app_client, exam):
     app_client.post(f"/api/student/attempts/{aid}/submit", headers=hs, json={"answers": {}, "client_seq": 1})
     r = status(hs, "another-nonce-1")
     assert r["status"] == "submitted" and r["proofs"][0] == sign(KEY, handin_message(aid, sess, "submitted", "another-nonce-1"))
-    # another session sees "moved"; a stranger's attempt is "gone"
+    # another session sees "moved"; someone else's attempt is an unsigned 404 (review
+    # 2026-10-14: "gone" would end the lock), a deleted one is "gone"
     assert status({**h, "X-FairPlay-Session": "x" * 20})["status"] == "moved"
     bob = login(app_client, "bob")
-    assert status(bob)["status"] == "gone"
+    r404 = app_client.get(f"/api/student/attempts/{aid}/handin", params={"nonce": "nonce-12345678"}, headers=bob)
+    assert r404.status_code == 404 and "proofs" not in r404.json()
+    gone = app_client.get("/api/student/attempts/a_doesnotexist/handin", params={"nonce": "nonce-12345678"}, headers=h)
+    assert gone.status_code == 200 and gone.json()["status"] == "gone"
     bad = app_client.get(f"/api/student/attempts/{aid}/handin", params={"nonce": "a|b"}, headers=hs)
     assert bad.status_code == 422

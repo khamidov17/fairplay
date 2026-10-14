@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiError, classesApi, lmsApi, slice6Api, teacherApi } from "../../api/client";
-import type { Exam, SchoolClass, TopicCount } from "../../api/types";
+import type { AllowedAppOption, Exam, SchoolClass, TopicCount } from "../../api/types";
 import { Icon } from "../../components/ui/Icon";
 import { Switch } from "../../components/ui/Switch";
 import { ExternalExamSettings } from "../../components/teacher/ExternalExamSettings";
@@ -88,6 +88,18 @@ export function ExamEditor({ exam, onSaved, cancelTo }: Props) {
     let alive = true;
     slice6Api.topics().then(
       (t) => alive && Array.isArray(t) && setTopicSuggestions(t),
+      () => undefined,
+    );
+    return () => {
+      alive = false;
+    };
+  }, []);
+  // 2026-10-14: apps a teacher may allow (everything else is closed on students' computers)
+  const [appOptions, setAppOptions] = useState<AllowedAppOption[]>([]);
+  useEffect(() => {
+    let alive = true;
+    teacherApi.allowedApps().then(
+      (a) => alive && Array.isArray(a) && setAppOptions(a),
       () => undefined,
     );
     return () => {
@@ -351,6 +363,40 @@ export function ExamEditor({ exam, onSaved, cancelTo }: Props) {
               onDeliveryChange={(delivery) => set({ delivery })}
               allowPaper={features.has("scan")}
             />
+            {!isPaper && appOptions.length > 0 && (
+              <fieldset className="t-field t-apps">
+                <legend>Apps students may use</legend>
+                <p className="t-small t-muted" style={{ margin: "0 0 6px" }}>
+                  Every other app is closed when the computer locks. VPN apps (like AnyConnect) always stay on.
+                </p>
+                <div className="t-apps-grid">
+                  {appOptions.map((o) => {
+                    const on = draft.allowedApps.includes(o.key);
+                    return (
+                      <label key={o.key} className="t-check">
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() =>
+                            set({
+                              allowedApps: on
+                                ? draft.allowedApps.filter((k) => k !== o.key)
+                                : [...draft.allowedApps, o.key],
+                            })
+                          }
+                        />
+                        <span>
+                          {o.name}
+                          {o.risky && <span className="t-small t-warn-text"> · can open files / the web</span>}
+                          {!o.mac && <span className="t-small t-muted"> · Windows only</span>}
+                          {!o.windows && <span className="t-small t-muted"> · Mac only</span>}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            )}
             {draft.external.mode === "external" && (
               <div className="t-field" style={{ maxWidth: 260 }}>
                 <label htmlFor="exam-external-points">Total points</label>
