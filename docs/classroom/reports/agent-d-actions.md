@@ -40,7 +40,7 @@ The click-through crawl did not press save, upload, import, export or delete but
 
 ## Tests
 
-- New `judge/views/tests/test_teacher_actions.py`, with 17 tests. Each one was run against the code before its fix and failed there; this was checked by reverting the fixed files to HEAD.
+- New `judge/views/tests/test_teacher_actions.py`, with 14 tests. Each one was run against the code before its fix and failed there; this was checked by reverting the fixed files to HEAD.
 - `test_editor_attachment` now also asserts that the link is relative.
 - Run together: `test_click_through_fixes test_teacher_actions test_organization_courses test_problem_list test_problem_create_v2 test_contest_v2 test_problem_import test_problem_import_creation test_editor_attachment test_file_upload utils.test_import_export utils.test_contest_export`: **315 tests OK**. The full suite was not run (shared CPUs).
 - flake8 is clean on every changed Python file. No migrations were added.
