@@ -205,6 +205,38 @@ class ReplyLinkForNewUsersTestCase(TestCase):
         self.assertContains(self.client.get(post.get_absolute_url()), 'reply_comment(%d)' % comment.id)
 
 
+class AdminMenuAddLinksTestCase(TestCase):
+    def test_no_add_link_for_models_nobody_may_add(self):
+        # Submissions, profiles and point votes have no add permission in their admin; the side
+        # menu showed a "+" to them anyway (403).
+        admin = create_user(username='fc_admin', is_staff=True, is_superuser=True)
+        self.client.force_login(admin)
+        response = self.client.get(reverse('admin:index'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'href="%s"' % reverse('admin:judge_problem_add'))
+        for name in ('judge_submission_add', 'judge_profile_add', 'judge_problempointsvote_add'):
+            self.assertNotContains(response, 'href="%s"' % reverse('admin:' + name))
+
+
+class LanguageFixtureEditorModesTestCase(TestCase):
+    def test_every_ace_mode_exists(self):
+        # "AWK", "pike" and "turing" are not Ace modes: the editor requested mode-AWK.js (404).
+        import json
+        from pathlib import Path
+        from django.conf import settings
+        base = Path(settings.BASE_DIR)
+        ace = base / 'resources' / 'libs' / 'ace'
+        if not ace.is_dir():
+            self.skipTest('Ace is not installed (scripts/dev-assets.sh)')
+        missing = []
+        for name in ('language_small.json', 'language_all.json'):
+            for row in json.loads((base / 'judge' / 'fixtures' / name).read_text()):
+                mode = row.get('fields', {}).get('ace')
+                if mode and not (ace / ('mode-%s.js' % mode)).exists():
+                    missing.append('%s: %s' % (name, mode))
+        self.assertEqual(missing, [])
+
+
 class SeedDevDataTestCase(TestCase):
     fixtures = ['navbar']
 

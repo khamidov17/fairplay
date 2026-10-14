@@ -39,7 +39,7 @@
             "name": "AWK",
             "short_name": "AWK",
             "common_name": "Awk",
-            "ace": "AWK",
+            "ace": "text",
             "pygments": "awk",
             "template": "",
             "info": "",
