@@ -58,6 +58,7 @@
             <input type="hidden" name="next" value="{{ next }}">
         </form>
 
+        {% if netid_enabled %}
         <h4>{{ _('Or log in with...') }}</h4><br>
         <div>
             <a href="{{ url('login_netid_redirect') }}" class="social duke-icon" style="font-size: 16px !important;">
@@ -81,6 +82,7 @@
             {% endif %}
             -->
         </div>
+        {% endif %}
     </div>
 {% endblock %}
 

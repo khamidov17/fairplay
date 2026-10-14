@@ -154,12 +154,23 @@ class SubmissionDetailBase(LoginRequiredMixin, TitleMixin, SubmissionMixin, Deta
             'user': submission.user.display_name,
         }
 
+    @cached_property
+    def can_open_problem(self):
+        # An exam question is closed to its students outside the running exam: no link that 404s.
+        return self.object.problem.is_accessible_by(self.request.user)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['can_open_problem'] = self.can_open_problem
+        return context
+
     def get_content_title(self):
         submission = self.object
+        problem_name = _submission_contest_problem_name(submission, self.request.LANGUAGE_CODE)
         return mark_safe(escape(_('Submission of %(problem)s by %(user)s')) % {
             'problem': format_html('<a href="{0}">{1}</a>',
                                    reverse('problem_detail', args=[submission.problem.code]),
-                                   _submission_contest_problem_name(submission, self.request.LANGUAGE_CODE)),
+                                   problem_name) if self.can_open_problem else escape(problem_name),
             'user': format_html('<a href="{0}">{1}</a>',
                                 reverse('user_page', args=[submission.user.user.username]),
                                 submission.user.display_name),
@@ -1029,6 +1040,35 @@ class ForceContestMixin(object):
                 raise Http404()
             if self.contest.start_time is not None and self.contest.start_time > timezone.now():
                 raise Http404()
+        # A private or course-only assignment's lists (and its name in the title) are only for
+        # those who may open the assignment itself.
+        if not self.contest.is_accessible_by(request.user):
+            raise Http404()
+
+    def _site_lists_closed(self, problem):
+        """Would this problem's site-wide submission lists be a 404 for the viewer? They are while
+        the viewer sits an assignment without this problem, or cannot open the problem at all."""
+        user = self.request.user
+        if not problem.is_accessible_by(user):
+            return True
+        current = self.request.profile.current_contest if user.is_authenticated else None
+        return current is not None and current.contest_id != self.contest.id and \
+            not current.contest.contest_problems.filter(problem_id=problem.id).exists()
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        problem = getattr(self, 'problem', None)
+        if problem is not None and self._site_lists_closed(problem):
+            # Keep the tabs inside this assignment instead of linking to lists that 404.
+            context['all_submissions_link'] = None
+            context['best_submissions_link'] = reverse('contest_ranked_submissions',
+                                                       args=[self.contest.key, problem.code])
+            user = self.request.user
+            context['my_submissions_link'] = reverse(
+                'contest_user_submissions', args=[self.contest.key, user.username, problem.code],
+            ) if user.is_authenticated and self.contest.users.filter(user_id=self.request.profile.id).exists() \
+                else None
+        return context
 
     def get_problem_number(self, problem):
         return self.contest.contest_problems.select_related('problem').get(problem=problem).order

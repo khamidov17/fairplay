@@ -228,7 +228,7 @@ else:
             'title': 'DMOJ Admin',
             'menu': {
                 'top': 'wpadmin.menu.menus.BasicTopMenu',
-                'left': 'wpadmin.menu.custom.CustomModelLeftMenuWithDashboard',
+                'left': 'judge.utils.wpadmin_menu.PermissionAwareLeftMenu',
             },
             'custom_menu': [
                 {

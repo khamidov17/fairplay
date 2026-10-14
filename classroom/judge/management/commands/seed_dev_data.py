@@ -21,6 +21,8 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.contrib.flatpages.models import FlatPage
+from django.contrib.sites.models import Site
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
@@ -32,6 +34,14 @@ from judge.models import (Class, Contest, ContestParticipation, ContestProblem, 
 from judge.models.notification import ensure_instructors_group
 
 PASSWORD = 'fairplay-dev'
+
+
+def create_about_page():
+    """The navigation bar (``loaddata navbar``) links to /about/, a flat page every site creates."""
+    about, _created = FlatPage.objects.get_or_create(url='/about/', defaults={
+        'title': 'About', 'content': '<p>DKU OJ: courses, assignments and an online judge.</p>'})
+    about.sites.add(Site.objects.get_current())
+    return about
 
 
 class Command(BaseCommand):
@@ -118,7 +128,7 @@ class Command(BaseCommand):
         section.members.add(*students)
 
         code = self._problem('cs_sum', 'Sum of two numbers', 'C', cs, prof,
-                             'Read two integers $a$ and $b$ and print $a + b$.')
+                             'Read two integers ~a~ and ~b~ and print ~a + b~.')
         mcq = self._problem('cs_mcq_loop', 'How many times does the loop run?', 'M', cs, prof,
                             'How many times does `for i in range(3):` run its body?', points=5)
         ProblemMCQConfig.objects.create(problem=mcq, multiple_select=False)
@@ -162,7 +172,7 @@ class Command(BaseCommand):
         ide.types.add(self.ptype)
         ide.allowed_languages.set(Language.objects.exclude(key='ANSWER'))
         math_mcq = self._problem('math_det', 'Determinant of the identity', 'M', math, prof,
-                                 'What is $\\det(I_3)$?', points=5)
+                                 'What is ~\\det(I_3)~?', points=5)
         ProblemMCQConfig.objects.create(problem=math_mcq, multiple_select=False)
         for i, text in enumerate(('0', '1', '3')):
             ProblemMCQOption.objects.create(problem=math_mcq, order=i, text=text, is_correct=(text == '1'))
@@ -214,3 +224,5 @@ class Command(BaseCommand):
         # The exam format counts hidden results only once finalized (as the finalize task does).
         for part in ContestParticipation.objects.filter(contest=quiz):
             part.recompute_results()
+
+        create_about_page()

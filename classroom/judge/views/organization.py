@@ -1153,6 +1153,10 @@ class RequestJoinOrganization(LoginRequiredMixin, SingleObjectMixin, FormView):
     form_class = OrganizationRequestForm
 
     def dispatch(self, request, *args, **kwargs):
+        # The checks below need a profile, so send visitors to log in first (LoginRequiredMixin
+        # only runs in super().dispatch).
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.object = self.get_object()
         profile = self.request.profile
         if profile_manages_organization(profile, self.object, request.user):
@@ -2092,6 +2096,8 @@ class CreateClass(LoginRequiredMixin, OrganizationMixin, FormView):
         return get_object_or_404(Organization, id=self.kwargs['pk'])
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.object = self.get_object()
         if not self.can_create_class():
             return generic_message(request, _('Access Denied'),
@@ -2122,6 +2128,8 @@ class EditClass(LoginRequiredMixin, TitleMixin, FormView):
         return get_object_or_404(Class, id=self.kwargs['cpk'])
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.object = self.get_object()
         org = self.object.organization
         if not (org.admins.filter(id=request.profile.id).exists() or
@@ -2473,6 +2481,8 @@ class OrganizationImportUsers(LoginRequiredMixin, OrganizationMixin, FormView):
         return kwargs
 
     def dispatch(self, request, *args, **kwargs):
+        if not request.user.is_authenticated:
+            return self.handle_no_permission()
         self.object = self.get_object()
         if not self.can_edit_organization():
             return generic_message(request, _('Access Denied'),

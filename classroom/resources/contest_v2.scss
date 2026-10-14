@@ -922,6 +922,9 @@
     border-radius: var(--oj-radius);
     overflow: hidden;
     background: var(--oj-surface);
+    /* On a phone the four visibility choices do not fit one row: wrap instead of cutting off "Hidden". */
+    flex-wrap: wrap;
+    max-width: 100%;
 
     label {
         margin: 0;

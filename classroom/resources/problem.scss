@@ -558,7 +558,7 @@ ul.problem-list {
 
     .filter-group .select2-container,
     .filter-group .multi-select,
-    .filter-group select.select,
+    .filter-group select.select:not(.select2-hidden-accessible),
     .filter-group .ac-range {
         flex: 1 1 0;
         min-width: 0 !important;
@@ -799,6 +799,11 @@ ul.problem-list {
             width: clamp(280px, 48%, 560px);
             max-width: 100%;
             align-self: flex-start;
+        }
+
+        /* Select2 sizes the search box inline from the first layout; never wider than the box. */
+        .select2-search__field {
+            max-width: 100%;
         }
 
         .select2-container .select2-selection--multiple {

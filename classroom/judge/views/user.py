@@ -137,6 +137,12 @@ class CustomLoginView(LoginView):
     authentication_form = CustomAuthenticationForm
     redirect_authenticated_user = True
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        # Only offer NetID sign-in when it is configured; otherwise the button leads to an error page.
+        context['netid_enabled'] = netid_auth_host() is not None
+        return context
+
     def form_valid(self, form):
         password = form.cleaned_data['password']
         validator = PwnedPasswordsValidator()

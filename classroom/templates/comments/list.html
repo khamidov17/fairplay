@@ -96,7 +96,8 @@
                                             <a href="{{ url('admin:judge_comment_change', node.id) }}"
                                                title="{{ _('Admin') }}"><i class="fa fa-cog fa-fw"></i></a>
                                         {% else %}
-                                            {% if node.time > reply_cutoff %}
+                                            {# A user who may not comment yet has no form to reply with. #}
+                                            {% if node.time > reply_cutoff and not is_new_user %}
                                                 <a href="javascript:reply_comment({{ node.id }})"
                                                    title="{{ _('Reply') }}"><i class="fa fa-reply fa-fw"></i></a>
                                             {% endif %}
