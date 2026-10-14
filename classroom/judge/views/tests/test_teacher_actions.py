@@ -3,12 +3,14 @@ real browser (docs/classroom/reports/agent-d-actions.md). Each test fails on the
 import io
 
 from django.contrib.auth.models import User
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase
 from django.urls import reverse
 
-from judge.models import Class
+from judge.models import Class, ProblemImportDraft
 from judge.models.tests.util import create_organization, create_user
 from judge.utils.import_export import process_user_csv
+from judge.utils.simple_xlsx import build_xlsx_workbook
 
 
 class RosterImportTestCase(TestCase):
@@ -53,3 +55,41 @@ class ProblemCreatorTestCase(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "addOption('HTTP')")
         self.assertContains(response, 'addOption(); addOption();')
+
+
+class ExcelImportTestCase(TestCase):
+    def setUp(self):
+        # A course instructor: may create private problems, but is not staff.
+        self.teacher = create_user(username='xl_teacher',
+                                   user_permissions=('create_private_problem', 'edit_own_problem'))
+        self.client.force_login(self.teacher)
+
+    def _upload(self, rows, **extra):
+        workbook = build_xlsx_workbook([('Problems', rows)])
+        return self.client.post(reverse('problem_import_upload'), {
+            'excel_file': SimpleUploadedFile('q.xlsx', workbook),
+        }, **extra)
+
+    def test_item_editor_can_be_framed_by_the_preview_page(self):
+        # The preview page shows the editor in an iframe; DENY left it blank and "Create all" timed out.
+        response = self._upload([['name', 'question_type', 'description', 'answer'],
+                                 ['Q1', 'multiple_choice', 'Pick\nA. x\nB. y', 'A']],
+                                HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+        self.assertEqual(response.status_code, 200)
+        draft = ProblemImportDraft.objects.get(owner=self.teacher.profile)
+        item = draft.items.get()
+        editor = self.client.get(reverse('problem_import_item_editor', args=[draft.pk, item.pk]))
+        self.assertEqual(editor.status_code, 200)
+        self.assertEqual(editor['X-Frame-Options'], 'SAMEORIGIN')
+
+    def test_instructor_downloads_the_template(self):
+        list_page = self.client.get(reverse('problem_list'))
+        self.assertContains(list_page, reverse('problem_import_template'))
+        response = self.client.get(reverse('problem_import_template'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content[:2], b'PK')
+
+    def test_form_upload_error_returns_to_the_list_with_a_message(self):
+        response = self._upload([['name', 'description'], ['Q1', 'text']], follow=True)
+        self.assertEqual(response.redirect_chain[-1][0], reverse('problem_list'))
+        self.assertContains(response, 'does not contain a recognizable problem sheet')

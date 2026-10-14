@@ -132,6 +132,8 @@ urlpatterns = [
     path('problems/new/ai-decompose/', ProblemCreateV2AIDecomposeView.as_view(),
          name='problem_create_v2_ai_decompose'),
     path('problems/import-excel/', problem_import.ProblemImportUploadView.as_view(), name='problem_import_upload'),
+    path('problems/import-excel/template/', problem_import.ProblemImportTemplateView.as_view(),
+         name='problem_import_template'),
     path('problems/import-excel/<int:draft>/images/<uuid:token>/', problem_import.ProblemImportImageView.as_view(),
          name='problem_import_image'),
     path('problems/import-excel/<int:draft>/', problem_import.ProblemImportPreviewView.as_view(),
