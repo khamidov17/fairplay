@@ -1732,6 +1732,7 @@ class ContestDetail(ContestMixin, TitleMixin, CommentedDetailView):
             for cp in self.object.contest_problems.select_related('problem')
         }
         lang = self.request.LANGUAGE_CODE
+        Problem.prime_translated_names([cp.problem for cp in cp_by_pid.values()], lang)
         for problem in problems:
             problem_stats = stats.get(problem.id, {'user_count': 0, 'ac_rate': 0.0})
             problem.user_count = problem_stats['user_count']

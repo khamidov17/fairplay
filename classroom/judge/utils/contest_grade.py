@@ -118,6 +118,14 @@ def can_open_practice_grade(user):
 PRACTICE_GRADE_PAGE_SIZE = 300
 
 
+# Everything ``build_grade_payload`` reads per row, so the desk costs a fixed number of
+# queries instead of ~3 per submission (source, contest problem, MCQ options / blanks).
+GRADE_ROW_SELECT = ('user__user', 'problem', 'language', 'reviewed_by__user', 'contest__participation',
+                    'contest__problem', 'source')
+GRADE_ROW_PREFETCH = ('test_cases', 'problem__fill_blank_config', 'problem__short_answer_config',
+                      'problem__mcq_options', 'problem__blanks', 'manual_grade')
+
+
 def practice_grade_queryset(user):
     """Practice submissions the user is allowed to grade (no contest/assignment).
 
@@ -128,10 +136,8 @@ def practice_grade_queryset(user):
     problems = Problem.get_editable_problems(user)
     return (Submission.objects
             .filter(contest_object__isnull=True, problem__in=problems)
-            .select_related('user__user', 'problem', 'language',
-                            'reviewed_by__user', 'contest__participation')
-            .prefetch_related('test_cases', 'problem__fill_blank_config',
-                              'problem__short_answer_config', 'manual_grade')
+            .select_related(*GRADE_ROW_SELECT)
+            .prefetch_related(*GRADE_ROW_PREFETCH)
             .order_by('-date'))
 
 
@@ -173,10 +179,8 @@ def practice_grade_page(user, pinned_id=None, limit=None):
 
 def contest_grade_queryset(contest):
     return (Submission.objects.filter(contest_object=contest)
-            .select_related('user__user', 'problem', 'language',
-                            'reviewed_by__user', 'contest__participation')
-            .prefetch_related('test_cases', 'problem__fill_blank_config',
-                              'problem__short_answer_config', 'manual_grade')
+            .select_related(*GRADE_ROW_SELECT)
+            .prefetch_related(*GRADE_ROW_PREFETCH)
             .order_by('-date'))
 
 
