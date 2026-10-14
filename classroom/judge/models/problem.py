@@ -329,9 +329,24 @@ class Problem(models.Model):
         label = cls.DIFFICULTY_LABELS.get(name)
         return str(label) if label is not None else None
 
+    # (active language, configured language codes) -> frozenset. The labels depend only on
+    # settings and the compiled message catalogs, which do not change while a process runs, and
+    # computing them switches through every configured language (a few ms each call, a dozen
+    # calls per workspace page).
+    _reserved_auto_type_labels_cache = {}
+
     @classmethod
     def reserved_auto_type_labels(cls):
         """Casefolded display labels for format/difficulty chips (EN + configured languages)."""
+        key = (translation.get_language() or 'en',
+               tuple(code for code, _name in getattr(settings, 'LANGUAGES', ())))
+        labels = cls._reserved_auto_type_labels_cache.get(key)
+        if labels is None:
+            labels = cls._reserved_auto_type_labels_cache[key] = cls._compute_reserved_auto_type_labels()
+        return labels
+
+    @classmethod
+    def _compute_reserved_auto_type_labels(cls):
         labels = set(cls.AUTO_TYPE_LABEL_MSGIDS)
         labels.update(cls.AUTO_TYPE_LABEL_ALIASES)
         lang_codes = {code for code, _name in getattr(settings, 'LANGUAGES', ())}
@@ -340,7 +355,7 @@ class Problem(models.Model):
             with translation.override(lang):
                 for msgid in cls.AUTO_TYPE_LABEL_MSGIDS:
                     labels.add(gettext(msgid))
-        return {label.casefold() for label in labels if label}
+        return frozenset(label.casefold() for label in labels if label)
 
     @classmethod
     def is_knowledge_problem_type(cls, problem_type, reserved_labels=None):
@@ -624,6 +639,17 @@ class Problem(models.Model):
     @property
     def usable_languages(self):
         return self.allowed_languages.filter(judges__in=self.judges.filter(online=True)).distinct()
+
+    @classmethod
+    def prime_translated_names(cls, problems, language):
+        """Fill ``translated_name(language)`` for many problems with one query instead of one each."""
+        pending = [p for p in problems if language not in p._translated_name_cache]
+        if not pending:
+            return
+        names = dict(ProblemTranslation.objects.filter(problem__in=[p.id for p in pending], language=language)
+                     .values_list('problem_id', 'name'))
+        for problem in pending:
+            problem._translated_name_cache[language] = names.get(problem.id, problem.name)
 
     def translated_name(self, language):
         if language in self._translated_name_cache:

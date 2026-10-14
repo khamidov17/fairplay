@@ -331,6 +331,10 @@ class Contest(models.Model):
             return True
         if not user.is_authenticated:
             return False
+        # Asked once per problem row on the assignment page.
+        return self._memo('full_scoreboard', user, lambda: self._can_see_full_scoreboard(user))
+
+    def _can_see_full_scoreboard(self, user):
         if user.has_perm('judge.see_private_contest') or user.has_perm('judge.edit_all_contest'):
             return True
         if user.profile.id in self.editor_ids:
@@ -450,6 +454,13 @@ class Contest(models.Model):
         if user.has_perm('judge.see_private_contest') or user.has_perm('judge.edit_all_contest'):
             return
 
+        # Fast path for the common case, a student of a linked class (2 queries instead of ~12;
+        # the contest middleware runs this check on every request of a joined student). Every
+        # check below this one either grants access or, once all have failed, refuses it, so
+        # granting here first gives the same answer as the class-membership grant further down.
+        if self.is_visible and self.is_organization_private and not self.is_private and self._user_in_class(user):
+            return
+
         # User is organizer or curator for contest
         if user.profile.id in self.editor_ids:
             return
@@ -490,7 +501,7 @@ class Contest(models.Model):
         if self.is_organization_private:
             # If classes are specified, check class membership
             if self.classes.exists():
-                in_class = self.classes.filter(id__in=user.profile.classes.all()).exists()
+                in_class = self._user_in_class(user)
                 if not self.is_private and in_class:
                     return
                 if self.is_private:
@@ -514,6 +525,11 @@ class Contest(models.Model):
             if in_users:
                 return
             raise self.PrivateContest()
+
+    def _user_in_class(self, user):
+        """Whether the user is a member of one of the classes this contest is assigned to."""
+        return self._memo('in_class', user,
+                          lambda: self.classes.filter(id__in=user.profile.classes.all()).exists())
 
     # Assumes the user can access, to avoid the cost again
     def is_live_joinable_by(self, user):
@@ -602,18 +618,34 @@ class Contest(models.Model):
             return False
         return self.is_editable_by(user)
 
+    def _memo(self, name, user, compute):
+        """Remember a per-user answer on this instance for the rest of its life (one request).
+
+        The contest middleware checks access on every request and the views then ask the same
+        questions again (G-perf: ~7 queries each time); the answers cannot change in between.
+        """
+        memo = self.__dict__.setdefault('_per_user_memo', {})
+        key = (name, user.pk)
+        if key not in memo:
+            memo[key] = compute()
+        return memo[key]
+
     def is_viewable_by_org_admin(self, user):
         """Check if user is org admin of any organization this contest belongs to."""
         if not user.is_authenticated:
             return False
         if not self.is_organization_private:
             return False
-        return self.organizations.filter(admins=user.profile).exists()
+        return self._memo('org_admin', user, lambda: self.organizations.filter(admins=user.profile).exists())
 
-    def linked_organization_ids(self):
+    @cached_property
+    def _linked_organization_ids(self):
         org_ids = set(self.organizations.values_list('id', flat=True))
         org_ids.update(self.classes.values_list('organization_id', flat=True))
-        return org_ids
+        return frozenset(org_ids)
+
+    def linked_organization_ids(self):
+        return set(self._linked_organization_ids)
 
     def is_viewable_by_linked_course_admin(self, user):
         """Course administrators (Organization.admins) of a course linked to this contest."""
@@ -628,6 +660,9 @@ class Contest(models.Model):
         """Course admins, instructors, and class instructors for linked courses."""
         if not user.is_authenticated:
             return False
+        return self._memo('course_teacher', user, lambda: self._is_viewable_by_course_teacher(user))
+
+    def _is_viewable_by_course_teacher(self, user):
         org_ids = self.linked_organization_ids()
         if not org_ids:
             return False

@@ -287,7 +287,8 @@ def get_workspace_answer_display(submission):
 
     if submission.problem.submission_type == 'B':
         answers = payload.get('answers') or []
-        blanks = list(submission.problem.blanks.order_by('order'))
+        # Sorted in Python so a prefetch_related('problem__blanks') (grade desk) is used.
+        blanks = sorted(submission.problem.blanks.all(), key=lambda blank: blank.order)
         rows = []
         for idx, blank in enumerate(blanks):
             value = answers[idx] if idx < len(answers) else ''
@@ -599,6 +600,7 @@ class ProblemDetail(ProblemMixin, SolvedProblemMixin, CommentedDetailView):
                 *contest_prefetch,
             ).order_by('order'))
             lang = self.request.LANGUAGE_CODE
+            Problem.prime_translated_names([cp.problem for cp in context['workspace_problems']], lang)
             for cp in context['workspace_problems']:
                 cp.effective_name = contest_problem_display_name(cp, lang)
             context['workspace_context_name'] = contest.name
