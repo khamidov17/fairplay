@@ -512,6 +512,10 @@
 
     {# Summary Statistics #}
     <h3 class="section-header">{{ _('Contest Summary') }}</h3>
+    <p class="analytics-computed-at">
+        {{ _('Computed at %(time)s.', time=analytics_computed_at|date('H:i:s')) }}
+        <a href="?refresh=1">{{ _('Recompute now') }}</a>
+    </p>
     <div class="analytics-summary">
         <div class="summary-card">
             <div class="value">{{ analytics_summary.total_students }}</div>

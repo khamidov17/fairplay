@@ -694,6 +694,10 @@ CELERY_WORKER_HIJACK_ROOT_LOGGER = False
 CELERY_BROKER_TRANSPORT_OPTIONS = {'visibility_timeout': 3600}
 CLASSROOM_ETA_HORIZON = datetime.timedelta(minutes=45)
 
+# Assignment analytics (teacher page) read every submission and source of the assignment; they
+# are recomputed at most this often (seconds; 0 = every request). The page offers "Recompute now".
+CLASSROOM_ANALYTICS_CACHE_SECONDS = 30
+
 WEBAUTHN_RP_ID = None
 
 # LLM access layer (judge.llm). Supported: 'azure', 'litellm'

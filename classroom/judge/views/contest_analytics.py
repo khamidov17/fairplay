@@ -1,6 +1,9 @@
 import statistics
 
+from django.conf import settings
+from django.core.cache import cache
 from django.http import Http404
+from django.utils import timezone
 from django.utils.translation import gettext as _
 from django.views.generic.detail import DetailView
 
@@ -16,13 +19,33 @@ class ContestAnalytics(TitleMixin, ContestMixin, DetailView):
     def get_title(self):
         return _('%s Analytics') % self.object.name
 
+    def get_analytics(self):
+        """The contest's analytics, recomputed at most every CLASSROOM_ANALYTICS_CACHE_SECONDS.
+
+        Computing them reads every submission and source of the assignment (and compares every
+        pair of students per code question), which is seconds of CPU for a 300-student exam;
+        teachers and TAs reloading the page during the exam must not each pay for it.
+        ``?refresh=1`` recomputes now.
+        """
+        timeout = getattr(settings, 'CLASSROOM_ANALYTICS_CACHE_SECONDS', 30)
+        key = 'contest_analytics:%d' % self.object.id
+        if timeout and self.request.GET.get('refresh') != '1':
+            cached = cache.get(key)
+            if cached is not None:
+                return cached
+        result = (get_contest_analytics(self.object), timezone.now())
+        if timeout:
+            cache.set(key, result, timeout)
+        return result
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
         if not self.can_edit:
             raise Http404()
 
-        analytics = get_contest_analytics(self.object)
+        analytics, computed_at = self.get_analytics()
+        context['analytics_computed_at'] = timezone.localtime(computed_at)
 
         # Build table data: list of student dicts sorted by anomaly score descending
         students_list = sorted(

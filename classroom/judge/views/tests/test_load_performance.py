@@ -8,6 +8,7 @@ import json
 from datetime import timedelta
 from unittest import mock
 
+from django.core.cache import cache
 from django.db import connection
 from django.test import Client, TestCase
 from django.test.utils import CaptureQueriesContext
@@ -18,6 +19,7 @@ from judge.models import (Class, ContestParticipation, ContestProblem, ContestSu
                           Problem, ProblemBlank, ProblemFillBlankConfig, ProblemMCQConfig, ProblemMCQOption,
                           ProblemShortAnswerConfig, Submission, SubmissionSource)
 from judge.models.tests.util import create_contest, create_problem, create_user
+from judge.utils.contest_analytics import get_contest_analytics
 
 
 def count_matching(ctx, needle):
@@ -204,6 +206,49 @@ class AccessCheckOncePerRequestTestCase(ExamLoadBase):
         self.assertFalse(type(self.contest).objects.get(pk=self.contest.pk).is_viewable_by_course_teacher(student))
         self.course.instructors.add(student.profile)
         self.assertTrue(type(self.contest).objects.get(pk=self.contest.pk).is_viewable_by_course_teacher(student))
+
+
+class AnalyticsCacheTestCase(ExamLoadBase):
+    """Analytics are recomputed at most every CLASSROOM_ANALYTICS_CACHE_SECONDS."""
+
+    def setUp(self):
+        cache.delete('contest_analytics:%d' % self.contest.id)
+        self.addCleanup(cache.delete, 'contest_analytics:%d' % self.contest.id)
+        self.url = reverse('contest_analytics', args=[self.contest.key])
+
+    def test_reloads_reuse_the_computation(self):
+        self.answer_everything(self.students[0])
+        client = self.client_for(self.teacher)
+        with mock.patch('judge.views.contest_analytics.get_contest_analytics',
+                        wraps=get_contest_analytics) as compute:
+            self.assertEqual(client.get(self.url).status_code, 200)
+            response = client.get(self.url)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(compute.call_count, 1)
+            self.assertEqual(response.context['analytics_summary']['total_submissions'], 4)
+            self.assertContains(response, '?refresh=1')
+            # "Recompute now" sees new work at once.
+            self.answer_everything(self.students[1])
+            response = client.get(self.url + '?refresh=1')
+            self.assertEqual(compute.call_count, 2)
+            self.assertEqual(response.context['analytics_summary']['total_submissions'], 8)
+
+    def test_cached_analytics_are_still_editor_only(self):
+        self.answer_everything(self.students[0])
+        self.assertEqual(self.client_for(self.teacher).get(self.url).status_code, 200)
+        # ContestMixin answers a non-editor with its "No such contest" page.
+        response = self.client_for(self.students[0]).get(self.url)
+        self.assertContains(response, 'No such contest')
+        self.assertNotContains(response, 'Contest Summary')
+
+    def test_zero_disables_the_cache(self):
+        client = self.client_for(self.teacher)
+        with self.settings(CLASSROOM_ANALYTICS_CACHE_SECONDS=0), \
+                mock.patch('judge.views.contest_analytics.get_contest_analytics',
+                           wraps=get_contest_analytics) as compute:
+            client.get(self.url)
+            client.get(self.url)
+        self.assertEqual(compute.call_count, 2)
 
 
 class ReservedTypeLabelsCacheTestCase(TestCase):
