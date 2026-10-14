@@ -72,11 +72,15 @@ final class MainWindowController: NSWindowController, LockSurface,
         config.websiteDataStore = .default()    // keeps localStorage: offline answers survive a crash
         config.applicationNameForUserAgent = "FairPlay/\(Config.version)"
         config.preferences.javaScriptCanOpenWindowsAutomatically = false
-        #if compiler(>=6.0)
+        // No Apple Intelligence rewrite/proofread in answers. Set through KVC because some
+        // Xcode SDKs don't expose WKWebViewConfiguration.writingToolsBehavior to Swift even
+        // though the runtime has it (build failed on a second Mac with "no member").
         if #available(macOS 15.0, *) {
-            config.writingToolsBehavior = NSWritingToolsBehavior.none // no Apple Intelligence rewrite/proofread in answers
+            let sel = NSSelectorFromString("setWritingToolsBehavior:")
+            if config.responds(to: sel) {
+                config.setValue(NSWritingToolsBehavior.none.rawValue, forKey: "writingToolsBehavior")
+            }
         }
-        #endif
 
         let ucc = WKUserContentController()
         ucc.add(WeakScriptHandler(self), name: "proctora")
