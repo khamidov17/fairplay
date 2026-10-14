@@ -241,6 +241,7 @@
 
         .sub-stats {
             width: 100%;
+            box-sizing: border-box; /* the padding pushed the card 30px past a phone screen */
             order: -1;
         }
 

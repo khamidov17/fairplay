@@ -127,7 +127,7 @@ class Command(BaseCommand):
         section.members.add(*students)
 
         code = self._problem('cs_sum', 'Sum of two numbers', 'C', cs, prof,
-                             'Read two integers $a$ and $b$ and print $a + b$.')
+                             'Read two integers ~a~ and ~b~ and print ~a + b~.')
         mcq = self._problem('cs_mcq_loop', 'How many times does the loop run?', 'M', cs, prof,
                             'How many times does `for i in range(3):` run its body?', points=5)
         ProblemMCQConfig.objects.create(problem=mcq, multiple_select=False)
@@ -163,7 +163,7 @@ class Command(BaseCommand):
         for i, text in enumerate(('int', 'float')):
             ProblemMCQOption.objects.create(problem=quiz2_mcq, order=i, text=text, is_correct=(text == 'float'))
         math_mcq = self._problem('math_det', 'Determinant of the identity', 'M', math, prof,
-                                 'What is $\\det(I_3)$?', points=5)
+                                 'What is ~\\det(I_3)~?', points=5)
         ProblemMCQConfig.objects.create(problem=math_mcq, multiple_select=False)
         for i, text in enumerate(('0', '1', '3')):
             ProblemMCQOption.objects.create(problem=math_mcq, order=i, text=text, is_correct=(text == '1'))
