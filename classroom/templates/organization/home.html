@@ -168,6 +168,9 @@ $(function () {
                                 <i class="fa fa-plus"></i> {{ _('Add class') }}
                             </a>
                         {% endif %}
+                        <a class="action-link" href="{{ url('organization_import_users', organization.id, organization.slug) }}">
+                            <i class="fa fa-upload"></i> {{ _('Import students (CSV)') }}
+                        </a>
                     </div>
                 {% elif can_create_class %}
                     <div class="manage-links">

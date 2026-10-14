@@ -209,6 +209,8 @@ class Command(BaseCommand):
                          'AC' if right else 'WA', 5 if right else 0)
             self._answer(student, blank, quiz, quiz_rows[1], part, {'blanks': ['print' if i < 3 else 'echo']},
                          'AC' if i < 3 else 'WA', 5 if i < 3 else 0)
-            part.recompute_results()
         quiz.results_finalized = True
         quiz.save(update_fields=['results_finalized'])
+        # The exam format counts hidden results only once finalized (as the finalize task does).
+        for part in ContestParticipation.objects.filter(contest=quiz):
+            part.recompute_results()

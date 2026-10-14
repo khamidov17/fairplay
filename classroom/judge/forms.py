@@ -13,6 +13,7 @@ from django.core.validators import RegexValidator
 from django.db.models import Q
 from django.forms import BooleanField, CharField, ChoiceField, Form, ModelForm, ModelMultipleChoiceField, \
     MultipleChoiceField
+from django.template.defaultfilters import filesizeformat
 from django.urls import reverse_lazy
 from django.utils import timezone
 from django.utils.text import format_lazy
@@ -288,9 +289,10 @@ class FileSubmitForm(Form):
                         _('File type "%(ext)s" is not allowed. Allowed types: %(allowed)s.'),
                         params={'ext': ext or _('(none)'), 'allowed': ', '.join(allowed)})
             if config.max_file_size and upload.size > config.max_file_size:
+                # In MB, as the page states the limit ("Max size: 20 MB"), not in raw bytes.
                 raise ValidationError(
-                    _('File is too large (%(size)d bytes); the limit is %(max)d bytes.'),
-                    params={'size': upload.size, 'max': config.max_file_size})
+                    _('File is too large (%(size)s); the limit is %(max)s.'),
+                    params={'size': filesizeformat(upload.size), 'max': filesizeformat(config.max_file_size)})
         return upload
 
 

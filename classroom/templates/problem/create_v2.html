@@ -1327,7 +1327,7 @@
 
       if (type === 'single' || type === 'multiple') {
         document.getElementById('opt-hint').textContent = type === 'multiple' ? gettext('(select all correct answers)') : gettext('(select the correct answer)');
-        if (document.getElementById('options').children.length === 0) { addOption('HTTP'); addOption('TCP'); }
+        if (document.getElementById('options').children.length === 0) { addOption(); addOption(); }
         else refreshOptionMarkers();
       }
       if (type === 'blank' && document.getElementById('blank-answers').children.length === 0) addBlank();

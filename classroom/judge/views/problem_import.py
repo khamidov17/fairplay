@@ -12,6 +12,7 @@ import zipfile
 from urllib.parse import urlencode
 from xml.etree import ElementTree as ET
 
+from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.core.exceptions import PermissionDenied
 from django.core.files.base import ContentFile
@@ -21,8 +22,10 @@ from django.http import Http404, HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.utils.decorators import method_decorator
 from django.utils.translation import gettext as _
 from django.views import View
+from django.views.decorators.clickjacking import xframe_options_sameorigin
 
 from judge import llm
 from judge.llm import LLMError
@@ -501,10 +504,32 @@ def _multiple_choice_answer_indices(answer, options):
     return result
 
 
+class ProblemImportTemplateView(LoginRequiredMixin, View):
+    """The Excel template for teachers who may import. The admin URL needs a staff account, so the
+    import dialog's "Download the Excel template" link sent instructors to the admin login."""
+    def get(self, request):
+        _require_creator(request)
+        from django.contrib import admin
+        return admin.site._registry[Problem].download_excel_template_view(request)
+
+
 class ProblemImportUploadView(LoginRequiredMixin, View):
     """Convert a workbook into an editable, server-side preview."""
     def post(self, request):
         _require_creator(request)
+        response = self._upload(request)
+        if request.headers.get('x-requested-with') != 'XMLHttpRequest' and response.status_code == 400:
+            # The import dialog is a plain form: show the reason on the problem list
+            # instead of a page of raw JSON.
+            try:
+                message = json.loads(response.content).get('message')
+            except ValueError:
+                message = None
+            messages.error(request, message or _('The Excel file is invalid.'))
+            return redirect(reverse('problem_list'))
+        return response
+
+    def _upload(self, request):
         uploaded = request.FILES.get('excel_file')
         if uploaded is None or not (uploaded.name or '').lower().endswith('.xlsx'):
             return JsonResponse({'ok': False, 'message': _('Please choose an .xlsx Excel file.')}, status=400)
@@ -724,8 +749,13 @@ class ProblemImportPreviewView(LoginRequiredMixin, View):
         })
 
 
+@method_decorator(xframe_options_sameorigin, name='dispatch')
 class ProblemImportItemEditorView(ProblemCreateV2View):
-    """Render the unified problem editor against one import-draft item."""
+    """Render the unified problem editor against one import-draft item.
+
+    The preview page shows this editor in an iframe, so it must allow same-origin framing (the site
+    default is X-Frame-Options: DENY, which left the frame blank and made "Create all" time out).
+    """
     def get(self, request, draft, item, *args, **kwargs):
         draft = _draft_for(request, draft)
         item = get_object_or_404(draft.items, pk=item)

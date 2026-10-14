@@ -1,6 +1,8 @@
 
 import csv
 import io
+import logging
+import os
 import re
 import zipfile
 from typing import Dict, Optional, Tuple
@@ -36,6 +38,8 @@ SCORE_FIELD_ALIASES = {
         'final score',
     ),
 }
+logger = logging.getLogger('judge.import_export')
+
 REQUIRED_CSV_FIELDS = ('username', 'first_name', 'last_name', 'email')
 _SCORE_VALUE_RE = re.compile(r'^(-?\d+(?:\.\d+)?)(?:\s*%|\s*/\s*\d+(?:\.\d+)?)?$')
 
@@ -103,12 +107,23 @@ def csv_row_to_user_fields(raw_row: dict, header_map: Dict[str, str]) -> dict:
             return ''
         return (raw_row.get(src) or '').strip()
 
+    email = get('email')
+    if not email:
+        # Canvas rosters have both "Email" and "netid@duke.edu"; a student with a blank
+        # Email cell still gets the NetID address from the other column.
+        by_key = {_header_key(k): k for k in raw_row if k is not None}
+        for alias in CSV_FIELD_ALIASES['email']:
+            src = by_key.get(_header_key(alias))
+            if src and (raw_row.get(src) or '').strip():
+                email = raw_row[src].strip()
+                break
+
     return {
         'username': get('username'),
         'first_name': get('first_name'),
         'last_name': get('last_name'),
         'student': get('student'),
-        'email': get('email'),
+        'email': email,
     }
 
 
@@ -234,7 +249,9 @@ def export_contest_scores_joined_csv(
         if participation is None:
             participation = _find_participation_by_name(user_fields, by_name)
 
-        row[score_header] = ''
+        # Rows without a DKUOJ participant keep what the gradebook already had in that column (the
+        # Canvas "Points Possible" row, students graded elsewhere) instead of being blanked.
+        row[score_header] = row.get(score_header, '') if matching_header else ''
         if participation is not None:
             row[score_header] = round(float(participation.score), contest.points_precision)
             result.joined += 1
@@ -592,11 +609,13 @@ def _upsert_user(row: dict, update_existing: bool, activate: bool,
                 user.is_active = True
                 updated_fields.append('is_active')
 
+            _ensure_profile(user)
             if updated_fields:
                 user.save(update_fields=updated_fields)
-
-            _ensure_profile(user)
-            return 'updated', user
+                return 'updated', user
+            # Nothing changed (protected account or same data): report it as skipped,
+            # so "Updated: N" on the result page means N accounts were really changed.
+            return 'skipped', user
         else:
             return 'skipped', user
     except User.DoesNotExist:
@@ -666,6 +685,14 @@ def export_contest_scores_csv(contest: Contest, include_disqualified: bool = Fal
     return '\ufeff{}'.format(output.getvalue())
 
 
+def _submission_upload(submission):
+    from judge.models import SubmissionFile
+    try:
+        return submission.upload
+    except SubmissionFile.DoesNotExist:
+        return None
+
+
 def export_contest_submissions_zip(contest: Contest, include_disqualified: bool = False,
                                    include_virtual: bool = False, latest_only: bool = True) -> bytes:
     """
@@ -684,6 +711,7 @@ def export_contest_submissions_zip(contest: Contest, include_disqualified: bool 
         'submission__problem',
         'submission__language',
         'problem__problem',
+        'submission__upload',
     ).prefetch_related('submission__source')
 
     if latest_only:
@@ -704,6 +732,21 @@ def export_contest_submissions_zip(contest: Contest, include_disqualified: bool 
                     continue
                 seen_pairs.add(key)
 
+            prof_user = sub.user.user
+            username = prof_user.username or f'user{prof_user.id}'
+            problem_code = (sub.problem.code or cs.problem.problem.code or f'prob{cs.problem_id}')
+
+            # A file-upload answer has no source text: export the uploaded file itself.
+            upload = _submission_upload(sub)
+            if upload is not None:
+                original = os.path.basename((upload.original_name or '').replace('\\', '/')) or 'upload'
+                try:
+                    with upload.file.open('rb') as fh:
+                        zf.writestr(f'{username}/{problem_code}-{sub.id}-{original}', fh.read())
+                except Exception:
+                    logger.exception('Could not read uploaded file of submission %d for export', sub.id)
+                continue
+
             try:
                 source_obj = sub.source
             except SubmissionSource.DoesNotExist:
@@ -711,10 +754,6 @@ def export_contest_submissions_zip(contest: Contest, include_disqualified: bool 
 
             if not source_obj or not source_obj.source:
                 continue
-
-            prof_user = sub.user.user
-            username = prof_user.username or f'user{prof_user.id}'
-            problem_code = (sub.problem.code or cs.problem.problem.code or f'prob{cs.problem_id}')
 
             ext = sub.language.extension or 'txt'
             fname = f'{username}/{problem_code}-{sub.id}.{ext}'
