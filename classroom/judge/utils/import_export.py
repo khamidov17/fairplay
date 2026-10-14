@@ -245,7 +245,9 @@ def export_contest_scores_joined_csv(
         if participation is None:
             participation = _find_participation_by_name(user_fields, by_name)
 
-        row[score_header] = ''
+        # Rows without a DKUOJ participant keep what the gradebook already had in that column (the
+        # Canvas "Points Possible" row, students graded elsewhere) instead of being blanked.
+        row[score_header] = row.get(score_header, '') if matching_header else ''
         if participation is not None:
             row[score_header] = round(float(participation.score), contest.points_precision)
             result.joined += 1

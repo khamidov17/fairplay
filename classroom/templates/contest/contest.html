@@ -519,7 +519,7 @@
                             <strong>{{ _('Canvas score CSV') }}</strong>
                         </label>
                         <input type="file" class="oj-input" id="contest-grade-csv" name="grade_csv" accept=".csv,text/csv"
-                               onchange="document.getElementById('contest-score-file-name').textContent = this.files.length ? this.files[0].name : {{ _('No file selected')|tojson }};">
+                               onchange='document.getElementById("contest-score-file-name").textContent = this.files.length ? this.files[0].name : {{ _("No file selected")|tojson }};'>
                         <p class="helptext" style="margin-top: 0.45rem; margin-bottom: 0.45rem;" id="contest-score-file-name">{{ _('No file selected') }}</p>
                         <label for="contest-score-column"><strong>{{ _('Score column') }}</strong></label>
                         <input type="text" class="oj-input" id="contest-score-column" name="score_column"

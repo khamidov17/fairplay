@@ -110,3 +110,72 @@ class ContestCloneScopeTestCase(TestCase):
         cloned = Contest.objects.get(key='clonedst')
         self.assertEqual(list(cloned.classes.all()), [klass])
         self.assertEqual(list(cloned.join_organizations.all()), [org])
+
+
+class PaperExportTestCase(TestCase):
+    def test_choices_assignment_points_and_readable_times(self):
+        from judge.models import ProblemMCQConfig, ProblemMCQOption
+        from judge.models.tests.util import create_contest_problem, create_problem
+        from judge.utils.contest_export import build_contest_export_html
+        problem = create_problem(code='paper_mcq', points=5, submission_type='M',
+                                 description='How many times does the loop run?')
+        ProblemMCQConfig.objects.create(problem=problem, multiple_select=False)
+        for order, (text, correct) in enumerate((('two', False), ('three', True), ('four', False)), 1):
+            ProblemMCQOption.objects.create(problem=problem, order=order, text=text, is_correct=correct)
+        contest = create_contest(key='paperexp')
+        cp = create_contest_problem(contest=contest, problem=problem, points=8)
+        html = build_contest_export_html(contest, [cp])
+        # The choices are on the paper (without saying which is correct)...
+        self.assertIn('<ol type="A">', html)
+        for text in ('two', 'three', 'four'):
+            self.assertIn('<p>%s</p>' % text, html)
+        self.assertNotIn('correct', html.lower())
+        # ...the points are the assignment's, and times have no microseconds.
+        self.assertIn('Total Score: 8', html)
+        self.assertIn('8 - points', html)
+        self.assertNotRegex(html, r'Start Time: </span>[^<]*\.\d{6}')
+
+
+class JoinedScoresTestCase(TestCase):
+    def test_rows_without_participant_keep_existing_values(self):
+        import csv
+        from judge.models.tests.util import create_contest_participation
+        from judge.utils.import_export import export_contest_scores_joined_csv
+        contest = create_contest(key='joinkeep', name='Quiz 1')
+        alice = create_user(username='jk_alice', first_name='Alice', last_name='Qiu')
+        create_contest_participation(contest=contest, user=alice.profile, score=7)
+        gradebook = ('Student,ID,SIS Login ID,Quiz 1\n'
+                     '    Points Possible,,,10\n'
+                     '"Qiu, Alice",1,jk_alice,\n'
+                     '"Else, Other",2,other,6\n').encode()
+        result = export_contest_scores_joined_csv(contest, io.BytesIO(gradebook))
+        rows = list(csv.DictReader(io.StringIO(result.csv_content.lstrip('﻿'))))
+        self.assertEqual([row['Quiz 1'] for row in rows], ['10', '7.0', '6'])
+
+
+class ScoreImportFileNameTestCase(TestCase):
+    def test_file_name_handler_is_valid_inside_the_attribute(self):
+        # tojson emits double quotes; inside onchange="..." they ended the attribute, so choosing a
+        # file threw "Unexpected end of input" and the file name never showed.
+        admin = create_user(username='sf_admin', is_superuser=True, is_staff=True)
+        contest = create_contest(key='sfname', authors=('sf_admin',))
+        self.client.force_login(admin)
+        html = self.client.get(reverse('contest_view', args=[contest.key])).content.decode()
+        start = html.index('id="contest-grade-csv"')
+        tag = html[start:html.index('>', html.index('onchange=', start))]
+        self.assertIn("onchange='", tag)
+        self.assertIn('"No file selected"', tag)
+
+
+class SeedDataTestCase(TestCase):
+    fixtures = ['language_small']
+
+    def test_finalized_quiz_has_scores(self):
+        from django.core.management import call_command
+        from django.test import override_settings
+        from judge.models import ContestParticipation
+        with override_settings(DEBUG=True):
+            call_command('seed_dev_data', stdout=io.StringIO())
+        scores = sorted(ContestParticipation.objects.filter(contest__key='cs101_quiz1')
+                        .values_list('score', flat=True))
+        self.assertTrue(any(scores), scores)

@@ -66,23 +66,52 @@ def _render_description(description):
     )
 
 
+def _format_time(value):
+    # The active time zone is the exporting teacher's (TimezoneMiddleware).
+    return timezone.localtime(value).strftime('%Y-%m-%d %H:%M %Z') if value else ''
+
+
+def _assignment_points(cp):
+    points = getattr(cp, 'points', None)
+    return cp.problem.points if points is None else points
+
+
+def _format_points(value):
+    return ('%g' % value) if value is not None else ''
+
+
+def _render_choices(problem):
+    """The answer choices of a multiple-choice question (never which one is correct)."""
+    from judge.models import ProblemSubmissionType
+    if getattr(problem, 'submission_type', None) != ProblemSubmissionType.MCQ:
+        return ''
+    options = list(problem.mcq_options.order_by('order'))
+    if not options:
+        return ''
+    config = getattr(problem, 'mcq_config', None)
+    hint = '<p><em>Select all that apply.</em></p>\n' if config is not None and config.multiple_select else ''
+    items = ''.join(f'<li>{_render_description(option.text)}</li>\n' for option in options)
+    return f'<div class="problem-choices">\n{hint}<ol type="A">\n{items}</ol>\n</div>\n'
+
+
 def build_contest_export_html(contest, contest_problems):
     """Return the HTML document that pandoc turns into the paper exam."""
     contest_problems = list(contest_problems)
     count = len(contest_problems)
-    total_score = sum(cp.problem.points for cp in contest_problems)
+    # Points as set on the assignment, which may differ from the problem's own points.
+    total_score = sum(_assignment_points(cp) for cp in contest_problems)
     esc = html.escape
     parts = [
         '<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n'
         f'<title>{esc(contest.name)}</title>\n</head>\n<body>\n'
         '<div class="page cover-page">\n<div class="contest-info">\n'
-        f'<div><span class="bold">Start Time: </span>{esc(str(contest.start_time))}</div>\n'
-        f'<div><span class="bold">End Time: </span>{esc(str(contest.end_time))}</div>\n'
+        f'<div><span class="bold">Start Time: </span>{esc(_format_time(contest.start_time))}</div>\n'
+        f'<div><span class="bold">End Time: </span>{esc(_format_time(contest.end_time))}</div>\n'
         f'<div><span class="bold">Total Problems: </span>{count}</div>\n'
         '<div style="margin-top: 10mm;"><span class="bold">Student Name: </span>____________________</div>\n'
         '<div><span class="bold">Student NetID: </span>____________________</div>\n'
         '</div>\n<div class="instructions">\n<ul>\n'
-        f'<li>Total Score: {esc(str(total_score))}</li>\n'
+        f'<li>Total Score: {esc(_format_points(total_score))}</li>\n'
         f'<li>Pages: {count + 1}</li>\n'
         f'{esc(contest.description or "")}\n'
         '</ul>\n'
@@ -90,7 +119,7 @@ def build_contest_export_html(contest, contest_problems):
         '</div>\n</div>\n',
     ]
     for page_num, cp in enumerate(contest_problems, 1):
-        points = esc(str(cp.problem.points))
+        points = esc(_format_points(_assignment_points(cp)))
         last = 'last-page' if page_num == count else ''
         header = (
             f'<div class="page-header"><div class="problem-info">Problem {page_num} / {count} <br>'
@@ -105,6 +134,7 @@ def build_contest_export_html(contest, contest_problems):
             '<div class="problem-content">\n'
             f'<div class="problem-title">Problem {page_num}: {esc(contest_problem_display_name(cp))}</div>\n'
             f'<div class="problem-description">\n{_render_description(cp.problem.description)}\n</div>\n'
+            f'{_render_choices(cp.problem)}'
             f'</div>\n{footer}</div>\n',
         )
         parts.append(
