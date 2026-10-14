@@ -503,7 +503,10 @@ def schedule_batch_ai_grade(contest_id):
             contest.save(update_fields=['ai_grading_scheduled_task_id'])
             return
         from judge.tasks.contest import auto_grade_contest
-        result = auto_grade_contest.apply_async(args=[contest.key], eta=eta)
+        from judge.utils.celery import eta_hop
+        # In hops, like auto-submit (see judge.utils.assignment_schedule): the task re-schedules
+        # itself until the real ETA is reached.
+        result = auto_grade_contest.apply_async(args=[contest.key], eta=eta_hop(eta))
         contest.ai_grading_scheduled_task_id = result.id or ''
     except Exception:
         logger.exception('Could not schedule auto-grade for contest %s', contest.key)

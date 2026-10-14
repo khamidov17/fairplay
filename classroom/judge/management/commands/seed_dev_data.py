@@ -172,15 +172,15 @@ class Command(BaseCommand):
                     for i, p in enumerate(problems, start=1)]
             return contest, rows
 
-        assignment('cs101_hw1', 'Homework 1', 'default', now - timedelta(days=1), now + timedelta(days=6),
+        assignment('cs101hw1', 'Homework 1', 'default', now - timedelta(days=1), now + timedelta(days=6),
                    (code, mcq, blank, short, upload))
-        exam, exam_rows = assignment('cs101_exam1', 'Midterm exam', 'exam', now - timedelta(minutes=30),
+        exam, exam_rows = assignment('cs101exam1', 'Midterm exam', 'exam', now - timedelta(minutes=30),
                                      now + timedelta(hours=2), (exam_mcq, exam_blank))
-        assignment('cs101_quiz2', 'Quiz 2 (upcoming)', 'exam', now + timedelta(days=3),
+        assignment('cs101quiz2', 'Quiz 2 (upcoming)', 'exam', now + timedelta(days=3),
                    now + timedelta(days=3, hours=1), (quiz2_mcq,))
-        quiz, quiz_rows = assignment('cs101_quiz1', 'Quiz 1 (graded)', 'exam', now - timedelta(days=10),
+        quiz, quiz_rows = assignment('cs101quiz1', 'Quiz 1 (graded)', 'exam', now - timedelta(days=10),
                                      now - timedelta(days=10) + timedelta(hours=1), (mcq, blank))
-        assignment('math201_hw1', 'Linear algebra homework', 'default', now - timedelta(days=2),
+        assignment('math201hw1', 'Linear algebra homework', 'default', now - timedelta(days=2),
                    now + timedelta(days=5), (math_mcq,), course=math)
 
         # The exam is in progress: two students have answered, results hidden until finalize.

@@ -1,7 +1,24 @@
+from datetime import timedelta
+
 from celery.result import AsyncResult
+from django.conf import settings
 from django.http import HttpResponseRedirect
 from django.urls import reverse
+from django.utils import timezone
 from django.utils.http import urlencode
+
+
+def eta_hop(eta, now=None):
+    """The ETA to give a deadline task: ``eta`` itself, or at most one horizon from now.
+
+    A Redis broker re-delivers an ETA message that waits longer than its visibility timeout, so a
+    far deadline is reached in hops (see ``CLASSROOM_ETA_HORIZON`` in settings). A task that fires
+    before its deadline calls its scheduler again, which schedules the next hop.
+    """
+    if now is None:
+        now = timezone.now()
+    horizon = getattr(settings, 'CLASSROOM_ETA_HORIZON', timedelta(minutes=45))
+    return min(eta, now + horizon)
 
 
 class Progress:

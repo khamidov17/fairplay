@@ -9,6 +9,12 @@ Task ids are stored on the row they belong to so a deadline change can revoke th
 scheduling the new one — the same pattern as ``schedule_batch_ai_grade``. Celery holds an ETA task
 in worker memory, so a restart can drop it; ``harvest_assignment_drafts`` exists as the
 cron-driven backstop and none of this is the only line of defence.
+
+A deadline further away than ``CLASSROOM_ETA_HORIZON`` is reached in hops (``eta_hop``): a Redis
+broker re-delivers an ETA message that waits longer than its visibility timeout, which would
+otherwise leave one extra copy of the task per hour. A hop that fires before the deadline finds
+its own id still stored on the row and schedules the next hop; a stale hop (revoked or replaced
+after a deadline change) finds another id and stops.
 """
 import logging
 
@@ -16,6 +22,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from judge.utils.assignment_harvest import assignment_harvest_enabled
+from judge.utils.celery import eta_hop
 
 __all__ = [
     'schedule_contest_harvest', 'schedule_participation_harvest', 'reschedule_assignment_harvest',
@@ -58,7 +65,7 @@ def schedule_contest_harvest(contest_id):
     if assignment_harvest_enabled() and contest.time_limit is None and _can_schedule(contest.end_time):
         try:
             from judge.tasks.assignment_harvest import harvest_contest_drafts
-            result = harvest_contest_drafts.apply_async(args=[contest.key], eta=contest.end_time)
+            result = harvest_contest_drafts.apply_async(args=[contest.key], eta=eta_hop(contest.end_time))
             contest.harvest_scheduled_task_id = result.id or ''
         except Exception:
             logger.exception('Could not schedule auto-submit for contest %s', contest.key)
@@ -86,7 +93,7 @@ def schedule_participation_harvest(participation_id):
         try:
             from judge.tasks.assignment_harvest import harvest_participation_drafts
             result = harvest_participation_drafts.apply_async(
-                args=[participation.pk], eta=participation.end_time,
+                args=[participation.pk], eta=eta_hop(participation.end_time),
             )
             participation.harvest_scheduled_task_id = result.id or ''
         except Exception:

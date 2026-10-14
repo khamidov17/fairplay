@@ -20,12 +20,18 @@ __all__ = ('harvest_contest_drafts', 'harvest_participation_drafts')
 logger = logging.getLogger('judge.assignment_harvest')
 
 
-@shared_task
-def harvest_participation_drafts(participation_id):
+def _is_current_hop(task, stored_task_id):
+    """Whether this run is the deadline task the row still points at (see ``eta_hop``)."""
+    return bool(task.request.id) and task.request.id == stored_task_id
+
+
+@shared_task(bind=True)
+def harvest_participation_drafts(self, participation_id):
     """Auto-submit one participation's remaining drafts. Idempotent.
 
     Refuses to collect while the student's window is still open, so a leftover ETA from before a
-    deadline change cannot submit their paper early.
+    deadline change cannot submit their paper early. A far deadline is reached in hops: an early
+    run that is still the scheduled task schedules the next hop.
     """
     participation = (
         ContestParticipation.objects
@@ -38,19 +44,23 @@ def harvest_participation_drafts(participation_id):
     if not assignment_harvest_enabled():
         return 0
     if not participation_deadline_has_arrived(participation):
+        if _is_current_hop(self, participation.harvest_scheduled_task_id):
+            from judge.utils.assignment_schedule import schedule_participation_harvest
+            schedule_participation_harvest(participation.pk)
         return 0
     return len(harvest_participation(participation))
 
 
-@shared_task
-def harvest_contest_drafts(contest_key):
+@shared_task(bind=True)
+def harvest_contest_drafts(self, contest_key):
     """Queue a harvest for every participation in this assignment that still has a draft.
 
     Participations without drafts are never queued, so an assignment where everybody submitted by
     hand costs one query rather than one task per student.
 
-    A shared-deadline assignment whose end is still in the future is a no-op: the usual cause is
-    a revoked-too-late ETA after the teacher moved the deadline back.
+    A shared-deadline assignment whose end is still in the future is a no-op: either this run is
+    a hop towards a far deadline (it schedules the next hop), or it is a revoked-too-late ETA from
+    before the teacher moved the deadline back.
     """
     contest = Contest.objects.filter(key=contest_key).first()
     if contest is None:
@@ -58,6 +68,9 @@ def harvest_contest_drafts(contest_key):
     if not assignment_harvest_enabled():
         return 0
     if contest.time_limit is None and contest.end_time > timezone.now():
+        if _is_current_hop(self, contest.harvest_scheduled_task_id):
+            from judge.utils.assignment_schedule import schedule_contest_harvest
+            schedule_contest_harvest(contest.id)
         return 0
 
     participation_ids = list(
