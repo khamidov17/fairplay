@@ -179,3 +179,19 @@ class SeedDataTestCase(TestCase):
         scores = sorted(ContestParticipation.objects.filter(contest__key='cs101_quiz1')
                         .values_list('score', flat=True))
         self.assertTrue(any(scores), scores)
+
+
+class FileUploadLimitMessageTestCase(TestCase):
+    def test_too_large_is_stated_in_megabytes(self):
+        from judge.forms import FileSubmitForm
+        from judge.models import ProblemFileConfig
+        from judge.models.tests.util import create_problem
+        problem = create_problem(code='fsize', submission_type='F')
+        ProblemFileConfig.objects.create(problem=problem, allowed_extensions='pdf', max_file_size=1024 * 1024)
+        upload = SimpleUploadedFile('big.pdf', b'%PDF' + b'0' * (1024 * 1024 + 600 * 1024))
+        form = FileSubmitForm(data={}, files={'file': upload}, problem=problem)
+        self.assertFalse(form.is_valid())
+        message = form.errors['file'][0]
+        self.assertIn('1.6\xa0MB', message)
+        self.assertIn('1.0\xa0MB', message)
+        self.assertNotIn('bytes', message)
