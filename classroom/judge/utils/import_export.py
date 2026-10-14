@@ -1,6 +1,8 @@
 
 import csv
 import io
+import logging
+import os
 import re
 import zipfile
 from typing import Dict, Optional, Tuple
@@ -36,6 +38,8 @@ SCORE_FIELD_ALIASES = {
         'final score',
     ),
 }
+logger = logging.getLogger('judge.import_export')
+
 REQUIRED_CSV_FIELDS = ('username', 'first_name', 'last_name', 'email')
 _SCORE_VALUE_RE = re.compile(r'^(-?\d+(?:\.\d+)?)(?:\s*%|\s*/\s*\d+(?:\.\d+)?)?$')
 
@@ -681,6 +685,14 @@ def export_contest_scores_csv(contest: Contest, include_disqualified: bool = Fal
     return '\ufeff{}'.format(output.getvalue())
 
 
+def _submission_upload(submission):
+    from judge.models import SubmissionFile
+    try:
+        return submission.upload
+    except SubmissionFile.DoesNotExist:
+        return None
+
+
 def export_contest_submissions_zip(contest: Contest, include_disqualified: bool = False,
                                    include_virtual: bool = False, latest_only: bool = True) -> bytes:
     """
@@ -699,6 +711,7 @@ def export_contest_submissions_zip(contest: Contest, include_disqualified: bool 
         'submission__problem',
         'submission__language',
         'problem__problem',
+        'submission__upload',
     ).prefetch_related('submission__source')
 
     if latest_only:
@@ -719,6 +732,21 @@ def export_contest_submissions_zip(contest: Contest, include_disqualified: bool 
                     continue
                 seen_pairs.add(key)
 
+            prof_user = sub.user.user
+            username = prof_user.username or f'user{prof_user.id}'
+            problem_code = (sub.problem.code or cs.problem.problem.code or f'prob{cs.problem_id}')
+
+            # A file-upload answer has no source text: export the uploaded file itself.
+            upload = _submission_upload(sub)
+            if upload is not None:
+                original = os.path.basename((upload.original_name or '').replace('\\', '/')) or 'upload'
+                try:
+                    with upload.file.open('rb') as fh:
+                        zf.writestr(f'{username}/{problem_code}-{sub.id}-{original}', fh.read())
+                except Exception:
+                    logger.exception('Could not read uploaded file of submission %d for export', sub.id)
+                continue
+
             try:
                 source_obj = sub.source
             except SubmissionSource.DoesNotExist:
@@ -726,10 +754,6 @@ def export_contest_submissions_zip(contest: Contest, include_disqualified: bool 
 
             if not source_obj or not source_obj.source:
                 continue
-
-            prof_user = sub.user.user
-            username = prof_user.username or f'user{prof_user.id}'
-            problem_code = (sub.problem.code or cs.problem.problem.code or f'prob{cs.problem_id}')
 
             ext = sub.language.extension or 'txt'
             fname = f'{username}/{problem_code}-{sub.id}.{ext}'

@@ -181,6 +181,37 @@ class SeedDataTestCase(TestCase):
         self.assertTrue(any(scores), scores)
 
 
+class SubmissionsZipTestCase(TestCase):
+    def test_uploaded_files_are_in_the_zip(self):
+        import tempfile
+        import zipfile
+        from unittest import mock
+        from django.core.files.base import ContentFile
+        from django.core.files.storage import FileSystemStorage
+        from judge.models import ContestSubmission, Language, Submission, SubmissionFile
+        from judge.models.tests.util import create_contest_participation, create_contest_problem, create_problem
+        from judge.utils.import_export import export_contest_submissions_zip
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        patch = mock.patch.object(SubmissionFile._meta.get_field('file'), 'storage',
+                                  FileSystemStorage(location=tmp.name))
+        patch.start()
+        self.addCleanup(patch.stop)
+        problem = create_problem(code='zipfile_p', submission_type='F')
+        contest = create_contest(key='zipfiles')
+        cp = create_contest_problem(contest=contest, problem=problem)
+        student = create_user(username='zip_student')
+        part = create_contest_participation(contest=contest, user=student.profile)
+        sub = Submission.objects.create(user=student.profile, problem=problem, language=Language.get_default_language(),
+                                        contest_object=contest, status='D', result='AC')
+        ContestSubmission.objects.create(submission=sub, problem=cp, participation=part)
+        upload = SubmissionFile(submission=sub, original_name='lab report.pdf', size=12)
+        upload.file.save('x.pdf', ContentFile(b'%PDF-1.4 abc'), save=True)
+        archive = zipfile.ZipFile(io.BytesIO(export_contest_submissions_zip(contest)))
+        self.assertEqual(archive.namelist(), ['zip_student/zipfile_p-%d-lab report.pdf' % sub.id])
+        self.assertEqual(archive.read(archive.namelist()[0]), b'%PDF-1.4 abc')
+
+
 class FileUploadLimitMessageTestCase(TestCase):
     def test_too_large_is_stated_in_megabytes(self):
         from judge.forms import FileSubmitForm
