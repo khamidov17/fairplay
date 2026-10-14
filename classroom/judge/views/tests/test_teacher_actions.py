@@ -41,3 +41,15 @@ class CourseImportLinkTestCase(TestCase):
         self.client.force_login(admin)
         response = self.client.get(reverse('organization_home', args=[org.id, org.slug]))
         self.assertContains(response, reverse('organization_import_users', args=[org.id, org.slug]))
+
+
+class ProblemCreatorTestCase(TestCase):
+    def test_new_choice_question_has_no_demo_options(self):
+        # A new single/multiple choice question started with the options "HTTP" and "TCP" filled in,
+        # which were saved as real options when the teacher only edited part of the list.
+        admin = create_user(username='pc_admin', is_superuser=True, is_staff=True)
+        self.client.force_login(admin)
+        response = self.client.get(reverse('problem_create_v2'))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "addOption('HTTP')")
+        self.assertContains(response, 'addOption(); addOption();')

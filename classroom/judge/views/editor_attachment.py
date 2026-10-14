@@ -158,7 +158,9 @@ def editor_file_uploader(request):
             _cache_decr(key)
         raise
 
-    url = request.build_absolute_uri(reverse('editor_file_download', args=[attachment.uuid]))
+    # Site-relative: an absolute URL would bake the uploader's host and scheme into the statement
+    # (http:// behind a TLS proxy is blocked as mixed content; another hostname breaks for students).
+    url = reverse('editor_file_download', args=[attachment.uuid])
     return JsonResponse({
         'status': 200,
         'name': original_name,

@@ -64,6 +64,8 @@ class EditorAttachmentTest(CommonDataMixin, TestCase):
         self.assertEqual(body['name'], 'notes.pdf')
         self.assertFalse(body['is_image'])
         self.assertIn('/widgets/files/', body['link'])
+        # Site-relative, so the statement does not depend on the uploader's host or scheme.
+        self.assertTrue(body['link'].startswith('/widgets/files/'), body['link'])
 
         attachment = EditorAttachment.objects.get()
         self.assertTrue(attachment.file.name.startswith('editor_attachments/'))
