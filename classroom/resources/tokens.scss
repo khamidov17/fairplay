@@ -38,6 +38,8 @@ $oj-rated-text: #fff;
     --oj-text-muted: #{$color_primary50};
     --oj-text-secondary: #{$color_primary66};
     --oj-heading: #{$color_primary75};
+    /* Fill of section and table header bands (light in FairPlay, see fairplay.scss). */
+    --oj-heading-bg: #{$color_primary75};
     --oj-heading-text: #{$color_primary0};
     --oj-control-border: #{$color_primary33};
 

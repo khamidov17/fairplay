@@ -83,18 +83,19 @@ def site_name(request):
 
 
 def site_theme(request):
+    # FairPlay is light by default: the dark theme is used only when the user picks it in their
+    # profile, never because the computer is in dark mode ('auto' means the default, light).
     # Middleware populating `profile` may not have loaded at this point if we're called from an error context.
-    if hasattr(request.user, 'profile'):
-        site_theme = request.profile.site_theme
-        preferred_css = settings.DMOJ_THEME_CSS.get(site_theme)
-    else:
-        site_theme = 'auto'
-        preferred_css = None
+    site_theme = request.profile.site_theme if hasattr(request.user, 'profile') else 'auto'
+    dark = site_theme == 'dark'
     return {
         'DARK_STYLE_CSS': settings.DMOJ_THEME_CSS['dark'],
         'LIGHT_STYLE_CSS': settings.DMOJ_THEME_CSS['light'],
-        'PREFERRED_STYLE_CSS': preferred_css,
+        'PREFERRED_STYLE_CSS': settings.DMOJ_THEME_CSS['dark' if dark else 'light'],
         'SITE_THEME_NAME': site_theme,
+        'DARK_MODE': dark,
+        # For <link media> and @media in page templates that add dark-only styles.
+        'DARK_MEDIA': 'all' if dark else 'not all',
     }
 
 

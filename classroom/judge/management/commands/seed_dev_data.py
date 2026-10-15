@@ -39,7 +39,7 @@ PASSWORD = 'fairplay-dev'
 def create_about_page():
     """The navigation bar (``loaddata navbar``) links to /about/, a flat page every site creates."""
     about, _created = FlatPage.objects.get_or_create(url='/about/', defaults={
-        'title': 'About', 'content': '<p>DKU OJ: courses, assignments and an online judge.</p>'})
+        'title': 'About', 'content': '<p>FairPlay Classroom: courses, assignments, exams and an online judge.</p>'})
     about.sites.add(Site.objects.get_current())
     return about
 

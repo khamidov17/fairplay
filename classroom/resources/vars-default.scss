@@ -2,21 +2,22 @@
 
 $is_light_theme: true;
 
+// FairPlay neutrals (CONTRACT.md "Visual style"): light surfaces, ink is for text only.
 $color_primary0: #fff;
-$color_primary5: #f8f8f8;   // light background
-$color_primary10: #eee;     // background
-$color_primary25: #ccc;     // border
-$color_primary33: #aaa;     // widget
-$color_primary50: #808080;
-$color_primary66: #555;     // tabs
-$color_primary75: #3b3b3b;  // widget
-$color_primary90: #111;
-$color_primary100: #000;
+$color_primary5: #F8F9FB;   // light background (surface-2)
+$color_primary10: #F3F5F7;  // background (ground)
+$color_primary25: #E2E6EC;  // border (hairline)
+$color_primary33: #CDD3DC;  // widget (strong border)
+$color_primary50: #6B7686;  // muted
+$color_primary66: #4A5568;  // tabs (secondary text)
+$color_primary75: #2B3647;  // widget
+$color_primary90: #1B2533;  // ink
+$color_primary100: #1B2533;
 
-$color_link50: #5b80b9;     // default (title)
-$color_link75: #1958c1;     // default
-$color_link100: #0645ad;    // hover
-$color_link200: #faa700;    // active
+$color_link50: #4A5FD0;     // default (title)
+$color_link75: #2F4BD8;     // default
+$color_link100: #2239B0;    // hover
+$color_link200: #B4570B;    // active
 
 $color_pageBg: #fff;
 
@@ -44,18 +45,18 @@ $color_user_submission_activity2: #40c463;
 $color_user_submission_activity3: #2f9c4c;
 $color_user_submission_activity4: #216e39;
 
-$color_info25: #def;
-$color_info50: #bdf;
-$color_info100: #368;
-$color_success25: #ded;
-$color_success50: #adb;
-$color_success100: #173;
-$color_warning25: #ffd;
-$color_warning50: #feb;
-$color_warning100: #863;
-$color_danger25: #edd;
-$color_danger50: #dbb;
-$color_danger100: #944;
+$color_info25: #EEF1FD;
+$color_info50: #BAC5F5;
+$color_info100: #2239B0;
+$color_success25: #E8F5EE;
+$color_success50: #B7DFC8;
+$color_success100: #16794C;
+$color_warning25: #FDF1E6;
+$color_warning50: #F1D2B4;
+$color_warning100: #8F4508;
+$color_danger25: #FDECEA;
+$color_danger50: #F4C7C2;
+$color_danger100: #B42318;
 
 $color_problem_submit_select2: #757575;
 

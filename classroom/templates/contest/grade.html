@@ -9,7 +9,7 @@
 {% block media %}
     <link rel="stylesheet" href="{{ static('vendor/katex.min.css') }}">
     <link rel="stylesheet" href="{{ static('rich_editor.css') }}">
-    <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="(prefers-color-scheme: dark)">
+    <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="{{ DARK_MEDIA|default('not all') }}">
     <style>
         /* Grade workspace — same visual language as the problem workspace (workspace.scss).
            Self-contained: reuses --oj-* tokens (with fallbacks) and ws-* class names so the
@@ -262,7 +262,7 @@
             align-items: center;
             gap: .5rem;
             padding: .45rem .75rem;
-            background: var(--oj-heading, #222);
+            background: var(--oj-heading-bg, #222);
             color: var(--oj-heading-text, #fff);
             font-size: 13px;
             font-weight: 600;

@@ -121,8 +121,8 @@
     gap: 0.75rem;
     padding: 0.45rem 0.6rem;
     margin: 1rem 0 0.45rem;
-    background: var(--oj-heading);
-    border: 1px solid var(--oj-heading);
+    background: var(--oj-heading-bg);
+    border: 1px solid var(--oj-heading-bg);
     border-radius: var(--oj-radius);
     color: var(--oj-heading-text);
     font-size: 13px;
@@ -2005,7 +2005,8 @@
     }
 }
 
-@media (prefers-color-scheme: dark) {
+// Dark theme only when the user picks it in the profile (html.theme-dark), never from the OS setting.
+html.theme-dark {
     .sp-left input[type="datetime-local"] {
         color-scheme: dark;
     }

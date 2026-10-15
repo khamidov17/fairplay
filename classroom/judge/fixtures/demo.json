@@ -55,9 +55,9 @@
             ],
             "creation_date": "2017-12-02T08:50:25.199Z",
             "is_open": true,
-            "slug": "dmoj",
-            "name": "DMOJ: Modern Online Judge",
-            "short_name": "DMOJ",
+            "slug": "fairplay",
+            "name": "FairPlay",
+            "short_name": "FairPlay",
             "slots": null
         },
         "model": "judge.organization",
@@ -132,7 +132,7 @@
             "authors": [
                 1
             ],
-            "content": "Welcome to the DMOJ!\n\n```python\nprint('Hello, World!')\n```\n\nYou can get started by checking out [this problem we've added for you](/problem/aplusb).",
+            "content": "Welcome to FairPlay!\n\n```python\nprint('Hello, World!')\n```\n\nYou can get started by checking out [this problem we've added for you](/problem/aplusb).",
             "og_image": "",
             "publish_on": "2017-12-02T05:00:00Z",
             "slug": "first-post",
@@ -164,7 +164,7 @@
     {
         "fields": {
             "domain": "localhost:8081",
-            "name": "DMOJ: Modern Online Judge"
+            "name": "FairPlay Classroom"
         },
         "model": "sites.site",
         "pk": 1

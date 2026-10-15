@@ -1,0 +1,537 @@
+@use "vars" as *;
+
+// =============================================================================
+// FairPlay look (CONTRACT.md "Visual style"): loaded last in style.scss, so it
+// wins over the older DMOJ rules without editing each page's stylesheet.
+//
+//   - Plus Jakarta Sans for the interface, Source Serif 4 for question text.
+//   - Light surfaces only: white top bar, light section headers, no dark bands.
+//   - Primary blue #2F4BD8 (tint #EEF1FD), ink #1B2533 for text only.
+//   - Rounded controls (8 px), cards (14 px), hairlines #E2E6EC.
+//
+// The dark theme (chosen in the profile) keeps its dark surfaces and only takes
+// the type, the brand and the rounding.
+// =============================================================================
+
+body, button, input, select, textarea, .select2-container {
+    font-family: $fp_font;
+}
+
+body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4 {
+    letter-spacing: -0.01em;
+}
+
+h2 {
+    font-weight: 700;
+}
+
+h3 {
+    font-weight: 600;
+}
+
+// Question text reads like an exam paper.
+#problem-body .content-description,
+.problem-statement .content-description,
+#panel-desc > .content-description {
+    font-family: $fp_serif;
+    font-size: 1.07em;
+    line-height: 1.6;
+
+    code, pre, kbd, samp, .math, mjx-container, table {
+        font-family: inherit;
+    }
+
+    code, pre, kbd, samp {
+        font-family: $monospace-fonts;
+    }
+}
+
+// ── Brand in the top bar ────────────────────────────────────────────────────
+.site-brand {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    height: 44px;
+    padding: 0 6px 0 10px;
+    text-transform: none;
+    letter-spacing: -0.01em;
+}
+
+.site-brand-mark {
+    flex: 0 0 auto;
+    display: block;
+}
+
+.site-brand-name {
+    font-weight: 800;
+    font-size: 19px;
+    line-height: 1;
+    color: #fff;
+
+    @if $is_light_theme {
+        color: #1B2533;
+    }
+}
+
+nav ul li {
+    text-transform: none;
+
+    a, button {
+        font-weight: 600;
+    }
+}
+
+.footer-brand {
+    font-weight: 700;
+}
+
+#footer-content a.footer-credit {
+    color: $color_primary50;
+}
+
+@if $is_light_theme {
+    // ── Tokens: section headers and table headers become light ─────────────
+    :root {
+        --oj-heading: #1B2533;
+        --oj-heading-bg: #F3F5F7;
+        --oj-heading-text: #1B2533;
+        --oj-accent-soft: #EEF1FD;
+        --oj-surface-soft: #F3F5F7;
+        --oj-surface-muted: #E2E6EC;
+        --oj-success: #16794C;
+        --oj-success-soft: #E8F5EE;
+        --oj-info-soft: #EEF1FD;
+        --oj-warning: #B4570B;
+        --oj-warning-soft: #FDF1E6;
+        --oj-warning-border: #F1D2B4;
+        --oj-focus: #2F4BD8;
+        --oj-focus-ring: rgba(47, 75, 216, 0.18);
+        --oj-radius: 8px;
+        --oj-radius-md: 10px;
+        --oj-radius-lg: 14px;
+        --oj-shadow-sm: 0 1px 2px rgba(27, 37, 51, 0.04), 0 6px 24px rgba(27, 37, 51, 0.05);
+        --oj-shadow-dropdown: 0 12px 32px rgba(27, 37, 51, 0.12);
+        --oj-shadow-modal: 0 12px 32px rgba(27, 37, 51, 0.16);
+        --oj-tag-info-bg: #EEF1FD;
+        --oj-badge-tag-bg: #EEF1FD;
+        --oj-badge-tag-text: #2239B0;
+        --oj-badge-past-bg: #ECEFF3;
+        --oj-badge-past-text: #3A4658;
+        --oj-badge-org-bg: #ECEFF3;
+        --oj-badge-org-text: #3A4658;
+        --oj-course-label: #2239B0;
+        // Verdict cells: FairPlay tints instead of neon fills.
+        --oj-judge-pass: #E8F5EE;
+        --oj-judge-sc: #FFF6DB;
+        --oj-judge-fail: #B42318;
+        --oj-judge-pending: #F3F5F7;
+        --oj-judge-judging: #FDF1E6;
+        --oj-accepted: #16794C;
+        --oj-rejected: #B42318;
+        --oj-pending: #B4570B;
+        // Old editor pages (problem_create_v2, assignment editor, grading).
+        --admin-header: #F3F5F7;
+        --admin-header-text: #1B2533;
+        --admin-header-border: #E2E6EC;
+    }
+
+    // ── Top bar: white, hairline below, blue active pill ───────────────────
+    #nav-shadow {
+        height: 0;
+        background: none;
+    }
+
+    #nav-container {
+        background: #fff;
+        border-bottom: 1px solid #E2E6EC;
+        box-shadow: 0 1px 2px rgba(27, 37, 51, 0.04);
+    }
+
+    nav ul li {
+        color: #1B2533;
+        text-transform: none;
+
+        a, button {
+            color: #4A5568;
+            font-weight: 600;
+            font-size: 14px;
+            border-radius: 8px;
+
+            &:link, &:visited {
+                color: #4A5568;
+            }
+
+            &:hover {
+                color: #1B2533;
+                background: #F3F5F7;
+            }
+
+            &.active, &.active:link, &.active:visited {
+                color: #2239B0;
+                background: #EEF1FD;
+            }
+        }
+
+        &.home-nav-element a, &.home-nav-element a:hover {
+            background: transparent;
+        }
+
+        ul {
+            background: #fff;
+            color: #1B2533;
+            border: 1px solid #E2E6EC;
+            border-radius: 10px;
+            padding: 4px 0;
+            overflow: hidden;
+            box-shadow: 0 12px 32px rgba(27, 37, 51, 0.12);
+
+            li {
+                &:first-child a.active {
+                    border-top: 0;
+                }
+
+                a, button {
+                    color: #1B2533;
+                    border-left: 0;
+                    border-radius: 0;
+                    font-weight: 500;
+                    font-size: 14px;
+                    padding: 8px 18px 8px 14px !important;
+
+                    &:hover {
+                        background: #F3F5F7;
+                    }
+                }
+            }
+        }
+    }
+
+    nav .nav-divider {
+        border-right: 1px solid #E2E6EC;
+        padding-left: 0;
+        height: 26px;
+        margin: 0 6px;
+    }
+
+    #user-links {
+        .anon {
+            color: #6B7686;
+
+            a {
+                color: #2F4BD8;
+                font-weight: 600;
+            }
+        }
+
+        & > ul > li > a > span {
+            & > span {
+                color: #1B2533;
+            }
+
+            & > img {
+                border-radius: 99px;
+            }
+        }
+    }
+
+    // Mobile menu (navicon) keeps working on a white bar.
+    #navicon {
+        color: #1B2533;
+    }
+
+    #navicon.hover {
+        color: #2F4BD8;
+    }
+
+    // ── Buttons ────────────────────────────────────────────────────────────
+    .button, button, input[type=submit] {
+        font-weight: 600;
+        text-shadow: none;
+        box-shadow: none;
+        transition: background-color 0.12s ease, border-color 0.12s ease;
+
+        &.disabled, &[disabled] {
+            background: #E2E6EC !important;
+            border-color: #E2E6EC !important;
+            color: #6B7686 !important;
+        }
+    }
+
+    // ── Inputs: hairline border, blue focus ring ───────────────────────────
+    input {
+        &[type=text], &[type=password], &[type=email], &[type=number], &[type=url], &[type=search],
+        &[type=date], &[type=datetime-local], &[type=time] {
+            color: #1B2533;
+            border-color: #CDD3DC;
+            border-radius: 8px;
+            box-shadow: none;
+
+            &:hover {
+                border-color: #9AA5B4;
+                box-shadow: none;
+            }
+
+            &:focus {
+                border-color: #2F4BD8;
+                box-shadow: 0 0 0 3px rgba(47, 75, 216, 0.18);
+            }
+        }
+    }
+
+    select, textarea {
+        border-color: #CDD3DC;
+        border-radius: 8px;
+
+        &:focus {
+            border-color: #2F4BD8;
+            outline: 0;
+            box-shadow: 0 0 0 3px rgba(47, 75, 216, 0.18);
+        }
+    }
+
+    // ── Tabs: underline, not folder tabs ───────────────────────────────────
+    .tabs {
+        border-bottom-color: #E2E6EC;
+
+        h2 {
+            color: #1B2533;
+            font-weight: 700;
+        }
+
+        > ul > li {
+            > a, > span {
+                color: #4A5568;
+                font-weight: 600;
+                border: 0 !important;
+                border-bottom: 3px solid transparent !important;
+                border-radius: 0;
+                background: transparent;
+
+                &:hover {
+                    color: #1B2533;
+                    background: transparent;
+                }
+            }
+
+            &.active > a, &.active > span,
+            &.active > a:hover, &.active > span:hover,
+            &.active > a:focus, &.active > span:focus {
+                color: #2239B0;
+                background: transparent;
+                border: 0 !important;
+                border-bottom: 3px solid #2F4BD8 !important;
+            }
+        }
+
+        .tab {
+            .tab-icon {
+                color: #6B7686;
+            }
+
+            &.active .tab-icon {
+                color: #2F4BD8;
+            }
+
+            // Primary action at the end of the tab row: a normal rounded button.
+            &.tab-cta {
+                align-items: center;
+
+                > a, > span,
+                &.active > a, &.active > span,
+                &.active > a:hover, &.active > span:hover {
+                    border: 1px solid #2F4BD8 !important;
+                    border-radius: 8px !important;
+                    margin-bottom: 6px;
+                    padding: 8px 14px !important;
+                    color: #fff !important;
+                }
+
+                > a, > span {
+                    background: #2F4BD8 !important;
+                }
+
+                > a:hover, > span:hover {
+                    background: #2239B0 !important;
+                }
+            }
+        }
+    }
+
+    // Join / Spectate / Leave at the end of an assignment's tab row.
+    form.contest-join-pseudotab {
+        align-self: center;
+        margin-bottom: 6px;
+        padding: 8px 14px !important;
+        border-radius: 8px;
+        line-height: 1.4;
+    }
+
+    // ── Tables: light header, muted labels ─────────────────────────────────
+    .table th, table.table th {
+        color: #4A5568;
+        background-color: #F8F9FB;
+        border-color: #E2E6EC;
+        font-weight: 600;
+    }
+
+    .table td {
+        border-color: #E2E6EC;
+    }
+
+    // components.scss / problem.scss headers drawn with --oj-heading.
+    .oj-table th, .problem-list th, #problem-table th {
+        border-color: #E2E6EC !important;
+    }
+
+    // course.scss tables and tabs that used white text on the dark header.
+    .course-redesign .class-mini-tabs,
+    .course-redesign .materials-table th,
+    .class-mini-tabs, .materials-table th {
+        color: #1B2533;
+    }
+
+    .pane h3 {
+        color: #1B2533;
+    }
+
+    // Problem list and other big tables: compact, light header.
+    #problem-table th, .problem-table th, table.table th,
+    .problem-list-redesign .problem-table th {
+        font-size: 13px;
+        color: #4A5568;
+        border-color: #E2E6EC !important;
+
+        a, .sort-link, .btn-text, button {
+            color: #4A5568;
+        }
+    }
+
+    .problem-list-redesign .problem-table td {
+        border-color: #E2E6EC;
+    }
+
+    .problem-list-redesign .problem-table thead th {
+        font-size: 13px !important;
+        color: #4A5568 !important;
+    }
+
+    #problem-table th a, #problem-table th .sort {
+        color: #4A5568;
+    }
+
+    #problem-table, #problem-table td {
+        border-color: #E2E6EC !important;
+    }
+
+    // Small segmented switches (course page "By session / By instructor / All").
+    .course-redesign .view-switch button.active, .view-switch button.active {
+        border-top-color: transparent !important;
+        background: #EEF1FD !important;
+        color: #2239B0 !important;
+    }
+
+    // ── Sign-in card ───────────────────────────────────────────────────────
+    .auth-flow-form {
+        align-content: center;
+
+        .form-area {
+            width: 360px;
+            max-width: 100%;
+            padding: 24px;
+            background: #fff;
+            border: 1px solid #E2E6EC;
+            border-radius: 14px;
+            box-shadow: 0 1px 2px rgba(27, 37, 51, 0.04), 0 6px 24px rgba(27, 37, 51, 0.05);
+
+            table {
+                width: 100%;
+                border-spacing: 0 10px;
+            }
+
+            th {
+                width: 28px;
+                color: #6B7686;
+            }
+
+            input[type=text], input[type=password], input[type=email] {
+                width: 100%;
+                height: 40px;
+                font-size: 15px;
+            }
+
+            hr {
+                display: none;
+            }
+
+            button[type=submit] {
+                float: none !important;
+                width: 100%;
+                height: 42px;
+                margin-top: 6px;
+                font-size: 15px;
+            }
+        }
+    }
+
+    .IE {
+        background-color: #FDECEA;
+        color: #B42318;
+    }
+
+    // Header links that were white on the old dark header row.
+    .users-table th a, .users-table th a:link, .users-table th a:visited,
+    a.contest-sort-link {
+        color: #2F4BD8;
+    }
+
+    .users-table th .point-denominator {
+        color: #6B7686;
+        border-top-color: #E2E6EC;
+    }
+
+    .sidebox h3 .fa {
+        color: #6B7686;
+    }
+
+    // ── Pagination ─────────────────────────────────────────────────────────
+    ul.pagination {
+        > li > a, > li > span {
+            color: #2F4BD8;
+            background-color: #fff;
+            border-color: #E2E6EC;
+        }
+
+        > li.active-page > a, > li.active-page > span,
+        > li > a:hover {
+            color: #fff;
+            background-color: #2F4BD8;
+            border-color: #2F4BD8;
+        }
+    }
+
+    // ── Side boxes (blog sidebar, problem info) ────────────────────────────
+    .sidebox {
+        border-color: #E2E6EC;
+        border-radius: 14px;
+    }
+
+    .sidebox h3 {
+        background: #F3F5F7;
+        color: #1B2533;
+        border-bottom: 1px solid #E2E6EC;
+        border-radius: 14px 14px 0 0;
+        font-size: 1.1em;
+        font-weight: 700;
+        padding: 8px 12px;
+    }
+
+    // ── Footer ─────────────────────────────────────────────────────────────
+    footer {
+        color: #6B7686;
+    }
+}

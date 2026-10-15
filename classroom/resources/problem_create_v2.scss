@@ -5,20 +5,20 @@
 :root {
   /* Scoped design tokens — map to site --oj-* for colour, pin admin chrome locally. */
   --admin-bg: var(--oj-bg, #f8f8f8);
-  /* Pin section chrome to classic admin grey — same in light/dark (do NOT use --oj-heading). */
-  --admin-header: #3b3b3b;
-  --admin-header-text: #fff;
-  --admin-header-border: #808080;
+  /* Section headers follow the site's header token (light in FairPlay, dark in the dark theme). */
+  --admin-header: var(--oj-heading-bg, #F3F5F7);
+  --admin-header-text: var(--oj-heading-text, #1B2533);
+  --admin-header-border: var(--oj-border, #E2E6EC);
   --admin-border: var(--oj-border, #ccc);
-  --site-nav: #3b3b3b;
-  --tab-active: var(--oj-accent, #2980B9);
+  --site-nav: var(--oj-heading-bg, #F3F5F7);
+  --tab-active: var(--oj-accent, #2F4BD8);
   --text: var(--oj-text, #111);
   --muted: var(--oj-text-muted, #808080);
   /* Light: white panels on grey page. Dark media / dark/*.css remap to surface-soft. */
   --card-bg: var(--oj-surface, #fff);
   --danger: var(--oj-danger, #d64545);
   --success: var(--oj-success, #2d7a2d);
-  --pcv2-accent-soft: var(--oj-accent-soft, rgba(41, 128, 185, 0.12));
+  --pcv2-accent-soft: var(--oj-accent-soft, rgba(47, 75, 216, 0.12));
   --pcv2-link: var(--oj-link, #1958c1);
   --pcv2-radius: var(--oj-radius, 4px);
 }
@@ -356,7 +356,7 @@ fieldset.module .form-content { padding: 1rem; }
   background: var(--card-bg);
 }
 .pane h3 {
-  background: var(--oj-heading);
+  background: var(--oj-heading-bg);
   color: var(--oj-surface);
   padding: 5px 10px 10px;
   margin: -10px -10px 10px;
@@ -546,9 +546,9 @@ fieldset.module .form-content { padding: 1rem; }
   transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
 .type-pill input:checked + span {
-  border-color: var(--oj-accent, #2980B9);
+  border-color: var(--oj-accent, #2F4BD8);
   background: var(--pcv2-accent-soft);
-  color: var(--oj-accent, #2980B9);
+  color: var(--oj-accent, #2F4BD8);
   font-weight: 600;
 }
 /* Difficulty pills + AI button on one compact row (match problem-type AI chrome). */
@@ -630,7 +630,7 @@ fieldset.module .form-content { padding: 1rem; }
   font-size: 12px;
   color: var(--pcv2-link);
 }
-.btn-add-option:hover { background: var(--pcv2-accent-soft); border-color: var(--oj-accent, #2980B9); }
+.btn-add-option:hover { background: var(--pcv2-accent-soft); border-color: var(--oj-accent, #2F4BD8); }
 
 /* Type-specific panels */
 /* type-panel show/hide is driven by JS inline styles; do not set display:none here
@@ -664,7 +664,7 @@ fieldset.module .form-content { padding: 1rem; }
 .tf-choices input { display: none; }
 .tf-choices input:checked + span,
 .tf-choices label:has(input:checked) {
-  border-color: var(--oj-accent, #2980B9);
+  border-color: var(--oj-accent, #2F4BD8);
   background: var(--pcv2-accent-soft);
 }
 
@@ -741,8 +741,8 @@ fieldset.module .form-content { padding: 1rem; }
   border: 1px solid var(--admin-border); border-radius: 5px; background: var(--card-bg);
   padding: 1.1rem 0.5rem; text-align: center; cursor: pointer; transition: all 0.12s;
 }
-.qtype-card:hover { border-color: var(--oj-accent, #2980B9); background: var(--pcv2-accent-soft); transform: translateY(-1px); }
-.qtype-card .ic { display: block; font-size: 1.4rem; color: var(--oj-accent, #2980B9); margin-bottom: 0.4rem; }
+.qtype-card:hover { border-color: var(--oj-accent, #2F4BD8); background: var(--pcv2-accent-soft); transform: translateY(-1px); }
+.qtype-card .ic { display: block; font-size: 1.4rem; color: var(--oj-accent, #2F4BD8); margin-bottom: 0.4rem; }
 .qtype-card .nm { font-size: 13px; font-weight: 600; color: var(--text); }
 .qtype-card.disabled { opacity: 0.45; cursor: not-allowed; }
 .qtype-card.disabled:hover { transform: none; border-color: var(--admin-border); background: var(--card-bg); }
@@ -752,7 +752,7 @@ fieldset.module .form-content { padding: 1rem; }
 .ptype-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center; }
 .ptype-tag {
   display: inline-flex; align-items: center; gap: 0.3rem;
-  background: var(--pcv2-accent-soft); color: var(--oj-accent, #2980B9);
+  background: var(--pcv2-accent-soft); color: var(--oj-accent, #2F4BD8);
   border: 1px solid var(--admin-border); padding: 0.2rem 0.55rem;
   border-radius: var(--pcv2-radius); font-size: var(--oj-font-size-sm, 12px);
 }
@@ -775,7 +775,7 @@ fieldset.module .form-content { padding: 1rem; }
   display: inline-flex; align-items: center; justify-content: center;
   box-sizing: border-box;
   height: var(--oj-control-height, 34px);
-  border: 1px dashed var(--oj-accent, #2980B9); background: var(--card-bg); color: var(--oj-accent, #2980B9);
+  border: 1px dashed var(--oj-accent, #2F4BD8); background: var(--card-bg); color: var(--oj-accent, #2F4BD8);
   border-radius: var(--pcv2-radius); padding: 0 0.75rem; font-size: var(--oj-font-size-sm, 12px);
   cursor: pointer; line-height: 1;
 }
@@ -900,19 +900,19 @@ fieldset.module .form-content { padding: 1rem; }
 .cp-toolbar .count { font-size: 12px; color: var(--muted); }
 .btn-soft {
   display: inline-flex; align-items: center; gap: 0.4rem;
-  padding: 0.45rem 0.9rem; border: 1px solid var(--oj-accent, #2980B9);
-  border-radius: var(--pcv2-radius); background: var(--pcv2-accent-soft); color: var(--oj-accent, #2980B9);
+  padding: 0.45rem 0.9rem; border: 1px solid var(--oj-accent, #2F4BD8);
+  border-radius: var(--pcv2-radius); background: var(--pcv2-accent-soft); color: var(--oj-accent, #2F4BD8);
   cursor: pointer; font-size: var(--oj-font-size, 14px); font-weight: 600;
   text-decoration: none;
 }
 .btn-soft i { color: inherit; }
-.btn-soft:hover { background: rgba(41, 128, 185, 0.2); color: var(--oj-accent, #2980B9); text-decoration: none; }
+.btn-soft:hover { background: rgba(47, 75, 216, 0.2); color: var(--oj-accent, #2F4BD8); text-decoration: none; }
 a.btn-soft,
 a.btn-soft:link,
 a.btn-soft:visited,
 a.btn-soft:hover,
 a.btn-soft:focus {
-  color: var(--oj-accent, #2980B9);
+  color: var(--oj-accent, #2F4BD8);
   text-decoration: none;
 }
 
@@ -1210,9 +1210,9 @@ a.btn-soft:focus {
 
 /* ── OJ token alignment overrides ── */
 .pcv2 .sq-pill.on {
-  border-color: var(--oj-accent, #2980B9);
+  border-color: var(--oj-accent, #2F4BD8);
   background: var(--pcv2-accent-soft);
-  color: var(--oj-accent, #2980B9);
+  color: var(--oj-accent, #2F4BD8);
 }
 .pcv2 .draft-banner {
   background: var(--pcv2-accent-soft);
@@ -1262,22 +1262,23 @@ a.btn-soft:focus {
 }
 
 /* --- dark theme overrides ---
-   Classic OJ loads resources/dark/*.css (vars-dark) via media query in base.html.
+   The dark build (resources/dark/*.css) is loaded only when the profile picks the dark theme.
    The dark-compiled CSS already provides correct --oj-* token values for dark mode,
    so this block is a safety net when only the light sheet is present. Remap page
    tokens to match dark --oj-* values; keep --admin-header on classic #3b3b3b.
 */
-@media (prefers-color-scheme: dark) {
+// Dark theme only when the user picks it in the profile (html.theme-dark), never from the OS setting.
+html.theme-dark {
   .pcv2 {
     --admin-bg: var(--oj-bg);
     --card-bg: var(--oj-surface-soft);
     --text: var(--oj-text);
     --muted: var(--oj-text-secondary);
     --admin-border: var(--oj-border);
-    --admin-header: #3b3b3b;
-    --admin-header-text: #fff;
-    --admin-header-border: #808080;
-    --pcv2-accent-soft: rgba(41, 128, 185, 0.18);
+    --admin-header: var(--oj-heading-bg);
+    --admin-header-text: var(--oj-heading-text);
+    --admin-header-border: var(--oj-border);
+    --pcv2-accent-soft: rgba(47, 75, 216, 0.18);
     background: var(--admin-bg);
     color: var(--text);
   }
@@ -1421,9 +1422,9 @@ a.btn-soft:focus {
 
 /* Keep accent soft-tints aligned for both themes. */
 .pcv2 .sq-pill.on {
-  border-color: var(--oj-accent, #2980B9);
+  border-color: var(--oj-accent, #2F4BD8);
   background: var(--pcv2-accent-soft);
-  color: var(--oj-accent, #2980B9);
+  color: var(--oj-accent, #2F4BD8);
 }
 .pcv2 .draft-banner {
   background: var(--pcv2-accent-soft);

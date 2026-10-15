@@ -1,0 +1,72 @@
+/* FairPlay look for the admin site (dmoj-wpadmin), loaded after its default theme.
+   Light surfaces only: white top bar and side menu, primary blue #2F4BD8, ink #1B2533. */
+body, body.login, #content, #content input, #content select, #content textarea, #content button,
+#adminmenu, #adminbar {
+    font-family: "Plus Jakarta Sans", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+body, body.login { background-color: #F3F5F7; color: #1B2533; }
+
+/* Top bar and side menu */
+#adminmenuback, #adminmenuwrap, #adminmenu { background-color: #fff; }
+#adminmenuback { border-right: 1px solid #E2E6EC; }
+#adminbarwrap, #adminbar { background-color: #fff; }
+#adminbarwrap { border-bottom: 1px solid #E2E6EC; box-shadow: 0 1px 2px rgba(27, 37, 51, 0.04); }
+#adminmenu .wp-menu-top.wp-menu-open > a:after,
+#adminmenu .wp-menu-top.wp-menu-open .wp-menu-image a:after { border-right-color: #F3F5F7; }
+.wp-menu a { color: #2B3647; }
+.wp-menu a:hover, .wp-menu .wp-menu-image a:hover { color: #2F4BD8; }
+.wp-menu .wp-menu-image a { color: #6B7686; }
+.wp-menu .wp-menu-top.wp-menu-not-open:hover > a,
+.wp-menu .wp-menu-top.wp-menu-not-open:hover .wp-menu-image a { color: #2F4BD8; background-color: #F3F5F7; }
+.wp-menu .wp-menu-top.wp-menu-not-open:hover.wp-has-submenu:after { border-right-color: #fff; }
+.wp-menu .wp-menu-top.wp-menu-open > a,
+.wp-menu .wp-menu-top.wp-menu-open .wp-menu-image a { color: #2239B0; background: #EEF1FD; }
+.wp-menu .wp-menu-top.wp-menu-open .wp-submenu .wp-submenu-head { background: #EEF1FD; color: #2239B0; }
+.wp-menu .wp-submenu .wp-submenu-wrap { background-color: #fff; border: 1px solid #E2E6EC; box-shadow: 0 12px 32px rgba(27, 37, 51, 0.12); }
+.wp-menu .wp-menu-top.wp-menu-open .wp-submenu .wp-submenu-wrap { border: 0; box-shadow: none; background-color: #F8F9FB; }
+.wp-menu .wp-submenu .wp-submenu-head { color: #1B2533; }
+.wp-menu .wp-submenu a { color: #4A5568; }
+.wp-menu .wp-submenu a:hover { color: #2F4BD8; }
+.wp-menu .wp-submenu a.wp-current { color: #2239B0; font-weight: 700; }
+.wp-menu .wp-menu-tools > a { color: #6B7686; }
+.wp-menu .wp-menu-tools:hover > a { color: #2F4BD8; }
+#adminbar .wp-menu a { color: #1B2533; }
+#adminbar .wp-menu-top.wp-menu-not-open:hover > a,
+#adminbar .wp-menu-top.wp-menu-not-open:hover .wp-menu-image a { background-color: #F3F5F7; color: #2F4BD8; }
+#adminbar .wp-menu-top.wp-menu-open > a,
+#adminbar .wp-menu-top.wp-menu-open .wp-menu-image a { color: #2239B0; background: #EEF1FD; }
+#adminbar .wp-menu .wp-submenu .wp-submenu-wrap { background-color: #fff; }
+
+/* Content */
+#content a { color: #2F4BD8; }
+#content a:hover, #content a:active, #content a:focus { color: #2239B0; }
+#content h1 { color: #1B2533; font-weight: 700; }
+#content .module, #content .inline-group, #content table { border-color: #E2E6EC; }
+#content .module { border-radius: 10px; overflow: hidden; }
+#content .module h2, #content .module caption, #content .inline-group h2 { color: #1B2533; background: #F8F9FB; border-color: #E2E6EC; }
+#content table thead th, #content table thead td { color: #4A5568; background: #F8F9FB; border-color: #E2E6EC; }
+#content table tbody tr.row1 { background: #F8F9FB; }
+#content textarea, #content input[type="text"], #content input[type="password"], #content input[type="email"],
+#content input[type="number"], #content input[type="search"], #content input[type="tel"], #content input[type="url"],
+#content select { border-color: #CDD3DC; border-radius: 8px; color: #1B2533; }
+#content textarea:focus, #content input[type="text"]:focus, #content input[type="password"]:focus,
+#content input[type="email"]:focus, #content input[type="number"]:focus, #content input[type="search"]:focus,
+#content input[type="url"]:focus, #content select:focus { border-color: #2F4BD8; box-shadow: 0 0 0 3px rgba(47, 75, 216, 0.18); outline: 0; }
+#content .button, #content input[type="submit"], #content input[type="button"], #content button[type="submit"],
+#content .submit-row input { border-radius: 8px; border-color: #CDD3DC; background-color: #fff; color: #1B2533; font-weight: 600; }
+#content .button.default, #content input.default[type="submit"], #content input.default[type="button"],
+#content button.default[type="submit"], #content .submit-row input.default { background-color: #2F4BD8; border-color: #2F4BD8; color: #fff; }
+#content .button.default:hover, #content input.default[type="submit"]:hover, #content .submit-row input.default:hover,
+#content .button.default:focus, #content input.default[type="submit"]:focus, #content .submit-row input.default:focus { background-color: #2239B0; border-color: #2239B0; }
+#content #bottombar { background: #fff; border-top: 1px solid #E2E6EC; }
+#content #bottombar input, #content #bottombar button, #content #bottombar a { background: #2F4BD8; color: #fff; border-radius: 8px; }
+#content .object-tools li a, #content .list-tools li a { background: #EEF1FD; color: #2239B0; border-radius: 8px; }
+#content .object-tools li a:hover, #content .list-tools li a:hover { background: #2F4BD8; color: #fff; }
+#content #changelist .actions-and-paginator .paginator a:hover { background: #2F4BD8 !important; color: #fff !important; }
+#content #changelist #changelist-filter ul li.selected a { color: #2239B0 !important; }
+#content #changelist #changelist-filter ul:hover { background-color: #EEF1FD; }
+#content #changelist #changelist-filter ul:hover li a { color: #2B3647 !important; }
+#content #changelist #changelist-filter ul:hover li a:hover, #content #changelist #changelist-filter ul:hover li.selected a { color: #2239B0 !important; }
+.calendarbox, .clockbox { border-color: #E2E6EC; }
+.calendarbox caption, .clockbox caption, .calendarbox h2, .clockbox h2 { background: #2F4BD8; }
+.calendarbox .calendar-cancel, .clockbox .calendar-cancel { background: #2F4BD8; }

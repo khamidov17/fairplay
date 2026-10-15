@@ -43,7 +43,7 @@
         background: var(--oj-hover, #f0f0f0) !important;
         color: var(--oj-text, #222) !important;
     }
-    @media (prefers-color-scheme: dark) {
+    @media {{ DARK_MEDIA|default('not all') }} {
         .tabs .tab.add-problem-menu .add-problem-dropdown {
             background: #2a2a2a;
             border-color: #444;

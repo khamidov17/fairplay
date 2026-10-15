@@ -17,8 +17,8 @@
   <link rel="stylesheet" href="{{ static('rich_editor.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}">
   <link rel="stylesheet" href="{{ static('problem_create_v2.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}">
   {# Same pattern as base.html DARK_STYLE_CSS: rebuild page styles with vars-dark. #}
-  <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="(prefers-color-scheme: dark)">
-  <link rel="stylesheet" href="{{ static('dark/problem_create_v2.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="{{ DARK_MEDIA|default('not all') }}">
+  <link rel="stylesheet" href="{{ static('dark/problem_create_v2.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}" media="{{ DARK_MEDIA|default('not all') }}">
   {% include "problem/add-problem-menu-assets.html" %}
 
   <!-- Math formulas: block $$...$$ / \[...\]; inline \(...\) (legacy ~...~ remains supported). -->
@@ -71,7 +71,7 @@
     /* Inline test cases. */
     .tc-table { width: 100%; border-collapse: collapse; font-size: var(--oj-font-size-sm, 12px); }
     .tc-table th, .tc-table td { border: 1px solid var(--admin-border, #ddd); padding: 0.35rem 0.4rem; text-align: left; vertical-align: top; }
-    .tc-table th { background: var(--admin-header, #3b3b3b); color: #fff; font-weight: 600; }
+    .tc-table th { background: var(--admin-header, #3b3b3b); color: var(--admin-header-text, #fff); font-weight: 600; }
     .tc-table textarea { width: 100%; min-height: 64px; font-family: monospace; font-size: var(--oj-font-size-sm, 12px); resize: vertical; }
     .tc-table input[type="number"] { width: 64px; }
     .tc-toolbar {
@@ -1751,7 +1751,7 @@
         if (!window.require) return;
         window.require.config({ paths: { vs: MONACO_VS_URL } });
         window.require(['vs/editor/editor.main'], function () {
-          const darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+          const darkQuery = {matches: document.documentElement.classList.contains('theme-dark')};  // light unless the profile picks dark
           harnessEditor = window.monaco.editor.create(mount, {
             value: ta.value,
             language: harnessMonacoLang(),

@@ -4,7 +4,7 @@
     {{ form.media.css }}
     <link rel="stylesheet" href="{{ static('vendor/katex.min.css') }}">
     <link rel="stylesheet" href="{{ static('rich_editor.css') }}">
-    <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="(prefers-color-scheme: dark)">
+    <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="{{ DARK_MEDIA|default('not all') }}">
     <style>
         .course-redesign .course-form .rich-editor {
             height: 360px;

@@ -192,7 +192,7 @@
             margin-bottom: 12px;
         }
 
-        @media (prefers-color-scheme: dark) {
+        @media {{ DARK_MEDIA|default('not all') }} {
             .summary-card {
                 background: #1f1f1f;
                 border-color: #3b3b3b;

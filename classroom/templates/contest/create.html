@@ -14,10 +14,10 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <link rel="stylesheet" href="{{ static('problem_create_v2.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}">
     {# Same pattern as base.html DARK_STYLE_CSS: rebuild page styles with vars-dark. #}
-    <link rel="stylesheet" href="{{ static('dark/problem_create_v2.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}" media="(prefers-color-scheme: dark)">
+    <link rel="stylesheet" href="{{ static('dark/problem_create_v2.css') }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}" media="{{ DARK_MEDIA|default('not all') }}">
     <link rel="stylesheet" href="{{ static('vendor/katex.min.css') }}">
     <link rel="stylesheet" href="{{ static('rich_editor.css') }}">
-    <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="(prefers-color-scheme: dark)">
+    <link rel="stylesheet" href="{{ static('dark/rich_editor.css') }}" media="{{ DARK_MEDIA|default('not all') }}">
 
     <!-- Page-local layout tweaks; colours come from --oj-* / problem_create_v2.css tokens -->
     <style>
@@ -400,7 +400,7 @@
         .pcv2 .check-grid .oj-tip { flex-shrink: 0; }
 
         /* Native datetime picker in dark mode */
-        @media (prefers-color-scheme: dark) {
+        @media {{ DARK_MEDIA|default('not all') }} {
             .pcv2 input[type="datetime-local"],
             .pcv2 input[type="date"] { color-scheme: dark; }
         }

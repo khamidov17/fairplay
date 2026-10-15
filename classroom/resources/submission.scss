@@ -713,7 +713,8 @@
 }
 
 /* --- dark mode overrides --- */
-@media (prefers-color-scheme: dark) {
+// Dark theme only when the user picks it in the profile (html.theme-dark), never from the OS setting.
+html.theme-dark {
   .ai-grading-result                    { border-color: var(--oj-border); }
   .ai-grading-result th                 { background: var(--oj-surface); border-color: var(--oj-border); color: var(--oj-text-secondary); }
   .ai-grading-result td                 { border-color: var(--oj-surface-soft); color: var(--oj-text); }

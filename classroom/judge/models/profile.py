@@ -414,15 +414,11 @@ class Profile(models.Model):
 
     @cached_property
     def resolved_ace_theme(self):
-        # Site theme auto uses OS/browser dark mode for CSS; Ace must follow the
-        # same signal (django-ace prefers-color-scheme) when ace_theme is auto.
-        # Explicit ace_theme still wins. When site is forced light/dark, map Ace
-        # to the matching default if the user left Ace on auto.
+        # Explicit ace_theme wins. Otherwise Ace matches the site theme, which is light
+        # unless the user chose dark (see template_context.site_theme).
         if self.ace_theme != 'auto':
             return self.ace_theme
-        if self.site_theme in ('light', 'dark'):
-            return settings.DMOJ_THEME_DEFAULT_ACE_THEME.get(self.site_theme)
-        return None
+        return settings.DMOJ_THEME_DEFAULT_ACE_THEME['dark' if self.site_theme == 'dark' else 'light']
 
     _pp_table = [pow(settings.DMOJ_PP_STEP, i) for i in range(settings.DMOJ_PP_ENTRIES)]
 

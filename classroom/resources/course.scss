@@ -471,7 +471,7 @@
     }
 
     .join-requests-table th {
-        background: var(--oj-heading);
+        background: var(--oj-heading-bg);
         color: var(--oj-heading-text);
         font-weight: 600;
         padding: 0.45rem 0.55rem;
@@ -835,7 +835,7 @@
         font-size: 15px;
         font-weight: 600;
         color: var(--oj-heading-text);
-        background: var(--oj-heading);
+        background: var(--oj-heading-bg);
         border-bottom: 1px solid var(--oj-border);
     }
 
@@ -1056,7 +1056,7 @@
             display: flex;
             flex-wrap: wrap;
             gap: 0;
-            background: var(--oj-heading);
+            background: var(--oj-heading-bg);
             color: var(--oj-btn-text);
         }
 
@@ -1319,7 +1319,7 @@
         }
 
         .materials-table th {
-            background: var(--oj-heading);
+            background: var(--oj-heading-bg);
             color: var(--oj-btn-text);
             text-align: left;
             padding: 0.55rem 0.7rem;
@@ -1542,7 +1542,7 @@
     font-size: 15px;
     font-weight: 600;
     color: var(--oj-heading-text);
-    background: var(--oj-heading);
+    background: var(--oj-heading-bg);
 }
 
 .course-redesign .class-form-grid {

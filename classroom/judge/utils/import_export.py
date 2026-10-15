@@ -228,7 +228,7 @@ def export_contest_scores_joined_csv(
         if name_key:
             by_name.setdefault(name_key, []).append(participation)
 
-    requested_score_header = (score_column or '').strip() or contest.name or 'DKUOJ Score'
+    requested_score_header = (score_column or '').strip() or contest.name or 'FairPlay Score'
     matching_header = next(
         (header for header in fieldnames if _header_key(header) == _header_key(requested_score_header)),
         None,
@@ -671,7 +671,7 @@ def export_contest_scores_csv(contest: Contest, include_disqualified: bool = Fal
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(['Student', 'SIS Login ID', contest.name or 'DKUOJ Score'])
+    writer.writerow(['Student', 'SIS Login ID', contest.name or 'FairPlay Score'])
 
     for participation in qs:
         user = participation.user.user

@@ -13,7 +13,7 @@
     ruby: 'ruby', php: 'php', kotlin: 'kotlin', swift: 'swift', typescript: 'typescript',
     pascal: 'pascal', haskell: 'haskell', lua: 'lua', perl: 'perl', r: 'r', scala: 'scala',
   };
-  var darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  var darkQuery = {matches: document.documentElement.classList.contains('theme-dark')};  // light unless the profile picks dark
 
   function showDrawer(show) {
     drawer.classList.toggle('open', show);

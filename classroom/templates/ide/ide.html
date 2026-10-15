@@ -32,7 +32,7 @@
                 tomorrow_night_eighties: 1, twilight: 1, vibrant_ink: 1
             };
             var aceTheme = {% if ace_theme %}'{{ ace_theme }}'{% else %}null{% endif %};
-            var darkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+            var darkQuery = {matches: document.documentElement.classList.contains('theme-dark')};  // light unless the profile picks dark
 
             function monacoTheme() {
                 if (aceTheme) {
@@ -408,16 +408,16 @@
             padding: 8px 24px;
             font-size: 14px;
             font-weight: bold;
-            background: #28a745;
+            background: var(--oj-btn-from, #2F4BD8);
             color: white;
             border: none;
-            border-radius: 4px;
+            border-radius: 8px;
             cursor: pointer;
             transition: background 0.2s;
         }
 
         #run-button:hover:not(:disabled) {
-            background: #218838;
+            background: var(--oj-btn-hover, #2239B0);
         }
 
         #run-button:disabled {
@@ -510,7 +510,7 @@
         }
 
         /* Dark mode support */
-        @media (prefers-color-scheme: dark) {
+        @media {{ DARK_MEDIA|default('not all') }} {
             .ide-header {
                 background: #2d3748;
                 border-bottom-color: #4a5568;

@@ -105,7 +105,7 @@ register_subject(Subject(
     key='cs', label=_('Computer science'), order=10, color='#2f6fb3',
     packs=('code', 'math'),
     course_prefixes=('COMPSCI', 'CS', 'INFOSCI', 'COMPDSGN'),
-    description=_('Everything DKU OJ has today: programming problems, judge, IDE, MOSS, rankings.'),
+    description=_('Everything for programming courses: programming problems, judge, IDE, MOSS, rankings.'),
 ))
 
 register_subject(Subject(

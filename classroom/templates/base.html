@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ LANGUAGE_CODE }}" class="{% block html_class %}{% endblock %}">
+<html lang="{{ LANGUAGE_CODE }}" class="{% if DARK_MODE %}theme-dark {% endif %}{% block html_class %}{% endblock %}">
 <head>
     <title>{% block title %}{{ title }} - {{ SITE_LONG_NAME }}{% endblock %}</title>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
@@ -25,10 +25,10 @@
     <link rel="icon" type="image/png" href="/favicon-96x96.png" sizes="96x96">
     <link rel="icon" type="image/png" href="/favicon-16x16.png" sizes="16x16">
     <link rel="manifest" href="/manifest.json">
-    <meta name="msapplication-TileColor" content="#FFBB33">
+    <meta name="msapplication-TileColor" content="#2F4BD8">
     <meta name="msapplication-TileImage" content="/mstile-144x144.png">
     {# Chrome 39 for Android colour #}
-    <meta name="theme-color" content="#FFBB33">
+    <meta name="theme-color" content="#2F4BD8">
     {% if og_image %}
         <meta property="og:image" content="{{ request.build_absolute_uri(og_image) }}">
     {% endif %}
@@ -44,13 +44,9 @@
         <link rel="stylesheet" href="{{ FONTAWESOME_CSS }}">
     {% endif %}
     {% compress css %}
-        {# Dark mode: honour the user's theme preference, falling back to the OS colour scheme. #}
-        {% if PREFERRED_STYLE_CSS is not none %}
-            <link rel="stylesheet" href="{{ static(PREFERRED_STYLE_CSS) }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}">
-        {% else %}
-            <link rel="stylesheet" href="{{ static(LIGHT_STYLE_CSS) }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}">
-            <link rel="stylesheet" href="{{ static(DARK_STYLE_CSS) }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}" media="(prefers-color-scheme: dark)">
-        {% endif %}
+        <link rel="stylesheet" href="{{ static('fonts/fonts.css') }}">
+        {# Light unless the user chose the dark theme in their profile (template_context.site_theme). #}
+        <link rel="stylesheet" href="{{ static(PREFERRED_STYLE_CSS) }}{% if DMOJ_STATIC_VERSION %}?v={{ DMOJ_STATIC_VERSION }}{% endif %}">
         {% if INLINE_FONTAWESOME %}<link rel="stylesheet" href="{{ static('libs/fontawesome/font-awesome.css') }}">{% endif %}
         <link rel="stylesheet" type="text/css" href="{{ static('libs/clipboard/tooltip.css') }}">
         <link rel="stylesheet" type="text/css" href="{{ static('libs/select2/select2.css') }}">
@@ -292,7 +288,9 @@
     <footer>
         <span id="footer-content">
             <br>
-            <a style="color: #808080" href="https://dmoj.ca">{{ _('proudly powered by **DMOJ**')|markdown('default', strip_paragraphs=True) }}</a> |
+            <span class="footer-brand">{{ SITE_NAME }}</span> &middot;
+            {# DMOJ is AGPL-3.0: keep the credit and the link to the source. #}
+            <a class="footer-credit" href="https://github.com/DMOJ/online-judge">{{ _('built on the open-source DMOJ') }}</a> |
             {% if misc_config.footer %}
                 {{ misc_config.footer|safe }} |
             {% endif %}

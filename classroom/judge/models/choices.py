@@ -67,7 +67,7 @@ MATH_ENGINES_CHOICES = (
 EFFECTIVE_MATH_ENGINES = ('svg', 'mml', 'tex', 'jax')
 
 SITE_THEMES = (
-    ('auto', _('Follow system default')),
+    ('auto', _('Default (light)')),
     ('light', _('Light')),
     ('dark', _('Dark')),
 )
