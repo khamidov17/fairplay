@@ -1,0 +1,38 @@
+# One-container DEMO of FairPlay Classroom (site + MariaDB + Redis + demo data), for a quick
+# public preview (e.g. a free Render web service). NOT for production: data is recreated on
+# every start, passwords are the demo ones (fairplay-dev). Production uses ./Dockerfile.
+#
+#   docker build -f Dockerfile.demo -t classroom-demo . && docker run -p 8000:8000 classroom-demo
+
+# --- stage: styles (same as ./Dockerfile) --------------------------------
+FROM node:20-bookworm-slim AS styles
+WORKDIR /app
+RUN npm install -g sass postcss-cli postcss autoprefixer
+COPY package.json package-lock.json vite.config.mjs ./
+RUN npm ci
+COPY resources ./resources
+COPY make_style.sh ./
+RUN npm run build:editor
+RUN ./make_style.sh
+RUN mkdir -p resources/libs/monaco && cp -R node_modules/monaco-editor/min/vs resources/libs/monaco/vs
+RUN mkdir -p resources/libs/mathjax && cp -R node_modules/mathjax/es5 resources/libs/mathjax/es5
+RUN mkdir -p resources/libs/ace && cp -R node_modules/ace-builds/src-min-noconflict/. resources/libs/ace/
+
+# --- stage: demo ----------------------------------------------------------
+FROM python:3.11-slim-bookworm
+ENV PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 DJANGO_SETTINGS_MODULE=dmoj.settings
+WORKDIR /app
+# No LaTeX here (PDF exam export is the only feature that needs it), to keep the build fast.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential pkg-config git curl gettext \
+        default-libmysqlclient-dev libxml2-dev libxslt1-dev \
+        mariadb-server redis-server tzdata \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt ./
+RUN pip install -r requirements.txt mysqlclient
+COPY . .
+COPY --from=styles /app/resources ./resources
+RUN sh scripts/demo/prepare.sh
+ENV PORT=10000
+EXPOSE 10000
+CMD ["sh", "scripts/demo/start.sh"]

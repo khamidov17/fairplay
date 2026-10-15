@@ -217,7 +217,7 @@ class Command(BaseCommand):
             right = option.is_correct
             self._answer(student, mcq, quiz, quiz_rows[0], part, {'selected': [option.id]},
                          'AC' if right else 'WA', 5 if right else 0)
-            self._answer(student, blank, quiz, quiz_rows[1], part, {'blanks': ['print' if i < 3 else 'echo']},
+            self._answer(student, blank, quiz, quiz_rows[1], part, {'answers': ['print' if i < 3 else 'echo']},
                          'AC' if i < 3 else 'WA', 5 if i < 3 else 0)
         quiz.results_finalized = True
         quiz.save(update_fields=['results_finalized'])
