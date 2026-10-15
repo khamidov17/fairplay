@@ -609,7 +609,8 @@ EVENT_DAEMON_SUBMISSION_KEY = _INSECURE_DEFAULT_SUBMISSION_KEY
 # Whatever you do, this better be one of the entries in `LANGUAGES`.
 LANGUAGE_CODE = 'en'
 TIME_ZONE = 'UTC'
-DEFAULT_USER_TIME_ZONE = 'America/Toronto'
+# DKU is in Kunshan. Each user can change their own time zone on their profile page.
+DEFAULT_USER_TIME_ZONE = 'Asia/Shanghai'
 USE_I18N = True
 USE_TZ = True
 
