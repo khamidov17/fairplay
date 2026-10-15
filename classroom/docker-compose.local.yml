@@ -1,0 +1,60 @@
+# Run FairPlay Classroom on your own computer, with demo data, in one command:
+#
+#   docker compose -f docker-compose.local.yml up --build
+#
+# then open http://localhost:8000 . First start builds the image (10-20 minutes) and seeds
+# demo data; later starts take seconds. Every seeded password is: fairplay-dev
+#   admin    site administrator          (/admin/)
+#   prof_li  instructor of CS101 and MATH201
+#   ta_wang  teaching assistant of class CS101-001
+#   ab101 .. ab105  students
+#
+# Stop with Ctrl+C. `docker compose -f docker-compose.local.yml down -v` also deletes the data.
+# This is for looking around locally only (DEBUG on, demo passwords). Production uses
+# docker-compose.yml with its own database and settings (see docs/deploy.md).
+
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: classroom
+      MARIADB_DATABASE: classroom
+      MARIADB_USER: classroom
+      MARIADB_PASSWORD: classroom
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  redis:
+    image: redis:7
+
+  web:
+    build:
+      context: .
+      target: web
+    entrypoint: ["sh", "/app/scripts/local-start.sh"]
+    environment:
+      CLASSROOM_DB_HOST: db
+      CLASSROOM_REDIS_URL: redis://redis:6379
+      CLASSROOM_DEBUG: "1"
+      CLASSROOM_ALLOWED_HOSTS: "localhost,127.0.0.1"
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - media:/app/media
+      - files:/app/submission_files
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+volumes:
+  db:
+  media:
+  files:
